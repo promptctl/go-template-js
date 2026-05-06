@@ -7,7 +7,15 @@
  * build against.
  */
 
-export { EvalError, FuncNotFoundError, TypeMismatchError } from "./evaluator/errors.js";
+export {
+  type ErrorKind,
+  EvalError,
+  FuncNotFoundError,
+  MissingFieldError,
+  ParseError,
+  TemplateError,
+  TypeMismatchError,
+} from "./errors.js";
 export {
   type ArgType,
   createEngine,
@@ -44,7 +52,6 @@ export type {
   WithNode,
 } from "./parser/ast.js";
 export { assertNever, NO_TRIM } from "./parser/ast.js";
-export { ParseError } from "./parser/errors.js";
 export { Lexer, type Token, type TokenType, tokenize } from "./parser/lexer.js";
 export { type ParseResult, parse } from "./parser/parser.js";
 export type { Pos } from "./parser/pos.js";

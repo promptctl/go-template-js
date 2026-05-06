@@ -28,7 +28,7 @@ import { type ParseResult, parse as parseSource } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, isLazy } from "./builtins.js";
-import { EvalError, FuncNotFoundError, TypeMismatchError } from "./errors.js";
+import { EvalError, FuncNotFoundError, MissingFieldError, TypeMismatchError } from "./errors.js";
 import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
@@ -371,7 +371,11 @@ export class Engine<T> {
     }
 
     const fn = this.funcs[head.ident];
-    if (!fn) throw new FuncNotFoundError(head.ident, head.pos, { source: ctx.source });
+    if (!fn)
+      throw new FuncNotFoundError(head.ident, head.pos, {
+        source: ctx.source,
+        available: Object.keys(this.funcs),
+      });
 
     const argNodes = cmd.args.slice(1);
 
@@ -409,7 +413,11 @@ export class Engine<T> {
         return this.resolveVariable(node.idents, scope, node.pos, ctx);
       case "Identifier": {
         const fn = this.funcs[node.ident];
-        if (!fn) throw new FuncNotFoundError(node.ident, node.pos, { source: ctx.source });
+        if (!fn)
+          throw new FuncNotFoundError(node.ident, node.pos, {
+            source: ctx.source,
+            available: Object.keys(this.funcs),
+          });
         enforceArgTypes(node.ident, fn.argTypes, [], node.pos, ctx.source);
         return fn.fn();
       }
@@ -441,9 +449,7 @@ export class Engine<T> {
   ): unknown {
     const result = walkFieldChain(receiver, idents);
     if (result === MISSING) {
-      throw new EvalError(`field "${idents.join(".")}" not found on receiver`, pos, {
-        source: ctx.source,
-      });
+      throw new MissingFieldError(idents, pos, { source: ctx.source });
     }
     return result;
   }
