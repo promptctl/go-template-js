@@ -1,0 +1,22 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`walk > visits every reachable node in preorder 1`] = `
+[
+  "List",
+  "Text",
+  "If",
+  "Pipe",
+  "Command",
+  "Identifier",
+  "Field",
+  "Number",
+  "List",
+  "Text",
+  "List",
+  "Text",
+  "Action",
+  "Pipe",
+  "Command",
+  "Dot",
+]
+`;
