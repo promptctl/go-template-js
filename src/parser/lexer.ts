@@ -107,6 +107,18 @@ export class Lexer {
     return { line: this.line, column: this.column, offset: this.offset };
   }
 
+  /**
+   * Build a ParseError that always carries the source for snippet
+   * extraction. Lexer call sites use this exclusively.
+   */
+  private err(
+    message: string,
+    pos: Pos,
+    extra: { expected?: string; found?: string } = {},
+  ): ParseError {
+    return new ParseError(message, pos, { ...extra, source: this.src });
+  }
+
   next(): Token {
     if (this.pending) {
       const t = this.pending;
@@ -209,7 +221,7 @@ export class Lexer {
     const bodyStart = this.offset;
     const closeIdx = this.src.indexOf(COMMENT_CLOSE, this.offset);
     if (closeIdx === -1) {
-      throw new ParseError("unclosed comment", startDelim, {
+      throw this.err("unclosed comment", startDelim, {
         expected: "*/}}",
         found: "end of input",
       });
@@ -229,7 +241,7 @@ export class Lexer {
       this.advanceBy(1);
     }
     if (!this.src.startsWith(RIGHT_DELIM, this.offset)) {
-      throw new ParseError("expected `}}` to close comment", this.pos(), {
+      throw this.err("expected `}}` to close comment", this.pos(), {
         expected: "}}",
         found: this.src[this.offset] ?? "end of input",
       });
@@ -274,7 +286,7 @@ export class Lexer {
     }
 
     if (this.offset >= this.src.length) {
-      throw new ParseError("unclosed action", this.pos(), {
+      throw this.err("unclosed action", this.pos(), {
         expected: "}}",
         found: "end of input",
       });
@@ -302,7 +314,7 @@ export class Lexer {
           this.advanceBy(2);
           return this.makeToken("Declare", ":=", start);
         }
-        throw new ParseError("expected `:=`", start, { expected: ":=", found: ":" });
+        throw this.err("expected `:=`", start, { expected: ":=", found: ":" });
       case "=":
         this.advanceBy(1);
         return this.makeToken("Assign", "=", start);
@@ -339,7 +351,7 @@ export class Lexer {
       return this.readIdentifier(start);
     }
 
-    throw new ParseError(`unexpected character ${JSON.stringify(ch)}`, start, {
+    throw this.err(`unexpected character ${JSON.stringify(ch)}`, start, {
       found: ch ?? "end of input",
     });
   }
@@ -360,7 +372,7 @@ export class Lexer {
         continue;
       }
       if (c === "\n") {
-        throw new ParseError("newline in interpreted string", start, {
+        throw this.err("newline in interpreted string", start, {
           found: "\\n",
         });
       }
@@ -370,7 +382,7 @@ export class Lexer {
       }
       this.advanceBy(1);
     }
-    throw new ParseError("unterminated string literal", start, {
+    throw this.err("unterminated string literal", start, {
       expected: '"',
       found: "end of input",
     });
@@ -386,7 +398,7 @@ export class Lexer {
       }
       this.advanceBy(1);
     }
-    throw new ParseError("unterminated raw string literal", start, {
+    throw this.err("unterminated raw string literal", start, {
       expected: "`",
       found: "end of input",
     });
@@ -403,7 +415,7 @@ export class Lexer {
         continue;
       }
       if (c === "\n") {
-        throw new ParseError("newline in rune literal", start, { found: "\\n" });
+        throw this.err("newline in rune literal", start, { found: "\\n" });
       }
       if (c === "'") {
         this.advanceBy(1);
@@ -411,7 +423,7 @@ export class Lexer {
       }
       this.advanceBy(1);
     }
-    throw new ParseError("unterminated rune literal", start, {
+    throw this.err("unterminated rune literal", start, {
       expected: "'",
       found: "end of input",
     });
@@ -476,7 +488,7 @@ export class Lexer {
 
   private finishNumber(startOffset: number, start: Pos): Token {
     if (this.offset === startOffset) {
-      throw new ParseError("expected number", start, { expected: "digit" });
+      throw this.err("expected number", start, { expected: "digit" });
     }
     return this.makeToken("Number", this.src.slice(startOffset, this.offset), start);
   }

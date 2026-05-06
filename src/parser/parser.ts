@@ -119,8 +119,20 @@ class Parser {
   parseTemplate(): ParseResult {
     const root = this.parseList();
     if (this.peek().type !== "EOF") {
-      const t = this.peek();
-      throw this.errAt(t, `unexpected ${tokenLabel(t)}`, { found: tokenLabel(t) });
+      const left = this.peek();
+      // We only stop in parseList for stray `{{else}}` or `{{end}}`.
+      // Surface that as a curated message rather than the generic
+      // "unexpected `{{`" we'd otherwise emit.
+      const inside = this.peek(1);
+      if (left.type === "LeftDelim" && (inside.type === "Else" || inside.type === "End")) {
+        const keyword = inside.type === "Else" ? "else" : "end";
+        throw this.errAt(
+          left,
+          `unexpected \`{{${keyword}}}\` outside of \`if\`, \`range\`, \`with\`, or \`block\``,
+          { found: `{{${keyword}}}` },
+        );
+      }
+      throw this.errAt(left, `unexpected ${tokenLabel(left)}`, { found: tokenLabel(left) });
     }
     return { root, defines: this.defines, source: this.source };
   }
@@ -350,6 +362,13 @@ class Parser {
     const cmds: CommandNode[] = [this.parseCommand()];
     while (this.peek().type === "Pipe") {
       this.next();
+      const next = this.peek();
+      if (!canStartPrimary(next.type)) {
+        throw this.errAt(next, "missing command after `|`", {
+          expected: "command",
+          found: tokenLabel(next),
+        });
+      }
       cmds.push(this.parseCommand());
     }
     return {
