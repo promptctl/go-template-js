@@ -114,19 +114,25 @@ const engine = createEngine<string>({
 });
 ```
 
-Built-ins from `defaultBuiltins()` are always merged in — registering a same-named consumer entry overrides them.
+Go template's runtime built-ins (the names listed under "Built-in functions" above) are always merged in by `createEngine` itself; you do not register them. A consumer-supplied entry with the same name overrides the built-in.
 
 ## Divergences from Go
 
-Called out, not buried:
+The engine matches Go's `text/template` semantics aggressively. The remaining divergences are host-imposed — JavaScript cannot represent the relevant Go type, or the standard libraries differ:
 
-- **Regex semantics**: `sprigRegex()` uses **JavaScript regex** (ECMAScript), not Go's RE2. Most patterns work identically; lookbehinds and Unicode property escapes differ.
-- **Field access**: walks JS objects/Maps/arrays using JS property semantics, not Go reflection. Named-field access on an array is a `MissingFieldError` (no `length` / `[N]` magic — use the `index` and `len` built-ins).
-- **Type mismatches at function boundaries are runtime errors, not compile errors.** This is by design: the engine doesn't know your `T` shape statically, so it surfaces the architectural commitment when the bad flow happens. See `TypeMismatchError`.
+- **Numeric typing.** Go has `int`, `float64`, and friends as distinct runtime types; JavaScript has one `number`. `printf` verbs that diagnose type mismatches (`%!d(float64=42)`) cannot be replicated without a separate type-tracking scheme on the JS side, so JS renders the value plainly per the verb.
+- **Regex semantics.** `sprigRegex()` uses ECMAScript regex, not Go's RE2. Lookbehind syntax, Unicode property escapes, and certain catastrophic-backtracking patterns differ.
+- **String length.** Go strings are UTF-8 byte sequences; `len("é")` is `2` in Go. JS strings are UTF-16 code units; `len("é")` is `1` here. Choose grapheme libraries on the JS side if you need byte/grapheme counts.
+- **Field access.** Walks JS objects, Maps, and arrays using JS property semantics, not Go reflection. Named-field access on an array is a `MissingFieldError` (no `length` / `[N]` magic — use the `index` and `len` built-ins).
+- **Type mismatches at function boundaries are runtime errors, not compile errors.** By design: the engine does not know your `T` shape statically, so it surfaces the architectural commitment when the bad flow happens. See `TypeMismatchError`.
 - **printf verbs** beyond `%s %d %v %q %f %t %x` are rendered as `%!<verb>(<type>=<value>)`. If you need more, register your own formatter via the `funcs` registry.
-- **`empty 0` is `true`** — sprig parity gotcha that sometimes surprises newcomers.
-- **`set`/`unset` return new dicts** — Go sprig mutates in place; we keep things immutable on the JS side.
-- **Sprig `get(d, key)` doesn't compose with pipe form** — last-arg piping would put the dict in the key slot. Use direct-call form: `{{ get (dict ...) "key" }}`.
+
+Notable parity statements (places where users sometimes expect divergence and there isn't one):
+
+- A nil/undefined pipeline emits the literal `<no value>` string, matching Go's `text/template`.
+- Range over a Map / plain object iterates in **sorted-by-key order** in both engines (Go's `internal/fmtsort`; ours mirrors it).
+- Sprig `set` and `unset` mutate the receiver and return it — same as Go sprig.
+- `{{ "key" | get .dict }}` composes correctly: last-arg piping puts the key in the trailing slot, which is `get(d, key)`'s second parameter. The form `{{ .dict | get "key" }}` does *not* work in either engine — the dict ends up in the key slot.
 
 ## Errors
 
@@ -158,6 +164,16 @@ See `examples/` for runnable snippets:
 - **Output type guarantee** — `engine.evaluate(scope)` returning `T[]` for the engine's `T` parameter is part of the contract.
 - **Sprig surface may grow but never shrinks** — once a sprig function is registered in a release, subsequent releases keep it.
 - **Built-in semantics may be tightened** — the no-silent-flatten guard may catch additional edge cases over time. Tests against an Engine with strict argTypes are the safe bet.
+
+### Stable public API surface
+
+The package exports exactly the following from `"go-template-js"` — anything else is internal and may change at any time:
+
+- Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`.
+- Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `ErrorKind`.
+- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`.
+
+Reaching into `dist/` subpaths or `src/` deep imports is unsupported.
 
 ## Development
 
