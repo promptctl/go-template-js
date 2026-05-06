@@ -14,6 +14,7 @@ export {
   Engine,
   type EngineConfig,
   type FuncMap,
+  Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
 export type {

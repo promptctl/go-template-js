@@ -24,7 +24,7 @@ import {
   type Node,
   type PipeNode,
 } from "../parser/ast.js";
-import type { ParseResult } from "../parser/parser.js";
+import { type ParseResult, parse as parseSource } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, isLazy } from "./builtins.js";
@@ -79,6 +79,31 @@ interface EvalContext<T> {
   readonly source: string | undefined;
 }
 
+/**
+ * A parsed template bound to its parent engine.
+ *
+ * Template instances are immutable — `evaluate(scope)` may be called
+ * any number of times with different scopes, matching the
+ * "parse-once-eval-many" invariant from the epic spec. The `source`
+ * property exposes the original template text for debugging /
+ * diagnostics.
+ */
+export class Template<T> {
+  readonly source: string;
+  private readonly engine: Engine<T>;
+  private readonly parsed: ParseResult;
+
+  constructor(engine: Engine<T>, parsed: ParseResult) {
+    this.engine = engine;
+    this.parsed = parsed;
+    this.source = parsed.source;
+  }
+
+  evaluate(scope: unknown): T[] {
+    return this.engine.evaluate(this.parsed, scope);
+  }
+}
+
 export class Engine<T> {
   private readonly fromString: (s: string) => T;
   private readonly funcs: FuncMap;
@@ -89,6 +114,28 @@ export class Engine<T> {
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
     this.funcs = { ...defaultBuiltins(), ...(config.funcs ?? {}) };
+  }
+
+  /**
+   * Parse a template source into a reusable Template handle.
+   *
+   * The returned Template is immutable; calling `evaluate(scope)` on
+   * it any number of times with different scopes is safe and avoids
+   * re-parsing.
+   */
+  parse(source: string): Template<T> {
+    return new Template(this, parseSource(source));
+  }
+
+  /**
+   * Convenience sugar for `parse(src).evaluate.bind(template)`.
+   *
+   * Returns a closure that takes a scope and produces T[]. Useful when
+   * the template is parsed once at module load and called many times.
+   */
+  compile(source: string): (scope: unknown) => T[] {
+    const template = this.parse(source);
+    return (scope: unknown) => template.evaluate(scope);
   }
 
   /**
