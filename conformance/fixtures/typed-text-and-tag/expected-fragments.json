@@ -1,0 +1,5 @@
+[
+  { "tag": "text", "text": "msg" },
+  { "tag": "text", "text": ": " },
+  { "tag": "level", "text": "info" }
+]

@@ -26,9 +26,14 @@ const FIXTURES_DIR = fileURLToPath(new URL("../../conformance/fixtures", import.
 
 function listFixtures(): string[] {
   if (!existsSync(FIXTURES_DIR)) return [];
-  return readdirSync(FIXTURES_DIR)
-    .filter((name) => statSync(join(FIXTURES_DIR, name)).isDirectory())
-    .sort();
+  return (
+    readdirSync(FIXTURES_DIR)
+      .filter((name) => statSync(join(FIXTURES_DIR, name)).isDirectory())
+      // Only consider fixtures that have a Go-reference output. The
+      // typed-fragment harness uses fixtures without expected.txt.
+      .filter((name) => existsSync(join(FIXTURES_DIR, name, "expected.txt")))
+      .sort()
+  );
 }
 
 function readFixture(name: string): { template: string; scope: unknown; expected: string } {

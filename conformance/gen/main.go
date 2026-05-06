@@ -67,6 +67,14 @@ func findFixturesRoot() (string, error) {
 }
 
 func generate(dir string) error {
+	// Typed-fragment fixtures (those that supply expected-fragments.json)
+	// are meaningful only for the TS engine's generic-T harness — they
+	// reference funcs that don't exist in Go's text/template + sprig.
+	// Skip them in the Go reference generator.
+	if _, err := os.Stat(filepath.Join(dir, "expected-fragments.json")); err == nil {
+		return nil
+	}
+
 	templatePath := filepath.Join(dir, "template.tmpl")
 	scopePath := filepath.Join(dir, "scope.json")
 	expectedPath := filepath.Join(dir, "expected.txt")
