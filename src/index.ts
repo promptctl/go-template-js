@@ -56,3 +56,4 @@ export { sprigLists } from "./sprig/lists/index.js";
 export { sprigMath } from "./sprig/math/index.js";
 export { sprigRegex } from "./sprig/regex/index.js";
 export { sprigStrings } from "./sprig/strings/index.js";
+export { sprigTypes } from "./sprig/types/index.js";
