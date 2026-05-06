@@ -1,0 +1,1 @@
+{ "users": [{"name":"a","active":true,"admin":false},{"name":"b","active":true,"admin":true},{"name":"c","active":false,"admin":false}] }
