@@ -51,6 +51,7 @@ export { pos } from "./parser/pos.js";
 export { stringify } from "./parser/stringify.js";
 export { children, flatten, tally, type Visitor, walk } from "./parser/walk.js";
 export { sprigDefaults } from "./sprig/defaults/index.js";
+export { sprigDicts } from "./sprig/dicts/index.js";
 export { sprigLists } from "./sprig/lists/index.js";
 export { sprigMath } from "./sprig/math/index.js";
 export { sprigStrings } from "./sprig/strings/index.js";
