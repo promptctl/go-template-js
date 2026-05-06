@@ -27,23 +27,55 @@ import {
 } from "../parser/ast.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
-import { EvalError } from "./errors.js";
+import { EvalError, FuncNotFoundError, TypeMismatchError } from "./errors.js";
 import { declareVar, lookupVar, rootScope, type Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
 // Public API.
 // ---------------------------------------------------------------------------
 
+/**
+ * Declared parameter type for a registered template function. Used by
+ * the no-silent-flatten guard to detect unsafe T-into-string flows.
+ *
+ * - "string" — must be a JS string. Non-string values raise
+ *   TypeMismatchError. This is the **architectural commitment**: T
+ *   never silently flattens into a string parameter.
+ * - "number" — must be `typeof "number"` or `bigint`.
+ * - "bool"   — must be `typeof "boolean"`.
+ * - "T"      — opaque caller-defined T; treated as "anything that is
+ *   not a string". The guard does no further checking.
+ * - "any"    — accepts anything.
+ */
+export type ArgType = "string" | "number" | "bool" | "T" | "any";
+
+export interface TemplateFunc {
+  readonly fn: (...args: unknown[]) => unknown;
+  /**
+   * Declared positional parameter types. When omitted, every argument
+   * is treated as `"any"` and the no-silent-flatten guard is inactive.
+   * The pipe-fed last argument is checked against `argTypes[argTypes.length - 1]`.
+   */
+  readonly argTypes?: readonly ArgType[];
+  readonly returnType?: ArgType;
+}
+
+export type FuncMap = Record<string, TemplateFunc>;
+
 export interface EngineConfig<T> {
   /** Convert a text literal (or string-returning function result) into T. */
   readonly fromString: (s: string) => T;
+  /** Optional registry of named functions usable in pipelines. */
+  readonly funcs?: FuncMap;
 }
 
 export class Engine<T> {
   private readonly fromString: (s: string) => T;
+  private readonly funcs: FuncMap;
 
   constructor(config: EngineConfig<T>) {
     this.fromString = config.fromString;
+    this.funcs = config.funcs ?? {};
   }
 
   /** Evaluate a parsed AST against a scope value, producing a stream of T. */
@@ -125,24 +157,20 @@ export class Engine<T> {
   }
 
   private evalPipe(pipe: PipeNode, scope: Scope, src: string | undefined): unknown {
-    if (pipe.cmds.length !== 1) {
-      // [LAW:no-mode-explosion] Multi-command pipelines (`|`) belong to
-      // template-evaluator-cgm.2. Fail loudly at this boundary.
-      throw new EvalError(
-        "multi-command pipelines (`|`) are not implemented yet (template-evaluator-cgm.2)",
-        pipe.pos,
-        { source: src },
-      );
-    }
-    const cmd = pipe.cmds[0];
-    if (cmd === undefined) {
+    if (pipe.cmds.length === 0) {
       throw new EvalError("empty pipeline", pipe.pos, { source: src });
     }
-    const value = this.evalCommand(cmd, scope, src);
+    // First command runs unpiped; each subsequent command receives the
+    // previous result as its trailing argument (Go's last-arg piping).
+    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, src, undefined);
+    for (let i = 1; i < pipe.cmds.length; i++) {
+      const next = pipe.cmds[i] as CommandNode;
+      value = this.evalCommand(next, scope, src, value);
+    }
 
-    // Apply variable declarations / assignments. The pipe's value is
-    // bound to *every* declared name (Go's behavior for tuple-style
-    // declarations is owned by `range` in .3 and overrides this).
+    // Apply variable declarations / assignments after the pipe is
+    // fully evaluated. Multi-decl tuple semantics are owned by `range`
+    // in .3 and override this.
     if (pipe.decls.length > 0) {
       for (const decl of pipe.decls) {
         const name = decl.idents[0] ?? "$";
@@ -152,23 +180,49 @@ export class Engine<T> {
     return value;
   }
 
-  private evalCommand(cmd: CommandNode, scope: Scope, src: string | undefined): unknown {
+  private evalCommand(
+    cmd: CommandNode,
+    scope: Scope,
+    src: string | undefined,
+    pipedValue: unknown,
+  ): unknown {
     if (cmd.args.length === 0) {
       throw new EvalError("empty command", cmd.pos, { source: src });
     }
-    if (cmd.args.length > 1) {
-      // Multi-arg commands (function calls) are owned by .2 + .4.
-      throw new EvalError(
-        "function calls are not implemented yet (template-evaluator-cgm.2 / .4)",
-        cmd.pos,
-        { source: src },
-      );
+    const head = cmd.args[0] as Node;
+
+    // A command with a single argument that is not an identifier (or
+    // is an identifier but we have a piped value) is either a value
+    // expression or a piped lone-value flow.
+    if (head.type !== "Identifier") {
+      if (cmd.args.length > 1) {
+        throw new EvalError(
+          `cannot apply arguments to a ${head.type} primary; only functions take arguments`,
+          cmd.pos,
+          { source: src },
+        );
+      }
+      const value = this.evalPrimary(head, scope, src);
+      // A non-function command that receives a pipe value just returns
+      // its own value — Go discards the pipe input in this position.
+      // (In practice this rarely occurs; the parser only produces it
+      // for trailing pipe-targets like `{{ pipe | .field }}`, which Go
+      // disallows. We're permissive: prefer the explicit primary.)
+      return value;
     }
-    const head = cmd.args[0];
-    if (head === undefined) {
-      throw new EvalError("empty command", cmd.pos, { source: src });
-    }
-    return this.evalPrimary(head, scope, src);
+
+    // Function call: head is the identifier; remaining args are the
+    // function's positional inputs, followed by the piped value (if
+    // any) as the last argument.
+    const fn = this.funcs[head.ident];
+    if (!fn) throw new FuncNotFoundError(head.ident, head.pos, { source: src });
+
+    const argNodes = cmd.args.slice(1);
+    const evaluated = argNodes.map((n) => this.evalPrimary(n, scope, src));
+    if (pipedValue !== undefined) evaluated.push(pipedValue);
+
+    enforceArgTypes(head.ident, fn.argTypes, evaluated, cmd.pos, src);
+    return fn.fn(...evaluated);
   }
 
   private evalPrimary(node: Node, scope: Scope, src: string | undefined): unknown {
@@ -187,14 +241,15 @@ export class Engine<T> {
         return this.resolveFieldChain(scope.dot, node.idents, node.pos, src);
       case "Variable":
         return this.resolveVariable(node.idents, scope, node.pos, src);
-      case "Identifier":
-        // Bare identifiers without arguments = zero-arg function calls.
-        // FuncMap dispatch lands in .2 / .4. Until then, fail loudly.
-        throw new EvalError(
-          `function ${JSON.stringify(node.ident)} is not implemented yet (template-evaluator-cgm.2 / .4)`,
-          node.pos,
-          { source: src },
-        );
+      case "Identifier": {
+        // A bare identifier in argument position is a zero-arg function
+        // call (nullary functions like Go's builtin `true`/`false` once
+        // a registry exists).
+        const fn = this.funcs[node.ident];
+        if (!fn) throw new FuncNotFoundError(node.ident, node.pos, { source: src });
+        enforceArgTypes(node.ident, fn.argTypes, [], node.pos, src);
+        return fn.fn();
+      }
       case "Chain":
         // `(pipe).x.y` — evaluate the pipe and walk the field chain.
         return this.resolveFieldChain(
@@ -281,6 +336,80 @@ export class Engine<T> {
 
 export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
   return new Engine(config);
+}
+
+// ---------------------------------------------------------------------------
+// No-silent-flatten guard.
+//
+// [LAW:single-enforcer] This is the *one* place where argument types
+// are validated against runtime values. Every function call routes
+// through here. Adding a per-callsite shortcut would let drift creep
+// in — fix the helper, not the callsite.
+// ---------------------------------------------------------------------------
+
+function enforceArgTypes(
+  funcName: string,
+  argTypes: readonly ArgType[] | undefined,
+  values: readonly unknown[],
+  pos: Pos,
+  src: string | undefined,
+): void {
+  if (!argTypes) return;
+  for (let i = 0; i < values.length; i++) {
+    // If the function declares fewer types than args were passed, treat
+    // the trailing args as "any". This lets variadic-style funcs opt
+    // out of guarding once the head args are checked.
+    const declared = argTypes[i] ?? "any";
+    const value = values[i];
+    if (matchesArgType(declared, value)) continue;
+    throw new TypeMismatchError(
+      funcName,
+      i + 1,
+      humanArgType(declared),
+      describeValue(value),
+      pos,
+      { source: src },
+    );
+  }
+}
+
+function matchesArgType(declared: ArgType, value: unknown): boolean {
+  switch (declared) {
+    case "any":
+      return true;
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" || typeof value === "bigint";
+    case "bool":
+      return typeof value === "boolean";
+    case "T":
+      // Treat anything that isn't a primitive as a T-shaped value.
+      // Primitives (string/number/bool/bigint/symbol) are excluded so
+      // a T-typed slot doesn't silently accept a primitive that the
+      // caller probably meant to wrap via fromString.
+      return (
+        value !== null &&
+        value !== undefined &&
+        typeof value !== "string" &&
+        typeof value !== "number" &&
+        typeof value !== "boolean" &&
+        typeof value !== "bigint" &&
+        typeof value !== "symbol"
+      );
+  }
+}
+
+function humanArgType(t: ArgType): string {
+  return t === "T" ? "T (consumer-defined fragment)" : `${t}`;
+}
+
+function describeValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) return "array";
+  if (value instanceof Map) return "Map";
+  return typeof value;
 }
 
 // ---------------------------------------------------------------------------

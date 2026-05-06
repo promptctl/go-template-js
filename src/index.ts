@@ -7,8 +7,15 @@
  * build against.
  */
 
-export { EvalError } from "./evaluator/errors.js";
-export { createEngine, Engine, type EngineConfig } from "./evaluator/evaluator.js";
+export { EvalError, FuncNotFoundError, TypeMismatchError } from "./evaluator/errors.js";
+export {
+  type ArgType,
+  createEngine,
+  Engine,
+  type EngineConfig,
+  type FuncMap,
+  type TemplateFunc,
+} from "./evaluator/evaluator.js";
 export type {
   ActionNode,
   BlockNode,

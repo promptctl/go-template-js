@@ -132,12 +132,8 @@ describe("evaluator — generic over T", () => {
 });
 
 describe("evaluator — unimplemented productions fail loudly", () => {
-  it("throws on multi-command pipelines (deferred to .2)", () => {
-    expect(() => renderString("{{ .x | upper }}", { x: "a" })).toThrow(/template-evaluator-cgm\.2/);
-  });
-
-  it("throws on bare-identifier function calls (deferred to .2/.4)", () => {
-    expect(() => renderString("{{ printf }}", null)).toThrow(/template-evaluator-cgm/);
+  it("throws FuncNotFoundError for an unregistered function", () => {
+    expect(() => renderString("{{ printf }}", null)).toThrow(/is not registered/);
   });
 
   it("throws on if/range/with (deferred to .3)", () => {
