@@ -1,10 +1,25 @@
 /**
  * Public entrypoint for go-template-js.
  *
- * The engine is generic over its output type; concrete rendering arrives
- * in subsequent tickets. For now this module exposes the AST contract so
- * downstream code (parser, evaluator, tooling) has a stable shape to
- * build against.
+ * [LAW:one-source-of-truth] This file is the *only* declaration of
+ * the package's stability surface. Anything not re-exported here is
+ * internal — subject to change without a major-version bump. The
+ * README's "Versioning policy" section is the human-readable mirror
+ * of what lives below.
+ *
+ * Exposed:
+ * - Engine API: createEngine, Engine, Template, EngineConfig, FuncMap,
+ *   TemplateFunc, ArgType.
+ * - Error hierarchy: TemplateError → ParseError, EvalError; EvalError
+ *   → FuncNotFoundError, TypeMismatchError, MissingFieldError; the
+ *   ErrorKind discriminator string union.
+ * - Sprig category factories: sprigDefaults, sprigStrings, sprigMath,
+ *   sprigLists, sprigDicts, sprigRegex, sprigTypes.
+ *
+ * Hidden (intentionally): the parser/lexer/walker/stringifier modules,
+ * concrete AST node interfaces, position helpers, internal symbols.
+ * Reach into `src/parser/...` directly if you need them — and accept
+ * that those imports carry no compatibility promise.
  */
 
 export {
@@ -25,39 +40,6 @@ export {
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
-export type {
-  ActionNode,
-  BlockNode,
-  BoolNode,
-  ChainNode,
-  CommandNode,
-  CommentNode,
-  DotNode,
-  FieldNode,
-  IdentifierNode,
-  IfNode,
-  ListNode,
-  NilNode,
-  Node,
-  NodeOf,
-  NodeType,
-  NumberNode,
-  PipeNode,
-  RangeNode,
-  StringNode,
-  TemplateNode,
-  TextNode,
-  TrimMarkers,
-  VariableNode,
-  WithNode,
-} from "./parser/ast.js";
-export { assertNever, NO_TRIM } from "./parser/ast.js";
-export { Lexer, type Token, type TokenType, tokenize } from "./parser/lexer.js";
-export { type ParseResult, parse } from "./parser/parser.js";
-export type { Pos } from "./parser/pos.js";
-export { pos } from "./parser/pos.js";
-export { stringify } from "./parser/stringify.js";
-export { children, flatten, tally, type Visitor, walk } from "./parser/walk.js";
 export { sprigDefaults } from "./sprig/defaults/index.js";
 export { sprigDicts } from "./sprig/dicts/index.js";
 export { sprigLists } from "./sprig/lists/index.js";
