@@ -1,0 +1,3 @@
+{{- $d := dict "a" 1 "b" 2 -}}
+{{- $_ := unset $d "a" -}}
+{{ hasKey $d "a" }},{{ hasKey $d "b" }}
