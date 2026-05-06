@@ -7,6 +7,8 @@
  * build against.
  */
 
+export { EvalError } from "./evaluator/errors.js";
+export { createEngine, Engine, type EngineConfig } from "./evaluator/evaluator.js";
 export type {
   ActionNode,
   BlockNode,
@@ -41,23 +43,3 @@ export type { Pos } from "./parser/pos.js";
 export { pos } from "./parser/pos.js";
 export { stringify } from "./parser/stringify.js";
 export { children, flatten, tally, type Visitor, walk } from "./parser/walk.js";
-
-// ---------------------------------------------------------------------------
-// Engine surface (placeholder).
-//
-// Rendering and the full configuration shape arrive in later tickets;
-// keeping `createEngine` exported preserves the public symbol that the
-// bootstrap acceptance pipeline established.
-// ---------------------------------------------------------------------------
-
-export interface EngineOptions {
-  readonly name?: string;
-}
-
-export interface Engine {
-  readonly name: string;
-}
-
-export function createEngine(options: EngineOptions = {}): Engine {
-  return { name: options.name ?? "go-template-js" };
-}
