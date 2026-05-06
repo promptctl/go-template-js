@@ -49,8 +49,13 @@ import { isTruthy } from "./truthy.js";
  * - "T"      — opaque caller-defined T; treated as "anything that is
  *   not a string". The guard does no further checking.
  * - "any"    — accepts anything (the explicit permissive escape).
+ * - "ordered" — orderable primitive (string, number, bigint, boolean).
+ *   When two or more "ordered" slots appear in the same call, all of
+ *   them must share a kind, with `number` and `bigint` bridged. Used
+ *   by `lt`/`le`/`gt`/`ge` to match Go's `text/template` rule that
+ *   ordering operands have the same type.
  */
-export type ArgType = "string" | "number" | "bool" | "T" | "any";
+export type ArgType = "string" | "number" | "bool" | "T" | "any" | "ordered";
 
 export interface TemplateFunc {
   readonly fn: (...args: unknown[]) => unknown;
@@ -368,12 +373,7 @@ export class Engine<T> {
     return value;
   }
 
-  private evalCommand(
-    cmd: CommandNode,
-    scope: Scope,
-    ctx: EvalContext<T>,
-    piped: Piped,
-  ): unknown {
+  private evalCommand(cmd: CommandNode, scope: Scope, ctx: EvalContext<T>, piped: Piped): unknown {
     if (cmd.args.length === 0) {
       throw new EvalError("empty command", cmd.pos, { source: ctx.source });
     }
@@ -576,18 +576,39 @@ function enforceArgTypes(
   // type. Variability lives in `argTypes` (use ["any"] as the explicit
   // permissive escape), never in whether validation runs.
   const trailing = argTypes[argTypes.length - 1] ?? "any";
+  let firstOrdered = -1;
   for (let i = 0; i < values.length; i++) {
     const declared = argTypes[i] ?? trailing;
     const value = values[i];
-    if (matchesArgType(declared, value)) continue;
-    throw new TypeMismatchError(
-      funcName,
-      i + 1,
-      humanArgType(declared),
-      describeValue(value),
-      pos,
-      { source: src },
-    );
+    if (!matchesArgType(declared, value)) {
+      throw new TypeMismatchError(
+        funcName,
+        i + 1,
+        humanArgType(declared),
+        describeValue(value),
+        pos,
+        { source: src },
+      );
+    }
+    // [LAW:single-enforcer] The cross-slot ordering rule lives here,
+    // alongside the per-slot type rule, so "what counts as a valid
+    // comparison" has a single enforcer. Each "ordered" slot must
+    // share a kind with the first "ordered" slot in the same call,
+    // with number↔bigint bridged.
+    if (declared === "ordered") {
+      if (firstOrdered === -1) {
+        firstOrdered = i;
+      } else if (!sameOrderedKind(values[firstOrdered], value)) {
+        throw new TypeMismatchError(
+          funcName,
+          i + 1,
+          `comparable to ${describeValue(values[firstOrdered])}`,
+          describeValue(value),
+          pos,
+          { source: src },
+        );
+      }
+    }
   }
 }
 
@@ -601,6 +622,13 @@ function matchesArgType(declared: ArgType, value: unknown): boolean {
       return typeof value === "number" || typeof value === "bigint";
     case "bool":
       return typeof value === "boolean";
+    case "ordered":
+      return (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "bigint" ||
+        typeof value === "boolean"
+      );
     case "T":
       return (
         value !== null &&
@@ -614,8 +642,19 @@ function matchesArgType(declared: ArgType, value: unknown): boolean {
   }
 }
 
+// Same-kind check for two values declared `ordered`. Number and bigint
+// are bridged because compare() handles them as one numeric kind.
+function sameOrderedKind(a: unknown, b: unknown): boolean {
+  if (typeof a === typeof b) return true;
+  if (typeof a === "number" && typeof b === "bigint") return true;
+  if (typeof a === "bigint" && typeof b === "number") return true;
+  return false;
+}
+
 function humanArgType(t: ArgType): string {
-  return t === "T" ? "T (consumer-defined fragment)" : `${t}`;
+  if (t === "T") return "T (consumer-defined fragment)";
+  if (t === "ordered") return "orderable primitive";
+  return t;
 }
 
 function describeValue(value: unknown): string {

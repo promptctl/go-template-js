@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "../parser/parser.js";
+import { TypeMismatchError } from "./errors.js";
 import { createEngine } from "./evaluator.js";
 
 const render = (src: string, scope: unknown = null): string => {
@@ -32,6 +33,49 @@ describe("builtins — comparison", () => {
   it("compares strings", () => {
     expect(render('{{ eq "a" "a" }}')).toBe("true");
     expect(render('{{ lt "a" "b" }}')).toBe("true");
+  });
+
+  // [LAW:one-source-of-truth + LAW:single-enforcer] Match Go's
+  // `text/template` rule: ordering operands must share a type. The
+  // earlier behavior silently returned `false` for both `lt "foo" 1`
+  // and `gt "foo" 1`, hiding cross-type comparisons in pipelines.
+  it("lt rejects cross-type pairs (string vs number)", () => {
+    let err: unknown;
+    try {
+      render('{{ lt "foo" 1 }}');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(TypeMismatchError);
+    if (err instanceof TypeMismatchError) {
+      expect(err.funcName).toBe("lt");
+      expect(err.argIndex).toBe(2);
+    }
+  });
+
+  it("gt rejects cross-type pairs (string vs number)", () => {
+    expect(() => render('{{ gt "foo" 1 }}')).toThrow(TypeMismatchError);
+  });
+
+  it("le rejects bool vs number", () => {
+    expect(() => render("{{ le true 1 }}")).toThrow(TypeMismatchError);
+  });
+
+  it("ge rejects string vs bool", () => {
+    expect(() => render('{{ ge "yes" true }}')).toThrow(TypeMismatchError);
+  });
+
+  it("number↔bigint pair is bridged (no error)", () => {
+    // Negative literals with a `0n`-like value require a hand-built
+    // bigint scope; `1` literals here both parse as Number, but both
+    // sides being numeric (one number, one bigint) must work too.
+    const eng = createEngine<string>({ fromString: (s) => s });
+    const out = eng.parse("{{ lt . 5 }}").evaluate(3n).join("");
+    expect(out).toBe("true");
+  });
+
+  it("ordered slot rejects null/undefined/object (per-slot kind check)", () => {
+    expect(() => render("{{ lt . 1 }}", null)).toThrow(TypeMismatchError);
   });
 });
 

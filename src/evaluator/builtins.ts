@@ -32,10 +32,15 @@ const eagerBuiltins: FuncMap = {
     argTypes: ["any"],
   },
   ne: { fn: (a: unknown, b: unknown) => !looseEq(a, b), argTypes: ["any", "any"] },
-  lt: { fn: (a: unknown, b: unknown) => compare(a, b) < 0, argTypes: ["any", "any"] },
-  le: { fn: (a: unknown, b: unknown) => compare(a, b) <= 0, argTypes: ["any", "any"] },
-  gt: { fn: (a: unknown, b: unknown) => compare(a, b) > 0, argTypes: ["any", "any"] },
-  ge: { fn: (a: unknown, b: unknown) => compare(a, b) >= 0, argTypes: ["any", "any"] },
+  // [LAW:single-enforcer] `argTypes: ["ordered", "ordered"]` routes
+  // both per-slot kind validation and the cross-slot same-kind rule
+  // through `enforceArgTypes`. By the time `compare` runs, the args
+  // are guaranteed orderable and same-kinded, so it can be a thin
+  // numeric/lexicographic body — no defensive cross-type check.
+  lt: { fn: (a: unknown, b: unknown) => compare(a, b) < 0, argTypes: ["ordered", "ordered"] },
+  le: { fn: (a: unknown, b: unknown) => compare(a, b) <= 0, argTypes: ["ordered", "ordered"] },
+  gt: { fn: (a: unknown, b: unknown) => compare(a, b) > 0, argTypes: ["ordered", "ordered"] },
+  ge: { fn: (a: unknown, b: unknown) => compare(a, b) >= 0, argTypes: ["ordered", "ordered"] },
 
   // Length of strings, arrays, Maps, Sets, plain objects.
   len: { fn: (v: unknown) => goLen(v), argTypes: ["any"] },
@@ -158,8 +163,10 @@ function looseEq(a: unknown, b: unknown): boolean {
 }
 
 function compare(a: unknown, b: unknown): number {
-  // Bridge number/bigint by coercing through bigint when both are
-  // safe-integer-shaped. Otherwise rely on JS `<`/`>`.
+  // [LAW:single-enforcer] Same-kind invariant is enforced by
+  // `enforceArgTypes` ahead of this call (via `argTypes: ["ordered",
+  // "ordered"]`). Here we only compute the ordering — no cross-type
+  // defensive logic needed.
   if (typeof a === "bigint" && typeof b === "bigint") {
     return a === b ? 0 : a < b ? -1 : 1;
   }
@@ -168,8 +175,11 @@ function compare(a: unknown, b: unknown): number {
     const bn = typeof b === "bigint" ? b : BigInt(Math.trunc(Number(b)));
     return an === bn ? 0 : an < bn ? -1 : 1;
   }
-  // @ts-expect-error — JS comparison works across primitives.
-  return a < b ? -1 : a > b ? 1 : 0;
+  // a and b are guaranteed same-kind (string/number/boolean) at this
+  // point, so the ordering is a direct primitive compare.
+  const x = a as string | number | boolean;
+  const y = b as string | number | boolean;
+  return x === y ? 0 : x < y ? -1 : 1;
 }
 
 function goLen(value: unknown): number {
