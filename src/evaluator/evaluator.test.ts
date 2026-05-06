@@ -27,9 +27,12 @@ describe("evaluator — text and dot", () => {
     expect(renderString("n={{ . }}", 42)).toBe("n=42");
   });
 
-  it("emits empty output for nil/undefined dot", () => {
-    expect(renderString("[{{ . }}]", null)).toBe("[]");
-    expect(renderString("[{{ . }}]", undefined)).toBe("[]");
+  it("emits <no value> for nil/undefined pipe (matches Go text/template)", () => {
+    // [LAW:dataflow-not-control-flow] Same emit path runs regardless
+    // of pipe value; null/undefined produces the "<no value>" sentinel
+    // instead of being silently dropped.
+    expect(renderString("[{{ . }}]", null)).toBe("[<no value>]");
+    expect(renderString("[{{ . }}]", undefined)).toBe("[<no value>]");
   });
 });
 

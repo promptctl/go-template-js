@@ -504,7 +504,14 @@ export class Engine<T> {
   // -------------------------------------------------------------------
 
   private emitFromValue(value: unknown, ctx: EvalContext<T>): void {
-    if (value === null || value === undefined) return;
+    // [LAW:dataflow-not-control-flow] No skip-when-null branch. The
+    // emit always runs; the value (including null/undefined) drives
+    // what is pushed. Matches Go's text/template, which emits
+    // `<no value>` for nil pipelines uniformly.
+    if (value === null || value === undefined) {
+      ctx.out.push(this.fromString("<no value>"));
+      return;
+    }
     if (typeof value === "string") {
       ctx.out.push(this.fromString(value));
       return;
@@ -757,5 +764,12 @@ function numberValue(n: {
   }
   if (n.floatValue !== undefined) return n.floatValue;
   if (n.complexValue !== undefined) return n.complexValue;
-  return undefined;
+  // [LAW:one-source-of-truth] The AST contract guarantees one of
+  // intValue/floatValue/complexValue is set on a NumberNode. Reaching
+  // here means the parser produced a NumberNode missing all three —
+  // an internal invariant break, not a runtime input we should
+  // silently coerce to undefined.
+  throw new Error(
+    "internal: NumberNode has none of intValue/floatValue/complexValue — parser invariant violated",
+  );
 }
