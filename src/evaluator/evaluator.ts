@@ -27,6 +27,7 @@ import {
 import type { ParseResult } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
+import { defaultBuiltins, isLazy } from "./builtins.js";
 import { EvalError, FuncNotFoundError, TypeMismatchError } from "./errors.js";
 import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
@@ -84,7 +85,10 @@ export class Engine<T> {
 
   constructor(config: EngineConfig<T>) {
     this.fromString = config.fromString;
-    this.funcs = config.funcs ?? {};
+    // [LAW:single-enforcer] Built-ins live in one registry; consumer
+    // funcs override on a per-name basis (this gives consumers an
+    // escape hatch — desired).
+    this.funcs = { ...defaultBuiltins(), ...(config.funcs ?? {}) };
   }
 
   /**
@@ -323,6 +327,16 @@ export class Engine<T> {
     if (!fn) throw new FuncNotFoundError(head.ident, head.pos, { source: ctx.source });
 
     const argNodes = cmd.args.slice(1);
+
+    // Lazy funcs (and/or) get thunks instead of pre-evaluated values
+    // so they can short-circuit. The type-guard skip is intentional:
+    // per-thunk results are not known at dispatch time.
+    if (isLazy(fn)) {
+      const thunks: (() => unknown)[] = argNodes.map((n) => () => this.evalPrimary(n, scope, ctx));
+      if (pipedValue !== undefined) thunks.push(() => pipedValue);
+      return fn.fn(...thunks);
+    }
+
     const evaluated = argNodes.map((n) => this.evalPrimary(n, scope, ctx));
     if (pipedValue !== undefined) evaluated.push(pipedValue);
 

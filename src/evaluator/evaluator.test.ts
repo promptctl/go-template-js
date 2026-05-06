@@ -133,6 +133,6 @@ describe("evaluator — generic over T", () => {
 
 describe("evaluator — function dispatch failures", () => {
   it("throws FuncNotFoundError for an unregistered function", () => {
-    expect(() => renderString("{{ printf }}", null)).toThrow(/is not registered/);
+    expect(() => renderString("{{ totallymadeup }}", null)).toThrow(/is not registered/);
   });
 });
