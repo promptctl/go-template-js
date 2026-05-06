@@ -74,6 +74,12 @@ func generate(dir string) error {
 	if _, err := os.Stat(filepath.Join(dir, "expected-fragments.json")); err == nil {
 		return nil
 	}
+	// Error-parity fixtures (those that supply expected-error.json) are
+	// JS-side behavioral assertions for the no-silent-flatten guard;
+	// they reference `tagAs` and have no Go counterpart. Skip them.
+	if _, err := os.Stat(filepath.Join(dir, "expected-error.json")); err == nil {
+		return nil
+	}
 
 	templatePath := filepath.Join(dir, "template.tmpl")
 	scopePath := filepath.Join(dir, "scope.json")
