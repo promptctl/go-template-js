@@ -68,6 +68,20 @@ describe("pipelines — multi-command", () => {
     };
     expect(renderString("{{ 2 | sub 10 }}", null, funcs)).toBe("8");
   });
+
+  it("propagates explicit undefined through a pipeline", () => {
+    // [LAW:dataflow-not-control-flow] A function returning undefined
+    // followed by another command should pipe `undefined` as a real
+    // value — not collapse to "no pipe" via sentinel collision.
+    const funcs: FuncMap = {
+      maybe: { fn: () => undefined, argTypes: [] },
+      isnil: {
+        fn: (v: unknown) => (v === undefined ? "nil" : "set"),
+        argTypes: ["any"],
+      },
+    };
+    expect(renderString("{{ maybe | isnil }}", null, funcs)).toBe("nil");
+  });
 });
 
 describe("pipelines — function dispatch + missing func", () => {

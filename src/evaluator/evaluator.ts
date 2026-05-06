@@ -88,6 +88,17 @@ interface EvalContext<T> {
   readonly source: string | undefined;
 }
 
+// [LAW:dataflow-not-control-flow] Pipeline-fed value, structurally
+// distinguished from absence. Replaces an earlier `unknown` parameter
+// where `undefined` was overloaded to mean both "no pipe" and "pipe of
+// undefined" — a sentinel collision that produced arity-mismatched
+// calls when a function legitimately returned `undefined`. The
+// discriminator now drives the append decision; the value (including
+// `undefined`) flows through unchanged.
+type Piped = { readonly kind: "none" } | { readonly kind: "value"; readonly value: unknown };
+
+const NO_PIPE: Piped = { kind: "none" };
+
 /**
  * A parsed template bound to its parent engine.
  *
@@ -339,10 +350,10 @@ export class Engine<T> {
     if (pipe.cmds.length === 0) {
       throw new EvalError("empty pipeline", pipe.pos, { source: ctx.source });
     }
-    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, undefined);
+    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, NO_PIPE);
     for (let i = 1; i < pipe.cmds.length; i++) {
       const next = pipe.cmds[i] as CommandNode;
-      value = this.evalCommand(next, scope, ctx, value);
+      value = this.evalCommand(next, scope, ctx, { kind: "value", value });
     }
 
     // Apply variable declarations / assignments after the pipe is
@@ -361,7 +372,7 @@ export class Engine<T> {
     cmd: CommandNode,
     scope: Scope,
     ctx: EvalContext<T>,
-    pipedValue: unknown,
+    piped: Piped,
   ): unknown {
     if (cmd.args.length === 0) {
       throw new EvalError("empty command", cmd.pos, { source: ctx.source });
@@ -398,7 +409,13 @@ export class Engine<T> {
     const args: unknown[] = argNodes.map((n) =>
       lazy ? () => this.evalPrimary(n, scope, ctx) : this.evalPrimary(n, scope, ctx),
     );
-    if (pipedValue !== undefined) args.push(lazy ? () => pipedValue : pipedValue);
+    // [LAW:dataflow-not-control-flow] The discriminator drives whether
+    // the pipe value is appended; `undefined` flows through as a real
+    // value when present, instead of colliding with "no pipe".
+    if (piped.kind === "value") {
+      const v = piped.value;
+      args.push(lazy ? () => v : v);
+    }
 
     enforceArgTypes(head.ident, fn.argTypes, args, cmd.pos, ctx.source);
     return fn.fn(...args);
