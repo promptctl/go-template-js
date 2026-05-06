@@ -34,6 +34,9 @@ export type {
   WithNode,
 } from "./parser/ast.js";
 export { assertNever, NO_TRIM } from "./parser/ast.js";
+export { ParseError } from "./parser/errors.js";
+export { Lexer, type Token, type TokenType, tokenize } from "./parser/lexer.js";
+export { type ParseResult, parse } from "./parser/parser.js";
 export type { Pos } from "./parser/pos.js";
 export { pos } from "./parser/pos.js";
 export { stringify } from "./parser/stringify.js";
