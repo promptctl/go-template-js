@@ -49,6 +49,7 @@ even when correct:
 - **Floating-point formatting** at extreme precision may differ
   between Go's `strconv.FormatFloat` and JavaScript's `toString`.
   Stick to common cases.
-- **Map iteration order** — Go's map iteration is randomized; JS
-  object key iteration is insertion-ordered. Avoid bare `range`
-  over a map in conformance fixtures, or sort the keys explicitly.
+
+Range over maps is fine — both engines sort entries by key (Go via
+`internal/fmtsort`, JS via `enumerateForRange`), so the same input
+scope produces the same output bytes.

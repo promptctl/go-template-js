@@ -66,22 +66,13 @@ describe("conformance — string-mode (T = string)", () => {
     return;
   }
 
-  // The list of fixtures we knowingly diverge on. Documented in the
-  // README and conformance/fixtures/README.md. Each entry should have
-  // a comment explaining the divergence so future-us knows to revisit
-  // when the underlying gap closes.
-  const knownDivergent = new Set<string>([
-    // Go's printf is strict about numeric type/verb pairing: `printf %d`
-    // on a float64 (which is what JSON int decoding produces in Go) emits
-    // `%!d(float64=42)`. Our engine has only one JS `number` type and
-    // can't tell whether it came from a float64 or an int — we render
-    // `42` plainly. Documented in the README's printf divergence note.
-    "builtin-printf-verbs",
-  ]);
-
+  // [LAW:behavior-not-structure] No skip-list, no divergence file. A
+  // fixture either parities (expected.txt byte-equality) or asserts a
+  // parity error (expected-error.json under the error-parity harness).
+  // Anything in between is a fixture authoring problem, not a test
+  // configuration problem.
   for (const name of fixtures) {
-    const test = knownDivergent.has(name) ? it.skip : it;
-    test(name, () => {
+    it(name, () => {
       const { template, scope, expected } = readFixture(name);
       const engine = createEngine<string>({ fromString: (s) => s, funcs: allSprig() });
       const output = engine.parse(template).evaluate(scope).join("");

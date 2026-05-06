@@ -1,1 +1,1 @@
-name=ada, n=%!d(float64=42), v=true
+name=ada, n=42, hex=ff, q="ada", t=true, f=  3.14

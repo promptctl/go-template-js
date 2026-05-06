@@ -692,23 +692,47 @@ function evalPipeWithoutDecls<T>(
  * Produce [key, value] entries for a `range` operand.
  *
  * - Arrays / typed arrays / strings: numeric index → element
- * - Maps: entries
+ * - Maps and plain objects: entries sorted by key. Matches Go's
+ *   `text/template`, which sorts map keys via `internal/fmtsort`
+ *   before iterating — same input always produces the same byte
+ *   output. Strings sort lexically; numbers numerically.
  * - Sets: index → element (Go ranges over channels but we map to Set
  *   for symmetry with arrays/iteration)
- * - Plain objects: own enumerable keys (Go's map iteration order is
- *   undefined; we match JS object key order for determinism)
  * - null/undefined: empty
  */
 function enumerateForRange(value: unknown): readonly (readonly [unknown, unknown])[] {
   if (value === null || value === undefined) return [];
   if (Array.isArray(value)) return value.map((v, i) => [i, v] as const);
   if (typeof value === "string") return [...value].map((c, i) => [i, c] as const);
-  if (value instanceof Map) return [...value.entries()];
+  if (value instanceof Map) return sortMapEntries([...value.entries()]);
   if (value instanceof Set) return [...value.values()].map((v, i) => [i, v] as const);
   if (typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>);
+    return sortMapEntries(Object.entries(value as Record<string, unknown>));
   }
   return [];
+}
+
+// Sort map / object entries by key to match Go's text/template
+// `fmtsort` ordering. Numbers compare numerically, strings lexically,
+// mixed kinds fall back to string-ordering of the key. The compare is
+// stable enough for byte-equality conformance against Go.
+function sortMapEntries(
+  entries: readonly (readonly [unknown, unknown])[],
+): readonly (readonly [unknown, unknown])[] {
+  return [...entries].sort((a, b) => compareMapKeys(a[0], b[0]));
+}
+
+function compareMapKeys(a: unknown, b: unknown): number {
+  const an = typeof a === "number" || typeof a === "bigint";
+  const bn = typeof b === "number" || typeof b === "bigint";
+  if (an && bn) {
+    const ax = typeof a === "bigint" ? Number(a) : (a as number);
+    const bx = typeof b === "bigint" ? Number(b) : (b as number);
+    return ax === bx ? 0 : ax < bx ? -1 : 1;
+  }
+  const as = String(a);
+  const bs = String(b);
+  return as === bs ? 0 : as < bs ? -1 : 1;
 }
 
 // ---------------------------------------------------------------------------
