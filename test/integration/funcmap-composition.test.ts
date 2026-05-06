@@ -37,7 +37,7 @@ describe("funcmap composition", () => {
 
   it("consumer funcs override sprig on name collision (escape hatch)", () => {
     const overrides: Record<string, TemplateFunc> = {
-      upper: { fn: () => "OVERRIDE" },
+      upper: { fn: () => "OVERRIDE", argTypes: ["any"] },
     };
     const engine = createEngine<string>({
       fromString: (s) => s,

@@ -12,13 +12,16 @@ import { typeOf } from "./typeOf.js";
 export { deepCopy, deepEqual, kindIs, kindOf, typeIs, typeIsLike, typeOf };
 
 export function sprigTypes(): FuncMap {
+  // [LAW:single-enforcer] All registrations declare argTypes; ["any"]
+  // matches the reflection nature of these funcs and largely stays
+  // ["any"] after .3 tightens.
   return {
-    kindOf: { fn: (v) => kindOf(v) },
-    kindIs: { fn: (k, v) => kindIs(k, v) },
-    typeOf: { fn: (v) => typeOf(v) },
-    typeIs: { fn: (t, v) => typeIs(t, v) },
-    typeIsLike: { fn: (t, v) => typeIsLike(t, v) },
-    deepEqual: { fn: (a, b) => deepEqual(a, b) },
-    deepCopy: { fn: (v) => deepCopy(v) },
+    kindOf: { fn: (v) => kindOf(v), argTypes: ["any"] },
+    kindIs: { fn: (k, v) => kindIs(k, v), argTypes: ["any", "any"] },
+    typeOf: { fn: (v) => typeOf(v), argTypes: ["any"] },
+    typeIs: { fn: (t, v) => typeIs(t, v), argTypes: ["any", "any"] },
+    typeIsLike: { fn: (t, v) => typeIsLike(t, v), argTypes: ["any", "any"] },
+    deepEqual: { fn: (a, b) => deepEqual(a, b), argTypes: ["any", "any"] },
+    deepCopy: { fn: (v) => deepCopy(v), argTypes: ["any"] },
   };
 }

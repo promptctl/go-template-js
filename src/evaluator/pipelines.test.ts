@@ -150,10 +150,10 @@ describe("type guard — no silent flatten", () => {
     expect(eng.evaluate(root, { color: "red", text: "x" }).join("")).toMatch(/kind=object/);
   });
 
-  it("missing argTypes means no guard — backwards compatible with bare functions", () => {
+  it("argTypes ['any'] is the explicit permissive escape — T flows through unchanged", () => {
     type Frag = { color: string; text: string };
     const funcs: FuncMap = {
-      identity: { fn: (x: unknown) => x }, // no argTypes
+      identity: { fn: (x: unknown) => x, argTypes: ["any"] },
     };
     const { root } = parse("{{ . | identity }}");
     const eng = createEngine<Frag>({

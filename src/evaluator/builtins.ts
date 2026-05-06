@@ -5,8 +5,9 @@
  *
  * Categories:
  *  - Eager (most): args evaluated normally, value-in / value-out.
- *  - Lazy (and/or): take Thunks instead of values so evaluation can
- *    short-circuit. Marked `lazy: true` on the TemplateFunc.
+ *  - Lazy (and/or): take thunks instead of values so evaluation can
+ *    short-circuit. Branded with the internal `LAZY` symbol on the
+ *    TemplateFunc — see evaluator.ts.
  *
  * [LAW:single-enforcer] Built-ins live in *one* exported FuncMap.
  * Consumers merge with their own funcs; user-supplied entries with
@@ -15,6 +16,7 @@
  */
 
 import type { FuncMap, TemplateFunc } from "./evaluator.js";
+import { LAZY } from "./lazy.js";
 import { isTruthy } from "./truthy.js";
 
 // ---------------------------------------------------------------------------
@@ -25,15 +27,18 @@ const eagerBuiltins: FuncMap = {
   // Comparison — Go template promotes numeric types and compares
   // strings/bools by value. We match that by leaning on JS `<`/`===`
   // which already does the right thing for primitives.
-  eq: { fn: (a: unknown, ...rest: unknown[]) => rest.some((r) => looseEq(a, r)) },
-  ne: { fn: (a: unknown, b: unknown) => !looseEq(a, b) },
-  lt: { fn: (a: unknown, b: unknown) => compare(a, b) < 0 },
-  le: { fn: (a: unknown, b: unknown) => compare(a, b) <= 0 },
-  gt: { fn: (a: unknown, b: unknown) => compare(a, b) > 0 },
-  ge: { fn: (a: unknown, b: unknown) => compare(a, b) >= 0 },
+  eq: {
+    fn: (a: unknown, ...rest: unknown[]) => rest.some((r) => looseEq(a, r)),
+    argTypes: ["any"],
+  },
+  ne: { fn: (a: unknown, b: unknown) => !looseEq(a, b), argTypes: ["any", "any"] },
+  lt: { fn: (a: unknown, b: unknown) => compare(a, b) < 0, argTypes: ["any", "any"] },
+  le: { fn: (a: unknown, b: unknown) => compare(a, b) <= 0, argTypes: ["any", "any"] },
+  gt: { fn: (a: unknown, b: unknown) => compare(a, b) > 0, argTypes: ["any", "any"] },
+  ge: { fn: (a: unknown, b: unknown) => compare(a, b) >= 0, argTypes: ["any", "any"] },
 
   // Length of strings, arrays, Maps, Sets, plain objects.
-  len: { fn: (v: unknown) => goLen(v) },
+  len: { fn: (v: unknown) => goLen(v), argTypes: ["any"] },
 
   // Positional access on collections. `index x i j` walks i, then j…
   index: {
@@ -42,6 +47,7 @@ const eagerBuiltins: FuncMap = {
       for (const k of keys) cur = goIndex(cur, k);
       return cur;
     },
+    argTypes: ["any"],
   },
 
   // `slice x i j` — array/slice/string slicing.
@@ -57,14 +63,19 @@ const eagerBuiltins: FuncMap = {
       }
       throw new Error(`slice: cannot slice value of type ${describeType(collection)}`);
     },
+    argTypes: ["any"],
   },
 
   // Formatted printers.
-  print: { fn: (...args: unknown[]) => goPrint(args) },
-  println: { fn: (...args: unknown[]) => `${goPrint(args)}\n` },
+  print: { fn: (...args: unknown[]) => goPrint(args), argTypes: ["any"], returnType: "string" },
+  println: {
+    fn: (...args: unknown[]) => `${goPrint(args)}\n`,
+    argTypes: ["any"],
+    returnType: "string",
+  },
   printf: {
     fn: (format: unknown, ...args: unknown[]) => sprintf(String(format), args),
-    argTypes: ["string"],
+    argTypes: ["string", "any"],
     returnType: "string",
   },
 
@@ -76,23 +87,28 @@ const eagerBuiltins: FuncMap = {
       }
       return (fn as (...a: unknown[]) => unknown)(...args);
     },
+    argTypes: ["any"],
   },
 
   // `not` is also lazy in spirit, but with a single argument it's
   // semantically equivalent to eager evaluation. Keep it eager.
-  not: { fn: (v: unknown) => !isTruthy(v) },
+  not: { fn: (v: unknown) => !isTruthy(v), argTypes: ["any"] },
 };
 
 // ---------------------------------------------------------------------------
 // Lazy short-circuiting forms.
 //
 // `and a b c …` returns the first falsy argument, or the last argument
-// if all are truthy. `or` is the dual.
+// if all are truthy. `or` is the dual. Branded with the internal LAZY
+// symbol so the dispatcher hands them thunks instead of values; their
+// declared `argTypes: ["any"]` makes the no-silent-flatten guard a
+// no-op against thunks.
 // ---------------------------------------------------------------------------
 
-const lazyBuiltins: Record<string, TemplateFunc & { lazy: true }> = {
+const lazyBuiltins: FuncMap = {
   and: {
-    lazy: true,
+    [LAZY]: true,
+    argTypes: ["any"],
     fn: (...thunks: unknown[]) => {
       let last: unknown = true;
       for (const t of thunks) {
@@ -103,7 +119,8 @@ const lazyBuiltins: Record<string, TemplateFunc & { lazy: true }> = {
     },
   },
   or: {
-    lazy: true,
+    [LAZY]: true,
+    argTypes: ["any"],
     fn: (...thunks: unknown[]) => {
       let last: unknown = false;
       for (const t of thunks) {
@@ -124,7 +141,7 @@ export function defaultBuiltins(): FuncMap {
 }
 
 export function isLazy(fn: TemplateFunc): boolean {
-  return (fn as { lazy?: boolean }).lazy === true;
+  return fn[LAZY] === true;
 }
 
 // ---------------------------------------------------------------------------

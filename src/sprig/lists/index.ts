@@ -38,22 +38,25 @@ export {
 };
 
 export function sprigLists(): FuncMap {
+  // [LAW:single-enforcer] All registrations declare argTypes; ["any"]
+  // is the .2 placeholder — list/dict surfaces are inherently T-typed
+  // so most stay ["any"] even after .3 tightens.
   return {
-    list: { fn: (...a) => list(...a) },
-    first: { fn: (l) => first(l) },
-    last: { fn: (l) => last(l) },
-    rest: { fn: (l) => rest(l) },
-    initial: { fn: (l) => initial(l) },
-    len: { fn: (l) => len(l) },
-    reverse: { fn: (l) => reverse(l) },
-    uniq: { fn: (l) => uniq(l) },
-    without: { fn: (l, ...e) => without(l, ...e) },
-    has: { fn: (i, l) => has(i, l) },
-    compact: { fn: (l) => compact(l) },
-    slice: { fn: (l, i, j) => slice(l, i, j) },
-    concat: { fn: (...l) => concat(...l) },
-    chunk: { fn: (s, l) => chunk(s, l) },
-    prepend: { fn: (l, i) => prepend(l, i) },
-    append: { fn: (l, i) => append(l, i) },
+    list: { fn: (...a) => list(...a), argTypes: ["any"] },
+    first: { fn: (l) => first(l), argTypes: ["any"] },
+    last: { fn: (l) => last(l), argTypes: ["any"] },
+    rest: { fn: (l) => rest(l), argTypes: ["any"] },
+    initial: { fn: (l) => initial(l), argTypes: ["any"] },
+    len: { fn: (l) => len(l), argTypes: ["any"] },
+    reverse: { fn: (l) => reverse(l), argTypes: ["any"] },
+    uniq: { fn: (l) => uniq(l), argTypes: ["any"] },
+    without: { fn: (l, ...e) => without(l, ...e), argTypes: ["any"] },
+    has: { fn: (i, l) => has(i, l), argTypes: ["any", "any"] },
+    compact: { fn: (l) => compact(l), argTypes: ["any"] },
+    slice: { fn: (l, i, j) => slice(l, i, j), argTypes: ["any", "any", "any"] },
+    concat: { fn: (...l) => concat(...l), argTypes: ["any"] },
+    chunk: { fn: (s, l) => chunk(s, l), argTypes: ["any", "any"] },
+    prepend: { fn: (l, i) => prepend(l, i), argTypes: ["any", "any"] },
+    append: { fn: (l, i) => append(l, i), argTypes: ["any", "any"] },
   };
 }

@@ -29,6 +29,7 @@ import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, isLazy } from "./builtins.js";
 import { EvalError, FuncNotFoundError, MissingFieldError, TypeMismatchError } from "./errors.js";
+import { LAZY } from "./lazy.js";
 import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
@@ -47,20 +48,28 @@ import { isTruthy } from "./truthy.js";
  * - "bool"   — must be `typeof "boolean"`.
  * - "T"      — opaque caller-defined T; treated as "anything that is
  *   not a string". The guard does no further checking.
- * - "any"    — accepts anything.
+ * - "any"    — accepts anything (the explicit permissive escape).
  */
 export type ArgType = "string" | "number" | "bool" | "T" | "any";
 
 export interface TemplateFunc {
   readonly fn: (...args: unknown[]) => unknown;
   /**
-   * Declared positional parameter types. When omitted, every argument
-   * is treated as `"any"` and the no-silent-flatten guard is inactive.
-   * The pipe-fed last argument is checked against
-   * `argTypes[argTypes.length - 1]`.
+   * Declared positional parameter types. Required.
+   *
+   * For variadic funcs, declare the type of the trailing parameter
+   * once — the no-silent-flatten guard validates every excess argument
+   * against `argTypes[argTypes.length - 1]`. This matches Go's
+   * `text/template` validation against repeated parameter types when
+   * `Variadic`.
+   *
+   * The pipe-fed last argument is appended to the positional list
+   * before validation, so it is checked against the trailing slot.
    */
-  readonly argTypes?: readonly ArgType[];
+  readonly argTypes: readonly ArgType[];
   readonly returnType?: ArgType;
+  /** Internal — set only by `defaultBuiltins` for `and`/`or`. */
+  readonly [LAZY]?: true;
 }
 
 export type FuncMap = Record<string, TemplateFunc>;
@@ -379,20 +388,20 @@ export class Engine<T> {
 
     const argNodes = cmd.args.slice(1);
 
-    // Lazy funcs (and/or) get thunks instead of pre-evaluated values
-    // so they can short-circuit. The type-guard skip is intentional:
-    // per-thunk results are not known at dispatch time.
-    if (isLazy(fn)) {
-      const thunks: (() => unknown)[] = argNodes.map((n) => () => this.evalPrimary(n, scope, ctx));
-      if (pipedValue !== undefined) thunks.push(() => pipedValue);
-      return fn.fn(...thunks);
-    }
+    // [LAW:dataflow-not-control-flow] One dispatch path. Lazy funcs
+    // receive thunks (so they can short-circuit), eager funcs receive
+    // values — that's the only difference, and it's encoded in the
+    // shape of `args`, not in whether `enforceArgTypes` runs. Lazy
+    // funcs declare `argTypes: ["any"]` so the validation is a no-op
+    // against thunks.
+    const lazy = isLazy(fn);
+    const args: unknown[] = argNodes.map((n) =>
+      lazy ? () => this.evalPrimary(n, scope, ctx) : this.evalPrimary(n, scope, ctx),
+    );
+    if (pipedValue !== undefined) args.push(lazy ? () => pipedValue : pipedValue);
 
-    const evaluated = argNodes.map((n) => this.evalPrimary(n, scope, ctx));
-    if (pipedValue !== undefined) evaluated.push(pipedValue);
-
-    enforceArgTypes(head.ident, fn.argTypes, evaluated, cmd.pos, ctx.source);
-    return fn.fn(...evaluated);
+    enforceArgTypes(head.ident, fn.argTypes, args, cmd.pos, ctx.source);
+    return fn.fn(...args);
   }
 
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>): unknown {
@@ -540,14 +549,18 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 
 function enforceArgTypes(
   funcName: string,
-  argTypes: readonly ArgType[] | undefined,
+  argTypes: readonly ArgType[],
   values: readonly unknown[],
   pos: Pos,
   src: string | undefined,
 ): void {
-  if (!argTypes) return;
+  // [LAW:dataflow-not-control-flow] No short-circuit. The shape of work
+  // is fixed: validate every positional value against its declared
+  // type. Variability lives in `argTypes` (use ["any"] as the explicit
+  // permissive escape), never in whether validation runs.
+  const trailing = argTypes[argTypes.length - 1] ?? "any";
   for (let i = 0; i < values.length; i++) {
-    const declared = argTypes[i] ?? "any";
+    const declared = argTypes[i] ?? trailing;
     const value = values[i];
     if (matchesArgType(declared, value)) continue;
     throw new TypeMismatchError(

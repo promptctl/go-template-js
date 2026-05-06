@@ -18,12 +18,20 @@ import { regexSplit } from "./regexSplit.js";
 export { regexFind, regexFindAll, regexMatch, regexReplaceAll, regexReplaceAllLiteral, regexSplit };
 
 export function sprigRegex(): FuncMap {
+  // [LAW:single-enforcer] All registrations declare argTypes; ["any"]
+  // is the .2 placeholder — .3 tightens to ["string", "string"] etc.
   return {
-    regexMatch: { fn: (p, s) => regexMatch(p, s) },
-    regexFind: { fn: (p, s) => regexFind(p, s) },
-    regexFindAll: { fn: (p, s, n) => regexFindAll(p, s, n) },
-    regexReplaceAll: { fn: (p, s, r) => regexReplaceAll(p, s, r) },
-    regexReplaceAllLiteral: { fn: (p, s, r) => regexReplaceAllLiteral(p, s, r) },
-    regexSplit: { fn: (p, s, n) => regexSplit(p, s, n) },
+    regexMatch: { fn: (p, s) => regexMatch(p, s), argTypes: ["any", "any"] },
+    regexFind: { fn: (p, s) => regexFind(p, s), argTypes: ["any", "any"] },
+    regexFindAll: { fn: (p, s, n) => regexFindAll(p, s, n), argTypes: ["any", "any", "any"] },
+    regexReplaceAll: {
+      fn: (p, s, r) => regexReplaceAll(p, s, r),
+      argTypes: ["any", "any", "any"],
+    },
+    regexReplaceAllLiteral: {
+      fn: (p, s, r) => regexReplaceAllLiteral(p, s, r),
+      argTypes: ["any", "any", "any"],
+    },
+    regexSplit: { fn: (p, s, n) => regexSplit(p, s, n), argTypes: ["any", "any", "any"] },
   };
 }

@@ -17,18 +17,20 @@ import { values } from "./values.js";
 export { dict, get, hasKey, keys, merge, mergeOverwrite, omit, pick, pluck, set, unset, values };
 
 export function sprigDicts(): FuncMap {
+  // [LAW:single-enforcer] All registrations declare argTypes; ["any"]
+  // is the .2 placeholder — .3 tightens (e.g. dict keys to "string").
   return {
-    dict: { fn: (...kv) => dict(...kv) },
-    get: { fn: (d, k) => get(d, k) },
-    set: { fn: (d, k, v) => set(d, k, v) },
-    unset: { fn: (d, k) => unset(d, k) },
-    keys: { fn: (d) => keys(d) },
-    values: { fn: (d) => values(d) },
-    pluck: { fn: (k, ...d) => pluck(k, ...d) },
-    pick: { fn: (d, ...k) => pick(d, ...k) },
-    omit: { fn: (d, ...k) => omit(d, ...k) },
-    hasKey: { fn: (d, k) => hasKey(d, k) },
-    merge: { fn: (d, ...s) => merge(d, ...s) },
-    mergeOverwrite: { fn: (d, ...s) => mergeOverwrite(d, ...s) },
+    dict: { fn: (...kv) => dict(...kv), argTypes: ["any"] },
+    get: { fn: (d, k) => get(d, k), argTypes: ["any", "any"] },
+    set: { fn: (d, k, v) => set(d, k, v), argTypes: ["any", "any", "any"] },
+    unset: { fn: (d, k) => unset(d, k), argTypes: ["any", "any"] },
+    keys: { fn: (d) => keys(d), argTypes: ["any"] },
+    values: { fn: (d) => values(d), argTypes: ["any"] },
+    pluck: { fn: (k, ...d) => pluck(k, ...d), argTypes: ["any"] },
+    pick: { fn: (d, ...k) => pick(d, ...k), argTypes: ["any"] },
+    omit: { fn: (d, ...k) => omit(d, ...k), argTypes: ["any"] },
+    hasKey: { fn: (d, k) => hasKey(d, k), argTypes: ["any", "any"] },
+    merge: { fn: (d, ...s) => merge(d, ...s), argTypes: ["any"] },
+    mergeOverwrite: { fn: (d, ...s) => mergeOverwrite(d, ...s), argTypes: ["any"] },
   };
 }

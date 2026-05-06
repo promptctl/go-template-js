@@ -19,20 +19,22 @@ import { subf } from "./subf.js";
 export { add, addf, ceil, div, divf, floor, max, min, mod, mul, mulf, round, sub, subf };
 
 export function sprigMath(): FuncMap {
+  // [LAW:single-enforcer] All registrations declare argTypes; ["any"]
+  // is the .2 placeholder — .3 tightens to ["number"] / ["number","number"].
   return {
-    add: { fn: (...a) => add(...a) },
-    sub: { fn: (a, b) => sub(a, b) },
-    mul: { fn: (...a) => mul(...a) },
-    div: { fn: (a, b) => div(a, b) },
-    mod: { fn: (a, b) => mod(a, b) },
-    min: { fn: (...a) => min(...a) },
-    max: { fn: (...a) => max(...a) },
-    floor: { fn: (a) => floor(a) },
-    ceil: { fn: (a) => ceil(a) },
-    round: { fn: (a, p) => round(a, p) },
-    addf: { fn: (...a) => addf(...a) },
-    subf: { fn: (a, b) => subf(a, b) },
-    mulf: { fn: (...a) => mulf(...a) },
-    divf: { fn: (a, b) => divf(a, b) },
+    add: { fn: (...a) => add(...a), argTypes: ["any"] },
+    sub: { fn: (a, b) => sub(a, b), argTypes: ["any", "any"] },
+    mul: { fn: (...a) => mul(...a), argTypes: ["any"] },
+    div: { fn: (a, b) => div(a, b), argTypes: ["any", "any"] },
+    mod: { fn: (a, b) => mod(a, b), argTypes: ["any", "any"] },
+    min: { fn: (...a) => min(...a), argTypes: ["any"] },
+    max: { fn: (...a) => max(...a), argTypes: ["any"] },
+    floor: { fn: (a) => floor(a), argTypes: ["any"] },
+    ceil: { fn: (a) => ceil(a), argTypes: ["any"] },
+    round: { fn: (a, p) => round(a, p), argTypes: ["any", "any"] },
+    addf: { fn: (...a) => addf(...a), argTypes: ["any"] },
+    subf: { fn: (a, b) => subf(a, b), argTypes: ["any", "any"] },
+    mulf: { fn: (...a) => mulf(...a), argTypes: ["any"] },
+    divf: { fn: (a, b) => divf(a, b), argTypes: ["any", "any"] },
   };
 }
