@@ -1,3 +1,3 @@
-export function subf(a: unknown, b: unknown): number {
+export function subf(a: number | bigint, b: number | bigint): number {
   return Number(a) - Number(b);
 }

@@ -2,8 +2,8 @@
  * `regexReplaceAllLiteral` — like regexReplaceAll but the replacement
  * string is treated literally ($1/$2 are not expanded).
  */
-export function regexReplaceAllLiteral(pattern: unknown, s: unknown, repl: unknown): string {
+export function regexReplaceAllLiteral(pattern: string, s: string, repl: string): string {
   // Escape `$` so JS's String.prototype.replace doesn't interpret it.
-  const literal = String(repl).replace(/\$/g, "$$$$");
-  return String(s).replace(new RegExp(String(pattern), "g"), literal);
+  const literal = repl.replace(/\$/g, "$$$$");
+  return s.replace(new RegExp(pattern, "g"), literal);
 }

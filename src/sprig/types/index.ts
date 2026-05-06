@@ -12,15 +12,15 @@ import { typeOf } from "./typeOf.js";
 export { deepCopy, deepEqual, kindIs, kindOf, typeIs, typeIsLike, typeOf };
 
 export function sprigTypes(): FuncMap {
-  // [LAW:single-enforcer] All registrations declare argTypes; ["any"]
-  // matches the reflection nature of these funcs and largely stays
-  // ["any"] after .3 tightens.
+  // [LAW:single-enforcer] Reflection funcs accept any value, but the
+  // *kind/type name* arguments tighten to "string" — they exist to be
+  // compared against typeOf's string output.
   return {
     kindOf: { fn: (v) => kindOf(v), argTypes: ["any"] },
-    kindIs: { fn: (k, v) => kindIs(k, v), argTypes: ["any", "any"] },
+    kindIs: { fn: (k, v) => kindIs(k as string, v), argTypes: ["string", "any"] },
     typeOf: { fn: (v) => typeOf(v), argTypes: ["any"] },
-    typeIs: { fn: (t, v) => typeIs(t, v), argTypes: ["any", "any"] },
-    typeIsLike: { fn: (t, v) => typeIsLike(t, v), argTypes: ["any", "any"] },
+    typeIs: { fn: (t, v) => typeIs(t as string, v), argTypes: ["string", "any"] },
+    typeIsLike: { fn: (t, v) => typeIsLike(t as string, v), argTypes: ["string", "any"] },
     deepEqual: { fn: (a, b) => deepEqual(a, b), argTypes: ["any", "any"] },
     deepCopy: { fn: (v) => deepCopy(v), argTypes: ["any"] },
   };

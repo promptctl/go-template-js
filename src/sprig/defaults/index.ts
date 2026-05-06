@@ -23,7 +23,7 @@ export function sprigDefaults(): FuncMap {
     empty: { fn: (v) => empty(v), argTypes: ["any"] },
     coalesce: { fn: (...vs) => coalesce(...vs), argTypes: ["any"] },
     ternary: { fn: (a, b, c) => ternary(a, b, c), argTypes: ["any", "any", "any"] },
-    fromJson: { fn: (s) => fromJson(s), argTypes: ["string"] },
+    fromJson: { fn: (s) => fromJson(s as string), argTypes: ["string"] },
     toJson: { fn: (v) => toJson(v), argTypes: ["any"], returnType: "string" },
     toPrettyJson: { fn: (v) => toPrettyJson(v), argTypes: ["any"], returnType: "string" },
   };

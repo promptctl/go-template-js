@@ -1,5 +1,3 @@
-export function trimPrefix(prefix: unknown, s: unknown): string {
-  const p = String(prefix);
-  const str = String(s);
-  return str.startsWith(p) ? str.slice(p.length) : str;
+export function trimPrefix(prefix: string, s: string): string {
+  return s.startsWith(prefix) ? s.slice(prefix.length) : s;
 }

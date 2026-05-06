@@ -1,3 +1,3 @@
-export function hasPrefix(prefix: unknown, s: unknown): boolean {
-  return String(s).startsWith(String(prefix));
+export function hasPrefix(prefix: string, s: string): boolean {
+  return s.startsWith(prefix);
 }

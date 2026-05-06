@@ -5,7 +5,4 @@ describe("sprig.upper", () => {
   it("uppercases ASCII strings", () => {
     expect(upper("hello")).toBe("HELLO");
   });
-  it("coerces non-strings", () => {
-    expect(upper(42)).toBe("42");
-  });
 });

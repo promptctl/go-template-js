@@ -17,8 +17,4 @@ describe("sprig.fromJson", () => {
   it("throws on invalid JSON", () => {
     expect(() => fromJson("not-json")).toThrow();
   });
-
-  it("throws when the input is not a string", () => {
-    expect(() => fromJson(42)).toThrow(/expected string/);
-  });
 });

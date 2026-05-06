@@ -1,3 +1,3 @@
-export function splitList(sep: unknown, s: unknown): string[] {
-  return String(s).split(String(sep));
+export function splitList(sep: string, s: string): string[] {
+  return s.split(sep);
 }

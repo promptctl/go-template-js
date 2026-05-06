@@ -1,5 +1,5 @@
 import { kindOf } from "./kindOf.js";
 
-export function kindIs(kind: unknown, value: unknown): boolean {
-  return kindOf(value) === String(kind);
+export function kindIs(kind: string, value: unknown): boolean {
+  return kindOf(value) === kind;
 }

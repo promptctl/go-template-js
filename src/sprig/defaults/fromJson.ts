@@ -5,9 +5,6 @@
  * matching Go sprig's behaviour (Go sprig propagates the parse error).
  */
 
-export function fromJson(input: unknown): unknown {
-  if (typeof input !== "string") {
-    throw new Error(`fromJson: expected string, got ${typeof input}`);
-  }
+export function fromJson(input: string): unknown {
   return JSON.parse(input);
 }

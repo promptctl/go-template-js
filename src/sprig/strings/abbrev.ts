@@ -4,10 +4,9 @@
  * the ellipsis; smaller widths return `s` unchanged (Go sprig
  * behavior).
  */
-export function abbrev(width: unknown, s: unknown): string {
+export function abbrev(width: number | bigint, s: string): string {
   const w = Number(width);
-  const str = String(s);
-  if (str.length <= w) return str;
-  if (w < 4) return str;
-  return `${str.slice(0, w - 3)}...`;
+  if (s.length <= w) return s;
+  if (w < 4) return s;
+  return `${s.slice(0, w - 3)}...`;
 }

@@ -1,5 +1,5 @@
 /** `regexFind pattern s` — first match, or "" when no match. */
-export function regexFind(pattern: unknown, s: unknown): string {
-  const m = new RegExp(String(pattern)).exec(String(s));
+export function regexFind(pattern: string, s: string): string {
+  const m = new RegExp(pattern).exec(s);
   return m ? m[0] : "";
 }

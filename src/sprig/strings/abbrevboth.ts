@@ -4,11 +4,10 @@
  * left/right specify offsets (0-indexed); the result has `...` around
  * a slice taken between them.
  */
-export function abbrevboth(left: unknown, right: unknown, s: unknown): string {
+export function abbrevboth(left: number | bigint, right: number | bigint, s: string): string {
   const l = Number(left);
   const r = Number(right);
-  const str = String(s);
-  if (r < 7 || str.length < r) return str;
-  if (l < 0 || l > str.length - r + 1) return str;
-  return `...${str.slice(l, l + r - 6)}...`;
+  if (r < 7 || s.length < r) return s;
+  if (l < 0 || l > s.length - r + 1) return s;
+  return `...${s.slice(l, l + r - 6)}...`;
 }

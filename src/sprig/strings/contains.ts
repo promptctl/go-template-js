@@ -1,3 +1,3 @@
-export function contains(substr: unknown, s: unknown): boolean {
-  return String(s).includes(String(substr));
+export function contains(substr: string, s: string): boolean {
+  return s.includes(substr);
 }

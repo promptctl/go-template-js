@@ -2,8 +2,8 @@
  * `wrap width s` — soft-wrap `s` to `width` columns at word boundaries.
  * Lines longer than width that contain no spaces are emitted as-is.
  */
-export function wrap(width: unknown, s: unknown): string {
-  return wrapWithSeparator(Number(width), "\n", String(s));
+export function wrap(width: number | bigint, s: string): string {
+  return wrapWithSeparator(Number(width), "\n", s);
 }
 
 export function wrapWithSeparator(width: number, sep: string, s: string): string {

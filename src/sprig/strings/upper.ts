@@ -1,3 +1,3 @@
-export function upper(s: unknown): string {
-  return String(s).toUpperCase();
+export function upper(s: string): string {
+  return s.toUpperCase();
 }

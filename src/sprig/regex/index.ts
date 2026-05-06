@@ -18,20 +18,34 @@ import { regexSplit } from "./regexSplit.js";
 export { regexFind, regexFindAll, regexMatch, regexReplaceAll, regexReplaceAllLiteral, regexSplit };
 
 export function sprigRegex(): FuncMap {
-  // [LAW:single-enforcer] All registrations declare argTypes; ["any"]
-  // is the .2 placeholder — .3 tightens to ["string", "string"] etc.
+  // [LAW:single-enforcer] argTypes is the *one* contract describing
+  // what each func accepts. enforceArgTypes catches T flowing into a
+  // string slot at the boundary, so the bodies trust their declared
+  // types and no longer call `String(.)`.
   return {
-    regexMatch: { fn: (p, s) => regexMatch(p, s), argTypes: ["any", "any"] },
-    regexFind: { fn: (p, s) => regexFind(p, s), argTypes: ["any", "any"] },
-    regexFindAll: { fn: (p, s, n) => regexFindAll(p, s, n), argTypes: ["any", "any", "any"] },
+    regexMatch: {
+      fn: (p, s) => regexMatch(p as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    regexFind: {
+      fn: (p, s) => regexFind(p as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    regexFindAll: {
+      fn: (p, s, n) => regexFindAll(p as string, s as string, n as number | bigint),
+      argTypes: ["string", "string", "number"],
+    },
     regexReplaceAll: {
-      fn: (p, s, r) => regexReplaceAll(p, s, r),
-      argTypes: ["any", "any", "any"],
+      fn: (p, s, r) => regexReplaceAll(p as string, s as string, r as string),
+      argTypes: ["string", "string", "string"],
     },
     regexReplaceAllLiteral: {
-      fn: (p, s, r) => regexReplaceAllLiteral(p, s, r),
-      argTypes: ["any", "any", "any"],
+      fn: (p, s, r) => regexReplaceAllLiteral(p as string, s as string, r as string),
+      argTypes: ["string", "string", "string"],
     },
-    regexSplit: { fn: (p, s, n) => regexSplit(p, s, n), argTypes: ["any", "any", "any"] },
+    regexSplit: {
+      fn: (p, s, n) => regexSplit(p as string, s as string, n as number | bigint),
+      argTypes: ["string", "string", "number"],
+    },
   };
 }

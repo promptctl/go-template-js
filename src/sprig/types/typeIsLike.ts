@@ -5,6 +5,6 @@ import { typeIs } from "./typeIs.js";
  * pointer-to-value. JS doesn't have pointers so this collapses to
  * `typeIs`.
  */
-export function typeIsLike(type: unknown, value: unknown): boolean {
+export function typeIsLike(type: string, value: unknown): boolean {
   return typeIs(type, value);
 }

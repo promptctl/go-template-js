@@ -1,5 +1,5 @@
 /** `chunk size list` — split list into sub-lists of `size`. */
-export function chunk(size: unknown, list: unknown): unknown[][] {
+export function chunk(size: number | bigint, list: unknown): unknown[][] {
   const n = Math.max(1, Math.trunc(Number(size)));
   if (!Array.isArray(list)) return [];
   const out: unknown[][] = [];

@@ -1,3 +1,3 @@
-export function mulf(...args: unknown[]): number {
+export function mulf(...args: (number | bigint)[]): number {
   return args.reduce<number>((acc, v) => acc * Number(v), 1);
 }

@@ -68,38 +68,90 @@ export {
 };
 
 export function sprigStrings(): FuncMap {
-  // [LAW:single-enforcer] Every registration declares argTypes — the
-  // no-silent-flatten guard is unconditional. ["any"] is the explicit
-  // permissive escape; the .3 follow-up tightens these to the actual
-  // declared types of each function (e.g. ["string"] for upper/trim).
+  // [LAW:single-enforcer] argTypes is the *one* contract describing
+  // what each func accepts. enforceArgTypes runs at the boundary, so
+  // the `as` casts below are provably-safe — the runtime types match
+  // the declared argTypes. The function bodies trust those types and
+  // no longer re-coerce with `String(.)`.
   return {
-    abbrev: { fn: (w, s) => abbrev(w, s), argTypes: ["any", "any"] },
-    abbrevboth: { fn: (l, r, s) => abbrevboth(l, r, s), argTypes: ["any", "any", "any"] },
-    cat: { fn: (...a) => cat(...a), argTypes: ["any"] },
-    contains: { fn: (sub, s) => contains(sub, s), argTypes: ["any", "any"] },
-    hasPrefix: { fn: (p, s) => hasPrefix(p, s), argTypes: ["any", "any"] },
-    hasSuffix: { fn: (sf, s) => hasSuffix(sf, s), argTypes: ["any", "any"] },
-    indent: { fn: (n, s) => indent(n, s), argTypes: ["any", "any"] },
-    initials: { fn: (s) => initials(s), argTypes: ["any"] },
-    join: { fn: (sep, list) => join(sep, list), argTypes: ["any", "any"] },
-    lower: { fn: (s) => lower(s), argTypes: ["any"] },
-    nindent: { fn: (n, s) => nindent(n, s), argTypes: ["any", "any"] },
-    quote: { fn: (...a) => quote(...a), argTypes: ["any"] },
-    repeat: { fn: (n, s) => repeat(n, s), argTypes: ["any", "any"] },
-    replace: { fn: (o, n, s) => replace(o, n, s), argTypes: ["any", "any", "any"] },
-    split: { fn: (sep, s) => split(sep, s), argTypes: ["any", "any"] },
-    splitList: { fn: (sep, s) => splitList(sep, s), argTypes: ["any", "any"] },
-    squote: { fn: (...a) => squote(...a), argTypes: ["any"] },
-    substr: { fn: (i, j, s) => substr(i, j, s), argTypes: ["any", "any", "any"] },
-    title: { fn: (s) => title(s), argTypes: ["any"] },
-    trim: { fn: (s) => trim(s), argTypes: ["any"] },
-    trimAll: { fn: (cs, s) => trimAll(cs, s), argTypes: ["any", "any"] },
-    trimPrefix: { fn: (p, s) => trimPrefix(p, s), argTypes: ["any", "any"] },
-    trimSuffix: { fn: (sf, s) => trimSuffix(sf, s), argTypes: ["any", "any"] },
-    trunc: { fn: (n, s) => trunc(n, s), argTypes: ["any", "any"] },
-    untitle: { fn: (s) => untitle(s), argTypes: ["any"] },
-    upper: { fn: (s) => upper(s), argTypes: ["any"] },
-    wrap: { fn: (w, s) => wrap(w, s), argTypes: ["any", "any"] },
-    wrapWith: { fn: (w, sep, s) => wrapWith(w, sep, s), argTypes: ["any", "any", "any"] },
+    abbrev: {
+      fn: (w, s) => abbrev(w as number | bigint, s as string),
+      argTypes: ["number", "string"],
+    },
+    abbrevboth: {
+      fn: (l, r, s) => abbrevboth(l as number | bigint, r as number | bigint, s as string),
+      argTypes: ["number", "number", "string"],
+    },
+    cat: { fn: (...a) => cat(...(a as string[])), argTypes: ["string"] },
+    contains: {
+      fn: (sub, s) => contains(sub as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    hasPrefix: {
+      fn: (p, s) => hasPrefix(p as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    hasSuffix: {
+      fn: (sf, s) => hasSuffix(sf as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    indent: {
+      fn: (n, s) => indent(n as number | bigint, s as string),
+      argTypes: ["number", "string"],
+    },
+    initials: { fn: (s) => initials(s as string), argTypes: ["string"] },
+    join: { fn: (sep, list) => join(sep as string, list), argTypes: ["string", "any"] },
+    lower: { fn: (s) => lower(s as string), argTypes: ["string"] },
+    nindent: {
+      fn: (n, s) => nindent(n as number | bigint, s as string),
+      argTypes: ["number", "string"],
+    },
+    quote: { fn: (...a) => quote(...(a as string[])), argTypes: ["string"] },
+    repeat: {
+      fn: (n, s) => repeat(n as number | bigint, s as string),
+      argTypes: ["number", "string"],
+    },
+    replace: {
+      fn: (o, n, s) => replace(o as string, n as string, s as string),
+      argTypes: ["string", "string", "string"],
+    },
+    split: { fn: (sep, s) => split(sep as string, s as string), argTypes: ["string", "string"] },
+    splitList: {
+      fn: (sep, s) => splitList(sep as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    squote: { fn: (...a) => squote(...(a as string[])), argTypes: ["string"] },
+    substr: {
+      fn: (i, j, s) => substr(i as number | bigint, j as number | bigint, s as string),
+      argTypes: ["number", "number", "string"],
+    },
+    title: { fn: (s) => title(s as string), argTypes: ["string"] },
+    trim: { fn: (s) => trim(s as string), argTypes: ["string"] },
+    trimAll: {
+      fn: (cs, s) => trimAll(cs as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    trimPrefix: {
+      fn: (p, s) => trimPrefix(p as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    trimSuffix: {
+      fn: (sf, s) => trimSuffix(sf as string, s as string),
+      argTypes: ["string", "string"],
+    },
+    trunc: {
+      fn: (n, s) => trunc(n as number | bigint, s as string),
+      argTypes: ["number", "string"],
+    },
+    untitle: { fn: (s) => untitle(s as string), argTypes: ["string"] },
+    upper: { fn: (s) => upper(s as string), argTypes: ["string"] },
+    wrap: {
+      fn: (w, s) => wrap(w as number | bigint, s as string),
+      argTypes: ["number", "string"],
+    },
+    wrapWith: {
+      fn: (w, sep, s) => wrapWith(w as number | bigint, sep as string, s as string),
+      argTypes: ["number", "string", "string"],
+    },
   };
 }

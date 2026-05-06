@@ -1,3 +1,3 @@
-export function trim(s: unknown): string {
-  return String(s).trim();
+export function trim(s: string): string {
+  return s.trim();
 }

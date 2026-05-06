@@ -38,9 +38,10 @@ export {
 };
 
 export function sprigLists(): FuncMap {
-  // [LAW:single-enforcer] All registrations declare argTypes; ["any"]
-  // is the .2 placeholder — list/dict surfaces are inherently T-typed
-  // so most stay ["any"] even after .3 tightens.
+  // [LAW:single-enforcer] List APIs are inherently T-typed (lists hold
+  // arbitrary T values), so most slots stay "any". The two slots that
+  // genuinely accept only numbers — chunk's size and slice's i/j —
+  // tighten to "number".
   return {
     list: { fn: (...a) => list(...a), argTypes: ["any"] },
     first: { fn: (l) => first(l), argTypes: ["any"] },
@@ -53,9 +54,15 @@ export function sprigLists(): FuncMap {
     without: { fn: (l, ...e) => without(l, ...e), argTypes: ["any"] },
     has: { fn: (i, l) => has(i, l), argTypes: ["any", "any"] },
     compact: { fn: (l) => compact(l), argTypes: ["any"] },
-    slice: { fn: (l, i, j) => slice(l, i, j), argTypes: ["any", "any", "any"] },
+    slice: {
+      fn: (l, i, j) => slice(l, i as number | bigint, j as number | bigint),
+      argTypes: ["any", "number", "number"],
+    },
     concat: { fn: (...l) => concat(...l), argTypes: ["any"] },
-    chunk: { fn: (s, l) => chunk(s, l), argTypes: ["any", "any"] },
+    chunk: {
+      fn: (s, l) => chunk(s as number | bigint, l),
+      argTypes: ["number", "any"],
+    },
     prepend: { fn: (l, i) => prepend(l, i), argTypes: ["any", "any"] },
     append: { fn: (l, i) => append(l, i), argTypes: ["any", "any"] },
   };
