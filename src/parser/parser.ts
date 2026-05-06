@@ -317,9 +317,12 @@ class Parser {
     const list = this.parseList();
     const endRight = this.consumeEnd();
     const trim: TrimMarkers = { trimLeft, trimRight: endRight };
-    // Block also defines the named template. Per Go's parse package the
-    // block's body is associated as a define under the same name.
-    this.defines.set(name, list);
+    // Block both registers a default body under `name` AND invokes it.
+    // A preceding `{{define}}` for the same name takes precedence —
+    // the block body is the fallback, not the override.
+    if (!this.defines.has(name)) {
+      this.defines.set(name, list);
+    }
     return pipe
       ? ({ type: "Block", pos: startPos, name, pipe, list, trim } satisfies BlockNode)
       : ({ type: "Block", pos: startPos, name, list, trim } satisfies BlockNode);

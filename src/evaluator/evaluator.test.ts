@@ -131,14 +131,8 @@ describe("evaluator — generic over T", () => {
   });
 });
 
-describe("evaluator — unimplemented productions fail loudly", () => {
+describe("evaluator — function dispatch failures", () => {
   it("throws FuncNotFoundError for an unregistered function", () => {
     expect(() => renderString("{{ printf }}", null)).toThrow(/is not registered/);
-  });
-
-  it("throws on if/range/with (deferred to .3)", () => {
-    expect(() => renderString("{{ if .x }}y{{ end }}", { x: true })).toThrow(
-      /template-evaluator-cgm\.3/,
-    );
   });
 });

@@ -11,10 +11,9 @@
  * way to the output stream — the asymmetry between "string in / T out"
  * is encoded as a single function call, not duplicated at every site.
  *
- * Scope of *this* ticket (.1): single-command pipelines only, no `|`
- * chains, no control flow, no built-ins. The skeleton is structured
- * so .2/.3/.4 can fill in those productions without touching the
- * pieces this ticket owns.
+ * State is threaded as a single `EvalContext` per `evaluate()` call —
+ * no instance mutation, so the same Engine handles concurrent evaluate
+ * calls (tested through the parse-once-eval-many invariant).
  */
 
 import {
@@ -25,10 +24,12 @@ import {
   type Node,
   type PipeNode,
 } from "../parser/ast.js";
+import type { ParseResult } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { EvalError, FuncNotFoundError, TypeMismatchError } from "./errors.js";
-import { declareVar, lookupVar, rootScope, type Scope } from "./scope.js";
+import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
+import { isTruthy } from "./truthy.js";
 
 // ---------------------------------------------------------------------------
 // Public API.
@@ -54,7 +55,8 @@ export interface TemplateFunc {
   /**
    * Declared positional parameter types. When omitted, every argument
    * is treated as `"any"` and the no-silent-flatten guard is inactive.
-   * The pipe-fed last argument is checked against `argTypes[argTypes.length - 1]`.
+   * The pipe-fed last argument is checked against
+   * `argTypes[argTypes.length - 1]`.
    */
   readonly argTypes?: readonly ArgType[];
   readonly returnType?: ArgType;
@@ -69,6 +71,13 @@ export interface EngineConfig<T> {
   readonly funcs?: FuncMap;
 }
 
+// Per-evaluate context. Threaded through every internal method.
+interface EvalContext<T> {
+  readonly out: T[];
+  readonly defines: ReadonlyMap<string, ListNode>;
+  readonly source: string | undefined;
+}
+
 export class Engine<T> {
   private readonly fromString: (s: string) => T;
   private readonly funcs: FuncMap;
@@ -78,11 +87,27 @@ export class Engine<T> {
     this.funcs = config.funcs ?? {};
   }
 
-  /** Evaluate a parsed AST against a scope value, producing a stream of T. */
-  evaluate(ast: ListNode, scope: unknown, sourceText?: string): T[] {
+  /**
+   * Evaluate a parsed template against a scope value, producing T[].
+   *
+   * The first argument may be either:
+   *  - a bare `ListNode` (the simplest case — no `{{template}}` /
+   *    `{{block}}` resolution available);
+   *  - a full `ParseResult` (with `root`, `defines`, `source`) which
+   *    enables sub-template invocation and rich error snippets.
+   */
+  evaluate(astOrResult: ListNode | ParseResult, scope: unknown, sourceText?: string): T[] {
+    const result: ParseResult = isParseResult(astOrResult)
+      ? astOrResult
+      : { root: astOrResult, defines: new Map(), source: sourceText ?? "" };
     const out: T[] = [];
     const root = rootScope(scope);
-    this.evalList(ast, root, out, sourceText);
+    const ctx: EvalContext<T> = {
+      out,
+      defines: result.defines,
+      source: result.source || sourceText,
+    };
+    this.evalList(result.root, root, ctx);
     return out;
   }
 
@@ -90,43 +115,45 @@ export class Engine<T> {
   // Statement-level dispatch (output-producing nodes).
   // -------------------------------------------------------------------
 
-  private evalList(node: ListNode, scope: Scope, out: T[], src: string | undefined): void {
+  private evalList(node: ListNode, scope: Scope, ctx: EvalContext<T>): void {
     for (const child of node.nodes) {
-      this.evalNode(child, scope, out, src);
+      this.evalNode(child, scope, ctx);
     }
   }
 
-  private evalNode(node: Node, scope: Scope, out: T[], src: string | undefined): void {
+  private evalNode(node: Node, scope: Scope, ctx: EvalContext<T>): void {
     switch (node.type) {
       case "Text":
-        out.push(this.fromString(node.text));
+        ctx.out.push(this.fromString(node.text));
         return;
       case "Comment":
         return;
       case "Action": {
-        const value = this.evalAction(node, scope, src);
+        const value = this.evalAction(node, scope, ctx);
         // Per Go's spec, actions whose pipeline declares variables
         // (`{{ $x := pipe }}`) contribute no output — they're pure
         // assignment statements. Only assignment-free actions emit.
-        if (node.pipe.decls.length === 0) this.emitFromValue(value, out);
+        if (node.pipe.decls.length === 0) this.emitFromValue(value, ctx);
         return;
       }
       case "List":
-        this.evalList(node, scope, out, src);
+        this.evalList(node, scope, ctx);
         return;
       case "If":
+        this.evalIf(node, scope, ctx);
+        return;
       case "Range":
+        this.evalRange(node, scope, ctx);
+        return;
       case "With":
+        this.evalWith(node, scope, ctx);
+        return;
       case "Template":
+        this.evalTemplateInvoke(node, scope, ctx);
+        return;
       case "Block":
-        // [LAW:no-mode-explosion] These are control-flow productions
-        // that subsequent tickets in this epic own. Failing loudly at
-        // the boundary keeps the .1 surface honest about its scope.
-        throw new EvalError(
-          `${node.type} evaluation is not implemented yet (template-evaluator-cgm.3)`,
-          node.pos,
-          { source: src },
-        );
+        this.evalBlock(node, scope, ctx);
+        return;
       case "Pipe":
       case "Command":
       case "Identifier":
@@ -141,7 +168,7 @@ export class Engine<T> {
         // These are *expression* nodes — they should never appear as
         // statements at list level. If one does, the AST is malformed.
         throw new EvalError(`unexpected ${node.type} at statement position`, node.pos, {
-          source: src,
+          source: ctx.source,
         });
       default:
         assertNever(node);
@@ -149,28 +176,118 @@ export class Engine<T> {
   }
 
   // -------------------------------------------------------------------
+  // Control flow.
+  // -------------------------------------------------------------------
+
+  private evalIf(
+    node: { pipe: PipeNode; list: ListNode; elseList?: ListNode },
+    scope: Scope,
+    ctx: EvalContext<T>,
+  ): void {
+    const cond = this.evalPipe(node.pipe, scope, ctx);
+    if (isTruthy(cond)) {
+      this.evalList(node.list, scope, ctx);
+    } else if (node.elseList) {
+      this.evalList(node.elseList, scope, ctx);
+    }
+  }
+
+  private evalWith(
+    node: { pipe: PipeNode; list: ListNode; elseList?: ListNode },
+    scope: Scope,
+    ctx: EvalContext<T>,
+  ): void {
+    const value = this.evalPipe(node.pipe, scope, ctx);
+    if (isTruthy(value)) {
+      const child = pushScope(scope, value);
+      this.evalList(node.list, child, ctx);
+    } else if (node.elseList) {
+      this.evalList(node.elseList, scope, ctx);
+    }
+  }
+
+  private evalRange(
+    node: { pipe: PipeNode; list: ListNode; elseList?: ListNode; pos: Pos },
+    scope: Scope,
+    ctx: EvalContext<T>,
+  ): void {
+    // For `range`, the pipeline's declarations bind to (key, value)
+    // *per iteration*, not to the iterable as a whole. We evaluate the
+    // pipe with its decls suppressed, then handle the bindings here.
+    const value = evalPipeWithoutDecls(this, node.pipe, scope, ctx);
+    const decls = node.pipe.decls;
+
+    const entries = enumerateForRange(value);
+    if (entries.length === 0) {
+      if (node.elseList) this.evalList(node.elseList, scope, ctx);
+      return;
+    }
+    for (const [key, item] of entries) {
+      const child = pushScope(scope, item);
+      if (decls.length === 1) {
+        const name = decls[0]?.idents[0] ?? "$";
+        declareVar(child, name, item);
+      } else if (decls.length >= 2) {
+        const k = decls[0]?.idents[0] ?? "$";
+        const v = decls[1]?.idents[0] ?? "$";
+        declareVar(child, k, key);
+        declareVar(child, v, item);
+      }
+      this.evalList(node.list, child, ctx);
+    }
+  }
+
+  private evalTemplateInvoke(
+    node: { name: string; pipe?: PipeNode; pos: Pos },
+    scope: Scope,
+    ctx: EvalContext<T>,
+  ): void {
+    const tpl = ctx.defines.get(node.name);
+    if (!tpl) {
+      throw new EvalError(`template ${JSON.stringify(node.name)} is not defined`, node.pos, {
+        source: ctx.source,
+      });
+    }
+    const arg = node.pipe ? this.evalPipe(node.pipe, scope, ctx) : scope.dot;
+    const child = pushScope(scope, arg);
+    this.evalList(tpl, child, ctx);
+  }
+
+  private evalBlock(
+    node: { name: string; pipe?: PipeNode; list: ListNode; pos: Pos },
+    scope: Scope,
+    ctx: EvalContext<T>,
+  ): void {
+    // A block invokes the same-named template if one is registered (or
+    // that registration came from the block itself at parse time).
+    // The dot for the block body is the pipe's value when present.
+    const arg = node.pipe ? this.evalPipe(node.pipe, scope, ctx) : scope.dot;
+    const child = pushScope(scope, arg);
+    const tpl = ctx.defines.get(node.name) ?? node.list;
+    this.evalList(tpl, child, ctx);
+  }
+
+  // -------------------------------------------------------------------
   // Expression-level dispatch (value-producing).
   // -------------------------------------------------------------------
 
-  private evalAction(node: ActionNode, scope: Scope, src: string | undefined): unknown {
-    return this.evalPipe(node.pipe, scope, src);
+  private evalAction(node: ActionNode, scope: Scope, ctx: EvalContext<T>): unknown {
+    return this.evalPipe(node.pipe, scope, ctx);
   }
 
-  private evalPipe(pipe: PipeNode, scope: Scope, src: string | undefined): unknown {
+  evalPipe(pipe: PipeNode, scope: Scope, ctx: EvalContext<T>): unknown {
     if (pipe.cmds.length === 0) {
-      throw new EvalError("empty pipeline", pipe.pos, { source: src });
+      throw new EvalError("empty pipeline", pipe.pos, { source: ctx.source });
     }
-    // First command runs unpiped; each subsequent command receives the
-    // previous result as its trailing argument (Go's last-arg piping).
-    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, src, undefined);
+    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, undefined);
     for (let i = 1; i < pipe.cmds.length; i++) {
       const next = pipe.cmds[i] as CommandNode;
-      value = this.evalCommand(next, scope, src, value);
+      value = this.evalCommand(next, scope, ctx, value);
     }
 
     // Apply variable declarations / assignments after the pipe is
-    // fully evaluated. Multi-decl tuple semantics are owned by `range`
-    // in .3 and override this.
+    // fully evaluated. Multi-decl tuple semantics for `range` are
+    // handled inside `evalRange` (which calls `evalPipeWithoutDecls`).
     if (pipe.decls.length > 0) {
       for (const decl of pipe.decls) {
         const name = decl.idents[0] ?? "$";
@@ -183,49 +300,37 @@ export class Engine<T> {
   private evalCommand(
     cmd: CommandNode,
     scope: Scope,
-    src: string | undefined,
+    ctx: EvalContext<T>,
     pipedValue: unknown,
   ): unknown {
     if (cmd.args.length === 0) {
-      throw new EvalError("empty command", cmd.pos, { source: src });
+      throw new EvalError("empty command", cmd.pos, { source: ctx.source });
     }
     const head = cmd.args[0] as Node;
 
-    // A command with a single argument that is not an identifier (or
-    // is an identifier but we have a piped value) is either a value
-    // expression or a piped lone-value flow.
     if (head.type !== "Identifier") {
       if (cmd.args.length > 1) {
         throw new EvalError(
           `cannot apply arguments to a ${head.type} primary; only functions take arguments`,
           cmd.pos,
-          { source: src },
+          { source: ctx.source },
         );
       }
-      const value = this.evalPrimary(head, scope, src);
-      // A non-function command that receives a pipe value just returns
-      // its own value — Go discards the pipe input in this position.
-      // (In practice this rarely occurs; the parser only produces it
-      // for trailing pipe-targets like `{{ pipe | .field }}`, which Go
-      // disallows. We're permissive: prefer the explicit primary.)
-      return value;
+      return this.evalPrimary(head, scope, ctx);
     }
 
-    // Function call: head is the identifier; remaining args are the
-    // function's positional inputs, followed by the piped value (if
-    // any) as the last argument.
     const fn = this.funcs[head.ident];
-    if (!fn) throw new FuncNotFoundError(head.ident, head.pos, { source: src });
+    if (!fn) throw new FuncNotFoundError(head.ident, head.pos, { source: ctx.source });
 
     const argNodes = cmd.args.slice(1);
-    const evaluated = argNodes.map((n) => this.evalPrimary(n, scope, src));
+    const evaluated = argNodes.map((n) => this.evalPrimary(n, scope, ctx));
     if (pipedValue !== undefined) evaluated.push(pipedValue);
 
-    enforceArgTypes(head.ident, fn.argTypes, evaluated, cmd.pos, src);
+    enforceArgTypes(head.ident, fn.argTypes, evaluated, cmd.pos, ctx.source);
     return fn.fn(...evaluated);
   }
 
-  private evalPrimary(node: Node, scope: Scope, src: string | undefined): unknown {
+  private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>): unknown {
     switch (node.type) {
       case "Dot":
         return scope.dot;
@@ -238,32 +343,27 @@ export class Engine<T> {
       case "String":
         return node.value;
       case "Field":
-        return this.resolveFieldChain(scope.dot, node.idents, node.pos, src);
+        return this.resolveFieldChain(scope.dot, node.idents, node.pos, ctx);
       case "Variable":
-        return this.resolveVariable(node.idents, scope, node.pos, src);
+        return this.resolveVariable(node.idents, scope, node.pos, ctx);
       case "Identifier": {
-        // A bare identifier in argument position is a zero-arg function
-        // call (nullary functions like Go's builtin `true`/`false` once
-        // a registry exists).
         const fn = this.funcs[node.ident];
-        if (!fn) throw new FuncNotFoundError(node.ident, node.pos, { source: src });
-        enforceArgTypes(node.ident, fn.argTypes, [], node.pos, src);
+        if (!fn) throw new FuncNotFoundError(node.ident, node.pos, { source: ctx.source });
+        enforceArgTypes(node.ident, fn.argTypes, [], node.pos, ctx.source);
         return fn.fn();
       }
       case "Chain":
-        // `(pipe).x.y` — evaluate the pipe and walk the field chain.
         return this.resolveFieldChain(
-          this.evalPrimary(node.node, scope, src),
+          this.evalPrimary(node.node, scope, ctx),
           node.fields,
           node.pos,
-          src,
+          ctx,
         );
       case "Pipe":
-        // Parenthesised pipeline used as an argument.
-        return this.evalPipe(node, scope, src);
+        return this.evalPipe(node, scope, ctx);
       default:
         throw new EvalError(`cannot evaluate ${node.type} as a value`, node.pos, {
-          source: src,
+          source: ctx.source,
         });
     }
   }
@@ -276,12 +376,12 @@ export class Engine<T> {
     receiver: unknown,
     idents: readonly string[],
     pos: Pos,
-    src: string | undefined,
+    ctx: EvalContext<T>,
   ): unknown {
     const result = walkFieldChain(receiver, idents);
     if (result === MISSING) {
       throw new EvalError(`field "${idents.join(".")}" not found on receiver`, pos, {
-        source: src,
+        source: ctx.source,
       });
     }
     return result;
@@ -291,42 +391,36 @@ export class Engine<T> {
     idents: readonly string[],
     scope: Scope,
     pos: Pos,
-    src: string | undefined,
+    ctx: EvalContext<T>,
   ): unknown {
     const head = idents[0] ?? "$";
     if (head === "$") {
-      // Bare `$` = root scope.
       const tail = idents.slice(1);
-      return tail.length === 0 ? scope.root : this.resolveFieldChain(scope.root, tail, pos, src);
+      return tail.length === 0 ? scope.root : this.resolveFieldChain(scope.root, tail, pos, ctx);
     }
     const lookup = lookupVar(scope, head);
     if (!lookup.found) {
-      throw new EvalError(`undefined variable ${head}`, pos, { source: src });
+      throw new EvalError(`undefined variable ${head}`, pos, { source: ctx.source });
     }
     const tail = idents.slice(1);
-    return tail.length === 0 ? lookup.value : this.resolveFieldChain(lookup.value, tail, pos, src);
+    return tail.length === 0 ? lookup.value : this.resolveFieldChain(lookup.value, tail, pos, ctx);
   }
 
   // -------------------------------------------------------------------
-  // Output stream — `string`-typed values become T via `fromString`;
-  // T-typed values flow through unchanged.
+  // Output stream.
   // -------------------------------------------------------------------
 
-  private emitFromValue(value: unknown, out: T[]): void {
+  private emitFromValue(value: unknown, ctx: EvalContext<T>): void {
     if (value === null || value === undefined) return;
     if (typeof value === "string") {
-      out.push(this.fromString(value));
+      ctx.out.push(this.fromString(value));
       return;
     }
-    // Anything else is assumed to be a T or a primitive — defer to the
-    // caller's `fromString` after stringifying primitives, or push T
-    // values directly. This is the entry point that .2 will refine
-    // when it adds the "no silent flatten" guards.
     if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-      out.push(this.fromString(String(value)));
+      ctx.out.push(this.fromString(String(value)));
       return;
     }
-    out.push(value as T);
+    ctx.out.push(value as T);
   }
 }
 
@@ -343,8 +437,7 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 //
 // [LAW:single-enforcer] This is the *one* place where argument types
 // are validated against runtime values. Every function call routes
-// through here. Adding a per-callsite shortcut would let drift creep
-// in — fix the helper, not the callsite.
+// through here.
 // ---------------------------------------------------------------------------
 
 function enforceArgTypes(
@@ -356,9 +449,6 @@ function enforceArgTypes(
 ): void {
   if (!argTypes) return;
   for (let i = 0; i < values.length; i++) {
-    // If the function declares fewer types than args were passed, treat
-    // the trailing args as "any". This lets variadic-style funcs opt
-    // out of guarding once the head args are checked.
     const declared = argTypes[i] ?? "any";
     const value = values[i];
     if (matchesArgType(declared, value)) continue;
@@ -384,10 +474,6 @@ function matchesArgType(declared: ArgType, value: unknown): boolean {
     case "bool":
       return typeof value === "boolean";
     case "T":
-      // Treat anything that isn't a primitive as a T-shaped value.
-      // Primitives (string/number/bool/bigint/symbol) are excluded so
-      // a T-typed slot doesn't silently accept a primitive that the
-      // caller probably meant to wrap via fromString.
       return (
         value !== null &&
         value !== undefined &&
@@ -413,8 +499,58 @@ function describeValue(value: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers.
+// Range support — pipe-without-decls + iteration helpers.
 // ---------------------------------------------------------------------------
+
+function evalPipeWithoutDecls<T>(
+  engine: Engine<T>,
+  pipe: PipeNode,
+  scope: Scope,
+  ctx: EvalContext<T>,
+): unknown {
+  // Synthesise a pipe with empty decls so the standard evalPipe doesn't
+  // attempt the (single-binding) declaration. evalRange handles its
+  // own multi-binding semantics.
+  const stripped: PipeNode = {
+    type: "Pipe",
+    pos: pipe.pos,
+    decls: [],
+    isAssign: false,
+    cmds: pipe.cmds,
+  };
+  return engine.evalPipe(stripped, scope, ctx);
+}
+
+/**
+ * Produce [key, value] entries for a `range` operand.
+ *
+ * - Arrays / typed arrays / strings: numeric index → element
+ * - Maps: entries
+ * - Sets: index → element (Go ranges over channels but we map to Set
+ *   for symmetry with arrays/iteration)
+ * - Plain objects: own enumerable keys (Go's map iteration order is
+ *   undefined; we match JS object key order for determinism)
+ * - null/undefined: empty
+ */
+function enumerateForRange(value: unknown): readonly (readonly [unknown, unknown])[] {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) return value.map((v, i) => [i, v] as const);
+  if (typeof value === "string") return [...value].map((c, i) => [i, c] as const);
+  if (value instanceof Map) return [...value.entries()];
+  if (value instanceof Set) return [...value.values()].map((v, i) => [i, v] as const);
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>);
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// ParseResult discriminator + numeric-literal helper.
+// ---------------------------------------------------------------------------
+
+function isParseResult(x: ListNode | ParseResult): x is ParseResult {
+  return (x as ParseResult).root !== undefined;
+}
 
 function numberValue(n: {
   readonly intValue?: bigint;
@@ -422,8 +558,6 @@ function numberValue(n: {
   readonly complexValue?: readonly [number, number];
 }): unknown {
   if (n.intValue !== undefined) {
-    // Prefer Number for safe-range ints; bigint outside the safe range
-    // (callers may opt into the bigint via the AST node directly).
     const bi = n.intValue;
     if (bi >= BigInt(Number.MIN_SAFE_INTEGER) && bi <= BigInt(Number.MAX_SAFE_INTEGER)) {
       return Number(bi);
