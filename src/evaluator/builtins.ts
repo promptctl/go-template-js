@@ -210,11 +210,20 @@ function describeType(v: unknown): string {
 // ---------------------------------------------------------------------------
 
 function goPrint(args: readonly unknown[]): string {
-  // Go's `print` joins with a single space when both adjacent args
-  // are operands of *non-string* types. We approximate by always
-  // joining with " " when there are multiple args — close enough for
-  // the cases in the conformance corpus.
-  return args.map(stringifyForPrint).join(" ");
+  // Go's `fmt.Sprint`: emits a space between adjacent operands when
+  // *neither* of the two flanking values is a string. So `x` `1` is
+  // joined as `x1` (string adjacent), but `1` `true` is joined as
+  // `1 true` (neither is a string).
+  let out = "";
+  let prevIsString = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const isString = typeof arg === "string";
+    if (i > 0 && !prevIsString && !isString) out += " ";
+    out += stringifyForPrint(arg);
+    prevIsString = isString;
+  }
+  return out;
 }
 
 function stringifyForPrint(value: unknown): string {

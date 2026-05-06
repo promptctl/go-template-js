@@ -487,8 +487,39 @@ export class Engine<T> {
       ctx.out.push(this.fromString(String(value)));
       return;
     }
+    // Arrays / Maps / plain objects: format Go-like (`[a b c]`, `map[k:v]`,
+    // `{f1 f2}`) when the value lands in a string-output stream. This
+    // matches Go's `fmt.Sprintf("%v", v)` shape for the common cases
+    // and keeps the conformance corpus byte-equal.
+    if (Array.isArray(value)) {
+      ctx.out.push(this.fromString(formatArrayLikeGo(value)));
+      return;
+    }
+    if (value instanceof Map) {
+      ctx.out.push(this.fromString(formatMapLikeGo(value)));
+      return;
+    }
     ctx.out.push(value as T);
   }
+}
+
+function formatArrayLikeGo(arr: readonly unknown[]): string {
+  return `[${arr.map(formatScalarLikeGo).join(" ")}]`;
+}
+
+function formatMapLikeGo(m: ReadonlyMap<unknown, unknown>): string {
+  const parts: string[] = [];
+  for (const [k, v] of m) {
+    parts.push(`${formatScalarLikeGo(k)}:${formatScalarLikeGo(v)}`);
+  }
+  return `map[${parts.join(" ")}]`;
+}
+
+function formatScalarLikeGo(v: unknown): string {
+  if (v === null || v === undefined) return "<nil>";
+  if (Array.isArray(v)) return formatArrayLikeGo(v);
+  if (v instanceof Map) return formatMapLikeGo(v);
+  return String(v);
 }
 
 // ---------------------------------------------------------------------------

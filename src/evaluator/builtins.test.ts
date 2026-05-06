@@ -93,8 +93,11 @@ describe("builtins — len / index / slice", () => {
 });
 
 describe("builtins — print / println / printf", () => {
-  it("print joins args with spaces", () => {
-    expect(render('{{ print "a" "b" "c" }}')).toBe("a b c");
+  it("print joins per Go's fmt.Sprint: spaces only between non-string adjacents", () => {
+    // All-strings: no spaces.
+    expect(render('{{ print "a" "b" "c" }}')).toBe("abc");
+    // Mixed: space between adjacent non-strings (1 + true), none around strings.
+    expect(render('{{ print "x" 1 true }}')).toBe("x1 true");
   });
 
   it("println adds a trailing newline", () => {

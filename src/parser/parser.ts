@@ -468,17 +468,18 @@ class Parser {
 
   private parseChainOrPipe(startPos: Pos): Node {
     const inner = this.parsePipeline();
-    this.expect("RightParen", "`)`");
-    // Optional field chain on the result.
+    const rparen = this.expect("RightParen", "`)`");
+    // Field chain on `(pipe).field` requires the `.` to be immediately
+    // adjacent to `)` — otherwise it's a separate command argument.
+    // The lexer's Field tokens carry source positions; if there was
+    // whitespace between `)` and the next Field, their positions
+    // won't be consecutive.
     const fields: string[] = [];
-    while (this.peek().type === "Field" || this.peek().type === "Dot") {
-      const t = this.next();
-      if (t.type === "Field") {
-        fields.push(...t.value.slice(1).split("."));
-      } else {
-        // bare `.` — illegal here per Go (`(pipe).` with nothing after)
-        throw this.errAt(t, "expected field name after `.`", { expected: "field" });
-      }
+    const expectedNextOffset = rparen.pos.offset + 1;
+    const t = this.peek();
+    if (t.type === "Field" && t.pos.offset === expectedNextOffset) {
+      this.next();
+      fields.push(...t.value.slice(1).split("."));
     }
     if (fields.length === 0) return inner;
     return { type: "Chain", pos: startPos, node: inner, fields } satisfies ChainNode;
