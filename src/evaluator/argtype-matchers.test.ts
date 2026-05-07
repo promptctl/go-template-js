@@ -141,10 +141,27 @@ describe("matchesArgType — comparable", () => {
     expect(eng.parse("{{ f . }}").evaluate(undefined).join("")).toBe("ok");
   });
 
-  it("rejects arrays and plain objects (deep-equal layered in .5)", () => {
+  it("accepts arrays, plain objects, Maps, and Sets (deep-equal in eq/ne)", () => {
     const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["comparable"] });
-    expect(() => eng.parse("{{ f . }}").evaluate([1, 2])).toThrow(TypeMismatchError);
-    expect(() => eng.parse("{{ f . }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
+    expect(eng.parse("{{ f . }}").evaluate([1, 2]).join("")).toBe("ok");
+    expect(eng.parse("{{ f . }}").evaluate({ a: 1 }).join("")).toBe("ok");
+    expect(
+      eng
+        .parse("{{ f . }}")
+        .evaluate(new Map([["k", 1]]))
+        .join(""),
+    ).toBe("ok");
+    expect(
+      eng
+        .parse("{{ f . }}")
+        .evaluate(new Set([1]))
+        .join(""),
+    ).toBe("ok");
+  });
+
+  it("rejects functions (not JSON-shaped)", () => {
+    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["comparable"] });
+    expect(() => eng.parse("{{ f .fn }}").evaluate({ fn: () => 1 })).toThrow(TypeMismatchError);
   });
 });
 

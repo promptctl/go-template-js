@@ -14,6 +14,7 @@
  * consumers an escape hatch).
  */
 
+import { deepEqual } from "../sprig/types/deepEqual.js";
 import type { FuncMap } from "./evaluator.js";
 import { markLazy } from "./lazy.js";
 import { isTruthy } from "./truthy.js";
@@ -26,11 +27,19 @@ const eagerBuiltins: FuncMap = {
   // Comparison — Go template promotes numeric types and compares
   // strings/bools by value. We match that by leaning on JS `<`/`===`
   // which already does the right thing for primitives.
+  // [LAW:single-enforcer] `argTypes: ["comparable"]` puts the kind
+  // check + cross-slot same-kind rule (with number↔bigint bridged and
+  // nil-wildcarded) at the gate. The body trusts kinds and routes
+  // structural compares through `deepEqual`. Variadic per Go: `eq a
+  // b c` is true if any of b, c equals a.
   eq: {
-    fn: (a: unknown, ...rest: unknown[]) => rest.some((r) => looseEq(a, r)),
-    argTypes: ["any"],
+    fn: (a: unknown, ...rest: unknown[]) => rest.some((r) => goEqPair(a, r)),
+    argTypes: ["comparable"],
   },
-  ne: { fn: (a: unknown, b: unknown) => !looseEq(a, b), argTypes: ["any", "any"] },
+  ne: {
+    fn: (a: unknown, b: unknown) => !goEqPair(a, b),
+    argTypes: ["comparable", "comparable"],
+  },
   // [LAW:single-enforcer] `argTypes: ["ordered", "ordered"]` routes
   // both per-slot kind validation and the cross-slot same-kind rule
   // through `enforceArgTypes`. By the time `compare` runs, the args
@@ -154,13 +163,14 @@ export function defaultBuiltins(): FuncMap {
 // Comparison + length + index helpers (Go-template semantics).
 // ---------------------------------------------------------------------------
 
-function looseEq(a: unknown, b: unknown): boolean {
-  // Go's `eq` promotes numeric types; JS `===` already treats 1 === 1n
-  // as false, but `==` would coerce. We compromise: numeric comparison
-  // bridges number/bigint; otherwise strict equality.
+function goEqPair(a: unknown, b: unknown): boolean {
+  // Go-template `eq` semantics: numeric kinds bridge (1 == 1n), and
+  // structural values (arrays, plain objects, Maps, Sets) compare by
+  // deep equality. The gate already enforces same-kind for the slots,
+  // so this only needs to compute equality — never reject.
   if (typeof a === "number" && typeof b === "bigint") return BigInt(a) === b;
   if (typeof a === "bigint" && typeof b === "number") return a === BigInt(b);
-  return a === b;
+  return deepEqual(a, b);
 }
 
 function compare(a: unknown, b: unknown): number {

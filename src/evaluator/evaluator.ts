@@ -61,9 +61,12 @@ import { isTruthy } from "./truthy.js";
  * - "list"   — array. Excludes string (Go-parity: string is not a list).
  * - "dict"   — plain object (not Map; Maps are handled separately).
  * - "sized"  — has a meaningful `len`: string | array | Map | Set | object.
- * - "comparable" — accepted by `eq`/`ne`: ordered values plus nil.
- *   Deep-equal semantics for objects are layered in .5; the matcher
- *   here only validates kind.
+ * - "comparable" — accepted by `eq`/`ne`: any JSON-shaped value
+ *   (ordered primitive, nil, array, plain object, Map, or Set).
+ *   Functions and symbols are excluded. When two or more "comparable"
+ *   slots appear in the same call, all of them must share a kind, with
+ *   `number`↔`bigint` bridged and `nil` acting as a wildcard. Object
+ *   equality routes through `deepEqual` in `eq`/`ne` bodies.
  * - "stringifiable" — string directly OR a value the engine's
  *   `toString` can flatten. The matcher *probes* the conversion;
  *   downstream func bodies call `engine.toString` to actually flatten.
@@ -760,6 +763,7 @@ export function enforceArgTypes(
   // motivation (`dict`'s string/value kv pairing).
   const lookup = makeSlotLookup(argTypes, pattern);
   let firstOrdered = -1;
+  let firstComparable = -1;
   for (let i = 0; i < values.length; i++) {
     const declared = lookup(i);
     const value = values[i];
@@ -786,6 +790,24 @@ export function enforceArgTypes(
           funcName,
           i + 1,
           `${humanArgType("ordered")} of the same kind as ${describeValue(values[firstOrdered])}`,
+          describeValue(value),
+          pos,
+          { source: src },
+        );
+      }
+    }
+    // [LAW:single-enforcer] Same-kind rule for "comparable" — Go's
+    // `text/template` errors on `eq "foo" 1`. number↔bigint bridged;
+    // nil acts as a wildcard so `eq .field nil` works regardless of
+    // .field's kind.
+    if (declared === "comparable") {
+      if (firstComparable === -1) {
+        firstComparable = i;
+      } else if (!sameComparableKind(values[firstComparable], value)) {
+        throw new TypeMismatchError(
+          funcName,
+          i + 1,
+          `${humanArgType("comparable")} of the same kind as ${describeValue(values[firstComparable])}`,
           describeValue(value),
           pos,
           { source: src },
@@ -876,17 +898,22 @@ function matchesArgType(
         isPlainObject(value)
       );
     case "comparable":
-      // Same membership as "ordered" plus `nil` (null/undefined). Deep
-      // equality on objects is layered in template-laws-3gt.5 — at the
-      // matcher level, reference equality is implicit for everything
-      // not listed here, which is fine because eq/ne accept "any" today.
+      // [LAW:one-source-of-truth] Membership is "anything JSON-shaped":
+      // ordered primitives, nil, arrays, Maps, Sets, plain objects.
+      // Functions and symbols are rejected. The cross-slot same-kind
+      // rule (with nil-as-wildcard) is enforced in `enforceArgTypes`
+      // alongside the per-slot match.
       return (
         value === null ||
         value === undefined ||
         typeof value === "string" ||
         typeof value === "number" ||
         typeof value === "bigint" ||
-        typeof value === "boolean"
+        typeof value === "boolean" ||
+        Array.isArray(value) ||
+        value instanceof Map ||
+        value instanceof Set ||
+        isPlainObject(value)
       );
     case "callable":
       return typeof value === "function";
@@ -960,6 +987,27 @@ function sameOrderedKind(a: unknown, b: unknown): boolean {
   return false;
 }
 
+// Same-kind check for two "comparable" slots. Kinds: nil | string |
+// number (number/bigint bridged) | boolean | array | map | set |
+// object. nil is a wildcard, matching any kind.
+function sameComparableKind(a: unknown, b: unknown): boolean {
+  const ka = comparableKind(a);
+  const kb = comparableKind(b);
+  if (ka === "nil" || kb === "nil") return true;
+  return ka === kb;
+}
+
+function comparableKind(v: unknown): string {
+  if (v === null || v === undefined) return "nil";
+  if (typeof v === "string") return "string";
+  if (typeof v === "number" || typeof v === "bigint") return "number";
+  if (typeof v === "boolean") return "boolean";
+  if (Array.isArray(v)) return "array";
+  if (v instanceof Map) return "map";
+  if (v instanceof Set) return "set";
+  return "object";
+}
+
 function humanArgType(t: ArgType): string {
   switch (t) {
     case "T":
@@ -973,7 +1021,7 @@ function humanArgType(t: ArgType): string {
     case "sized":
       return "sized value (string, list, map, set, or dict)";
     case "comparable":
-      return "comparable value (orderable primitive or nil)";
+      return "comparable value (orderable primitive, nil, list, dict, Map, or Set)";
     case "stringifiable":
       return "stringifiable value (string or convertible via the engine's toString)";
     case "callable":

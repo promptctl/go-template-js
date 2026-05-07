@@ -33,6 +33,55 @@ describe("builtins — comparison", () => {
     expect(render('{{ lt "a" "b" }}')).toBe("true");
   });
 
+  // [LAW:one-source-of-truth] eq/ne route structural comparison through
+  // `deepEqual` (closes audit G1). Reference equality on objects gave
+  // surprising NEQ for two structurally-identical typed-T fragments.
+  it("eq deep-compares arrays, plain objects, Maps, and Sets", () => {
+    const eng = createEngine<string>({ fromString: (s) => s });
+    expect(
+      eng
+        .parse("{{ eq .a .b }}")
+        .evaluate({ a: [1, 2, 3], b: [1, 2, 3] })
+        .join(""),
+    ).toBe("true");
+    expect(
+      eng
+        .parse("{{ eq .a .b }}")
+        .evaluate({ a: { x: 1, y: 2 }, b: { x: 1, y: 2 } })
+        .join(""),
+    ).toBe("true");
+    expect(
+      eng
+        .parse("{{ eq .a .b }}")
+        .evaluate({ a: { x: 1 }, b: { x: 2 } })
+        .join(""),
+    ).toBe("false");
+    expect(
+      eng
+        .parse("{{ ne .a .b }}")
+        .evaluate({ a: [1, 2], b: [1, 3] })
+        .join(""),
+    ).toBe("true");
+  });
+
+  it("eq rejects cross-kind comparisons (string vs number)", () => {
+    expect(() => render('{{ eq "foo" 1 }}')).toThrow(TypeMismatchError);
+  });
+
+  it("eq rejects cross-kind structural comparisons (array vs object)", () => {
+    const eng = createEngine<string>({ fromString: (s) => s });
+    expect(() => eng.parse("{{ eq .a .b }}").evaluate({ a: [1], b: { x: 1 } })).toThrow(
+      TypeMismatchError,
+    );
+  });
+
+  it("eq treats nil as a wildcard kind (eq .field nil)", () => {
+    const eng = createEngine<string>({ fromString: (s) => s });
+    expect(eng.parse("{{ eq .a nil }}").evaluate({ a: null }).join("")).toBe("true");
+    expect(eng.parse("{{ eq .a nil }}").evaluate({ a: 1 }).join("")).toBe("false");
+    expect(eng.parse('{{ eq nil "x" }}').evaluate(null).join("")).toBe("false");
+  });
+
   // [LAW:one-source-of-truth + LAW:single-enforcer] Match Go's
   // `text/template` rule: ordering operands must share a type. The
   // earlier behavior silently returned `false` for both `lt "foo" 1`

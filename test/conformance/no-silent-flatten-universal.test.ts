@@ -114,6 +114,9 @@ describe("conformance — no-silent-flatten universal property", () => {
       // for the property to detect.
       //  - "dict":         TaggedFragment is structurally a plain object
       //  - "serializable": TaggedFragment is JSON-encodable
+      //  - "comparable":   TaggedFragment is a plain object → eq/ne
+      //                    compare it structurally via deepEqual; no
+      //                    string flattening occurs.
       //  - "sized":        TaggedFragment is a plain object → has a
       //                    meaningful `Object.keys` length, so the
       //                    "sized" matcher accepts it. The body returns
@@ -130,6 +133,7 @@ describe("conformance — no-silent-flatten universal property", () => {
         declared === "reflective" ||
         declared === "dict" ||
         declared === "serializable" ||
+        declared === "comparable" ||
         declared === "sized"
       ) {
         return;
