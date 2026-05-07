@@ -21,6 +21,27 @@ A fixture has **exactly one** of:
 There is no skip-list and no divergence file. A fixture either succeeds
 with one of the parity contracts above or it does not exist.
 
+## Coverage strategy for `negative-*` fixtures
+
+The `negative-*` fixtures here are **end-to-end samples** of the
+no-silent-flatten guarantee — one fixture per representative func
+across the surface (sprig strings, sprig math, sprig regex, sprig
+defaults, builtins). They prove the gate fires through the parser →
+evaluator → error path on a real template.
+
+The **universal property** — that *every* registered func with a
+non-`"any"`, non-`"T"` `argTypes` slot rejects a typed-T fragment in
+that slot — is asserted directly against `enforceArgTypes` by
+`test/conformance/no-silent-flatten-universal.test.ts`. That harness
+iterates the merged FuncMap (default builtins + every sprig category)
+and checks each declared slot mechanically. Adding a new sprig func or
+builtin grows that test's case count automatically; no fixture
+authoring required.
+
+Per-fixture authoring is therefore reserved for cases where
+end-to-end behavior matters (parser, pipe arity, error-message
+shape).
+
 ## Naming convention
 
 `<category>-<short-description>/` where category is one of:

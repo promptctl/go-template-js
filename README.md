@@ -62,6 +62,21 @@ tpl.evaluate({ label: "warn", value: "ALERT" });
 
 Functions have optional `argTypes`. The engine uses them to enforce one architectural commitment: **a non-string `T` value will never silently flatten into a `string` parameter**. If you try to pipe a styled fragment into a function declared with `argTypes: ["string"]`, you get a `TypeMismatchError` naming the function, the argument index, and a suggestion to call your `unstyled` (or equivalent) flatten helper.
 
+#### `ArgType` values
+
+Every entry in `argTypes` is one of:
+
+| Value | Accepts at runtime | Notes |
+| --- | --- | --- |
+| `"string"` | JS `string` | Non-strings raise `TypeMismatchError`. The no-silent-flatten gate. |
+| `"number"` | `typeof === "number"` or `bigint` | Numerics bridge — `1` and `1n` are interchangeable. |
+| `"bool"` | `typeof === "boolean"` | |
+| `"ordered"` | `string`, `number`, `bigint`, or `boolean` | Used by `lt`/`le`/`gt`/`ge`. When two or more `"ordered"` slots appear in one call, the runtime additionally requires they share a kind (number/bigint bridged) — mismatched kinds raise `TypeMismatchError`. |
+| `"T"` | Any non-primitive (consumer-defined fragment) | Excludes `string`, `number`, `boolean`, `bigint`, `symbol`, `null`, `undefined`. |
+| `"any"` | Anything | Explicit permissive escape. |
+
+For variadic funcs, declare the trailing slot's type once — every excess argument is validated against it.
+
 ## Syntax reference
 
 Template syntax is Go template syntax. Read the canonical spec:
@@ -148,14 +163,6 @@ TemplateError
 ```
 
 Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` produces a multi-line message with a 3-line source snippet and a caret pointing at the failing column.
-
-## Examples
-
-See `examples/` for runnable snippets:
-
-- `examples/string-output/` — minimal string-mode usage.
-- `examples/typed-fragment/` — generic-T usage with a tiny fragment type.
-- `examples/with-sprig/` — combining sprig categories alongside custom funcs.
 
 ## Versioning policy
 

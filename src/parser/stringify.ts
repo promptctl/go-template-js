@@ -97,12 +97,16 @@ function wrapAction(body: string, trim: TrimMarkers): string {
 // ---------------------------------------------------------------------------
 
 function formatVariable(idents: readonly string[]): string {
-  // [LAW:no-defensive-null-guards] AST construction guarantees at least
-  // one ident on a VariableNode (the "$name" head). An empty array would
-  // be a constructor bug, not a render-time concern — so no guard.
+  // [LAW:no-defensive-null-guards] The parser's `splitVariableIdents`
+  // always emits at least one element (the leading "$name" head). An
+  // empty `idents` is an internal invariant break, not a render-time
+  // input — fail loudly instead of patching it with a `"$"` placeholder
+  // that would mask the parser bug.
   const [head, ...rest] = idents;
-  const headStr = head ?? "$";
-  return rest.length === 0 ? headStr : `${headStr}${rest.map((f) => `.${f}`).join("")}`;
+  if (head === undefined) {
+    throw new Error("internal: VariableNode has empty idents — parser invariant violated");
+  }
+  return rest.length === 0 ? head : `${head}${rest.map((f) => `.${f}`).join("")}`;
 }
 
 function formatChain(node: ChainNode): string {

@@ -9,11 +9,10 @@
  * - Methods/functions are returned as-is for the caller to invoke when
  *   the AST shape demands a function call.
  *
- * [LAW:no-defensive-null-guards] A null guard would skip the access,
- * which silently produces `undefined`. That's the bug Go template's
- * default `missingkey=error` mode prevents. We surface the missing
- * field as an explicit caller-handled signal (the `MISSING` sentinel)
- * rather than swallowing it.
+ * Missing-key handling matches Go's `missingkey=error` default: a
+ * genuinely absent field returns `MISSING`, which the caller surfaces as
+ * a `MissingFieldError`. The receiver-is-nullish case at the top of
+ * `getField` is the trust-boundary exception documented inline below.
  */
 
 /** Sentinel returned by `getField` when a field is genuinely absent. */
@@ -21,6 +20,11 @@ export const MISSING: unique symbol = Symbol("go-template-js.MISSING");
 export type Missing = typeof MISSING;
 
 export function getField(value: unknown, name: string): unknown | Missing {
+  // [LAW:no-defensive-null-guards] exception: trust boundary — the
+  // receiver is consumer-supplied scope data, so a nullish value is
+  // valid input that must collapse to the same MISSING signal an absent
+  // field produces. The `else` branch is the real work; this is not a
+  // skip-the-operation guard.
   if (value === null || value === undefined) return MISSING;
   if (value instanceof Map) {
     return value.has(name) ? value.get(name) : MISSING;

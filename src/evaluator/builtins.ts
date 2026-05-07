@@ -6,8 +6,7 @@
  * Categories:
  *  - Eager (most): args evaluated normally, value-in / value-out.
  *  - Lazy (and/or): take thunks instead of values so evaluation can
- *    short-circuit. Branded with the internal `LAZY` symbol on the
- *    TemplateFunc — see evaluator.ts.
+ *    short-circuit. Registered via `markLazy` — see lazy.ts.
  *
  * [LAW:single-enforcer] Built-ins live in *one* exported FuncMap.
  * Consumers merge with their own funcs; user-supplied entries with
@@ -15,8 +14,8 @@
  * consumers an escape hatch).
  */
 
-import type { FuncMap, TemplateFunc } from "./evaluator.js";
-import { LAZY } from "./lazy.js";
+import type { FuncMap } from "./evaluator.js";
+import { markLazy } from "./lazy.js";
 import { isTruthy } from "./truthy.js";
 
 // ---------------------------------------------------------------------------
@@ -79,7 +78,11 @@ const eagerBuiltins: FuncMap = {
     returnType: "string",
   },
   printf: {
-    fn: (format: unknown, ...args: unknown[]) => sprintf(String(format), args),
+    // [LAW:single-enforcer] Param type narrowed to `string` because
+    // `enforceArgTypes` validates the first arg against `argTypes[0]`
+    // = "string" before this body runs. Any leftover coercion would
+    // duplicate the gate.
+    fn: (format: string, ...args: unknown[]) => sprintf(format, args),
     argTypes: ["string", "any"],
     returnType: "string",
   },
@@ -104,49 +107,45 @@ const eagerBuiltins: FuncMap = {
 // Lazy short-circuiting forms.
 //
 // `and a b c …` returns the first falsy argument, or the last argument
-// if all are truthy. `or` is the dual. Branded with the internal LAZY
-// symbol so the dispatcher hands them thunks instead of values; their
-// declared `argTypes: ["any"]` makes the no-silent-flatten guard a
-// no-op against thunks.
+// if all are truthy. `or` is the dual. Registered via `markLazy` so the
+// dispatcher hands them thunks instead of values; their declared
+// `argTypes: ["any"]` makes the no-silent-flatten guard a no-op against
+// thunks.
 // ---------------------------------------------------------------------------
 
-const lazyBuiltins: FuncMap = {
-  and: {
-    [LAZY]: true,
-    argTypes: ["any"],
-    fn: (...thunks: unknown[]) => {
-      let last: unknown = true;
-      for (const t of thunks) {
-        last = (t as () => unknown)();
-        if (!isTruthy(last)) return last;
-      }
-      return last;
-    },
-  },
-  or: {
-    [LAZY]: true,
-    argTypes: ["any"],
-    fn: (...thunks: unknown[]) => {
-      let last: unknown = false;
-      for (const t of thunks) {
-        last = (t as () => unknown)();
-        if (isTruthy(last)) return last;
-      }
-      return last;
-    },
-  },
-};
+function lazyBuiltins(): FuncMap {
+  return {
+    and: markLazy({
+      argTypes: ["any"],
+      fn: (...thunks: unknown[]) => {
+        let last: unknown = true;
+        for (const t of thunks) {
+          last = (t as () => unknown)();
+          if (!isTruthy(last)) return last;
+        }
+        return last;
+      },
+    }),
+    or: markLazy({
+      argTypes: ["any"],
+      fn: (...thunks: unknown[]) => {
+        let last: unknown = false;
+        for (const t of thunks) {
+          last = (t as () => unknown)();
+          if (isTruthy(last)) return last;
+        }
+        return last;
+      },
+    }),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Public default registry.
 // ---------------------------------------------------------------------------
 
 export function defaultBuiltins(): FuncMap {
-  return { ...eagerBuiltins, ...lazyBuiltins };
-}
-
-export function isLazy(fn: TemplateFunc): boolean {
-  return fn[LAZY] === true;
+  return { ...eagerBuiltins, ...lazyBuiltins() };
 }
 
 // ---------------------------------------------------------------------------

@@ -27,9 +27,9 @@ import {
 import { type ParseResult, parse as parseSource } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
-import { defaultBuiltins, isLazy } from "./builtins.js";
+import { defaultBuiltins } from "./builtins.js";
 import { EvalError, FuncNotFoundError, MissingFieldError, TypeMismatchError } from "./errors.js";
-import { LAZY } from "./lazy.js";
+import { isLazy } from "./lazy.js";
 import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
@@ -58,7 +58,18 @@ import { isTruthy } from "./truthy.js";
 export type ArgType = "string" | "number" | "bool" | "T" | "any" | "ordered";
 
 export interface TemplateFunc {
-  readonly fn: (...args: unknown[]) => unknown;
+  /**
+   * The function body. Parameter types are *contravariant-bottom*
+   * (`never[]`) so any concrete signature is assignable here — write
+   * `fn: (s: string, n: number) => …` if that's what the func wants,
+   * and rely on `argTypes` + `enforceArgTypes` to validate at runtime.
+   *
+   * [LAW:single-enforcer] Param-type validation lives at the dispatch
+   * site (`enforceArgTypes`). The compile-time signature does not
+   * duplicate that gate — it stays out of the way so consumer
+   * implementations can declare the precise types they expect.
+   */
+  readonly fn: (...args: never[]) => unknown;
   /**
    * Declared positional parameter types. Required.
    *
@@ -73,8 +84,6 @@ export interface TemplateFunc {
    */
   readonly argTypes: readonly ArgType[];
   readonly returnType?: ArgType;
-  /** Internal — set only by `defaultBuiltins` for `and`/`or`. */
-  readonly [LAZY]?: true;
 }
 
 export type FuncMap = Record<string, TemplateFunc>;
@@ -290,7 +299,7 @@ export class Engine<T> {
     // For `range`, the pipeline's declarations bind to (key, value)
     // *per iteration*, not to the iterable as a whole. We evaluate the
     // pipe with its decls suppressed, then handle the bindings here.
-    const value = evalPipeWithoutDecls(this, node.pipe, scope, ctx);
+    const value = this.evalPipeWithoutDecls(node.pipe, scope, ctx);
     const decls = node.pipe.decls;
 
     const entries = enumerateForRange(value);
@@ -351,7 +360,7 @@ export class Engine<T> {
     return this.evalPipe(node.pipe, scope, ctx);
   }
 
-  evalPipe(pipe: PipeNode, scope: Scope, ctx: EvalContext<T>): unknown {
+  private evalPipe(pipe: PipeNode, scope: Scope, ctx: EvalContext<T>): unknown {
     if (pipe.cmds.length === 0) {
       throw new EvalError("empty pipeline", pipe.pos, { source: ctx.source });
     }
@@ -371,6 +380,20 @@ export class Engine<T> {
       }
     }
     return value;
+  }
+
+  private evalPipeWithoutDecls(pipe: PipeNode, scope: Scope, ctx: EvalContext<T>): unknown {
+    // Synthesise a pipe with empty decls so the standard `evalPipe`
+    // doesn't attempt the (single-binding) declaration. `evalRange`
+    // handles its own multi-binding semantics.
+    const stripped: PipeNode = {
+      type: "Pipe",
+      pos: pipe.pos,
+      decls: [],
+      isAssign: false,
+      cmds: pipe.cmds,
+    };
+    return this.evalPipe(stripped, scope, ctx);
   }
 
   private evalCommand(cmd: CommandNode, scope: Scope, ctx: EvalContext<T>, piped: Piped): unknown {
@@ -418,7 +441,11 @@ export class Engine<T> {
     }
 
     enforceArgTypes(head.ident, fn.argTypes, args, cmd.pos, ctx.source);
-    return fn.fn(...args);
+    // [LAW:single-enforcer] One cast at the dispatch site. `TemplateFunc.fn`
+    // declares `(...args: never[]) => unknown` so consumer impls can narrow
+    // their parameter types; we erase that here, having already validated
+    // the runtime types via `enforceArgTypes`.
+    return (fn.fn as (...a: unknown[]) => unknown)(...args);
   }
 
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>): unknown {
@@ -445,7 +472,7 @@ export class Engine<T> {
             available: Object.keys(this.funcs),
           });
         enforceArgTypes(node.ident, fn.argTypes, [], node.pos, ctx.source);
-        return fn.fn();
+        return (fn.fn as () => unknown)();
       }
       case "Chain":
         return this.resolveFieldChain(
@@ -571,7 +598,10 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 // through here.
 // ---------------------------------------------------------------------------
 
-function enforceArgTypes(
+// Exported for the deep-import universal-property harness (see
+// `test/conformance/no-silent-flatten-universal.test.ts`). Not part of
+// the public stability surface — `src/index.ts` does not re-export it.
+export function enforceArgTypes(
   funcName: string,
   argTypes: readonly ArgType[],
   values: readonly unknown[],
@@ -609,7 +639,7 @@ function enforceArgTypes(
         throw new TypeMismatchError(
           funcName,
           i + 1,
-          `comparable to ${describeValue(values[firstOrdered])}`,
+          `${humanArgType("ordered")} of the same kind as ${describeValue(values[firstOrdered])}`,
           describeValue(value),
           pos,
           { source: src },
@@ -673,27 +703,8 @@ function describeValue(value: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Range support — pipe-without-decls + iteration helpers.
+// Range support — iteration helpers.
 // ---------------------------------------------------------------------------
-
-function evalPipeWithoutDecls<T>(
-  engine: Engine<T>,
-  pipe: PipeNode,
-  scope: Scope,
-  ctx: EvalContext<T>,
-): unknown {
-  // Synthesise a pipe with empty decls so the standard evalPipe doesn't
-  // attempt the (single-binding) declaration. evalRange handles its
-  // own multi-binding semantics.
-  const stripped: PipeNode = {
-    type: "Pipe",
-    pos: pipe.pos,
-    decls: [],
-    isAssign: false,
-    cmds: pipe.cmds,
-  };
-  return engine.evalPipe(stripped, scope, ctx);
-}
 
 /**
  * Produce [key, value] entries for a `range` operand.
