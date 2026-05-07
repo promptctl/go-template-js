@@ -114,6 +114,14 @@ describe("conformance — no-silent-flatten universal property", () => {
       // for the property to detect.
       //  - "dict":         TaggedFragment is structurally a plain object
       //  - "serializable": TaggedFragment is JSON-encodable
+      //  - "sized":        TaggedFragment is a plain object → has a
+      //                    meaningful `Object.keys` length, so the
+      //                    "sized" matcher accepts it. The body returns
+      //                    the property count (audit G2's behavior is
+      //                    preserved by design — a non-plain-object T
+      //                    such as a class instance still throws). The
+      //                    no-silent-flatten property doesn't apply
+      //                    because no string flattening occurs.
       if (
         declared === "any" ||
         declared === "T" ||
@@ -121,7 +129,8 @@ describe("conformance — no-silent-flatten universal property", () => {
         declared === "truthy" ||
         declared === "reflective" ||
         declared === "dict" ||
-        declared === "serializable"
+        declared === "serializable" ||
+        declared === "sized"
       ) {
         return;
       }

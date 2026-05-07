@@ -41,8 +41,10 @@ const eagerBuiltins: FuncMap = {
   gt: { fn: (a: unknown, b: unknown) => compare(a, b) > 0, argTypes: ["ordered", "ordered"] },
   ge: { fn: (a: unknown, b: unknown) => compare(a, b) >= 0, argTypes: ["ordered", "ordered"] },
 
-  // Length of strings, arrays, Maps, Sets, plain objects.
-  len: { fn: (v: unknown) => goLen(v), argTypes: ["any"] },
+  // [LAW:single-enforcer] `len` declares "sized" so the gate rejects
+  // numbers/booleans/nil once with TypeMismatchError. The body trusts
+  // the kind and only fans out the per-kind size readout.
+  len: { fn: (v: unknown) => goLen(v), argTypes: ["sized"] },
 
   // Positional access on collections. `index x i j` walks i, then j…
   index: {
@@ -182,15 +184,14 @@ function compare(a: unknown, b: unknown): number {
 }
 
 function goLen(value: unknown): number {
-  if (value === null || value === undefined) {
-    throw new Error("len: argument is nil");
-  }
+  // [LAW:single-enforcer] Kind already validated by `enforceArgTypes`
+  // against argTypes: ["sized"]. Body picks the per-kind size readout;
+  // no defensive nil / non-sized throws here — the gate caught those.
   if (typeof value === "string") return value.length;
   if (Array.isArray(value)) return value.length;
   if (value instanceof Map) return value.size;
   if (value instanceof Set) return value.size;
-  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length;
-  throw new Error(`len: cannot take length of ${describeType(value)}`);
+  return Object.keys(value as Record<string, unknown>).length;
 }
 
 function goIndex(collection: unknown, key: unknown): unknown {

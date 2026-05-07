@@ -43,16 +43,16 @@ export function sprigLists(): FuncMap {
   // `Array.isArray` guards that previously duplicated the check 14 times.
   // Item slots that are genuinely heterogeneous use "value" — they still
   // accept anything, but the label documents intent (per template-laws-3gt.1).
-  // `list` (constructor) and `len` keep "any" — `list` is migrated by
-  // template-laws-3gt.8 (intent-named kinds), `len` by template-laws-3gt.4
-  // (sized).
+  // `len` declares "sized" (template-laws-3gt.4) — the body trusts the
+  // gate. `list` (constructor) keeps "any" — migrated by
+  // template-laws-3gt.8 (intent-named kinds).
   return {
     list: { fn: (...a) => list(...a), argTypes: ["any"] },
     first: { fn: (l) => first(l as unknown[]), argTypes: ["list"] },
     last: { fn: (l) => last(l as unknown[]), argTypes: ["list"] },
     rest: { fn: (l) => rest(l as unknown[]), argTypes: ["list"] },
     initial: { fn: (l) => initial(l as unknown[]), argTypes: ["list"] },
-    len: { fn: (l) => len(l), argTypes: ["any"] },
+    len: { fn: (l) => len(l), argTypes: ["sized"] },
     reverse: { fn: (l) => reverse(l as unknown[]), argTypes: ["list"] },
     uniq: { fn: (l) => uniq(l as unknown[]), argTypes: ["list"] },
     without: {
