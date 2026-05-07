@@ -62,20 +62,51 @@ tpl.evaluate({ label: "warn", value: "ALERT" });
 
 Functions have optional `argTypes`. The engine uses them to enforce one architectural commitment: **a non-string `T` value will never silently flatten into a `string` parameter**. If you try to pipe a styled fragment into a function declared with `argTypes: ["string"]`, you get a `TypeMismatchError` naming the function, the argument index, and a suggestion to call your `unstyled` (or equivalent) flatten helper.
 
-#### `ArgType` values
+### Stringification: the `toString` mirror of `fromString`
+
+If your `T` is not `string`, the engine needs a way to flatten typed-T values back to plain text when they reach a `"stringifiable"` slot (`print`, `println`, `printf "%s"` and `"%q"`). Supply it via `toString`:
+
+```ts
+const engine = createEngine<Frag>({
+  fromString: (s) => ({ color: "default", text: s }),
+  toString: (frag) => frag.text,
+});
+```
+
+Without it, typed-T values reaching a `"stringifiable"` slot throw `TypeMismatchError` directing you to configure `toString`. The default `toString` passes strings through unchanged and flattens numeric/boolean/nil primitives, so `T = string` engines work out of the box.
+
+### `ArgType` reference
 
 Every entry in `argTypes` is one of:
 
-| Value | Accepts at runtime | Notes |
+| Kind | Accepts at runtime | Used by (examples) |
 | --- | --- | --- |
-| `"string"` | JS `string` | Non-strings raise `TypeMismatchError`. The no-silent-flatten gate. |
-| `"number"` | `typeof === "number"` or `bigint` | Numerics bridge — `1` and `1n` are interchangeable. |
-| `"bool"` | `typeof === "boolean"` | |
-| `"ordered"` | `string`, `number`, `bigint`, or `boolean` | Used by `lt`/`le`/`gt`/`ge`. When two or more `"ordered"` slots appear in one call, the runtime additionally requires they share a kind (number/bigint bridged) — mismatched kinds raise `TypeMismatchError`. |
-| `"T"` | Any non-primitive (consumer-defined fragment) | Excludes `string`, `number`, `boolean`, `bigint`, `symbol`, `null`, `undefined`. |
-| `"any"` | Anything | Explicit permissive escape. |
+| `"string"` | JS `string` | `upper`, `lower`, `trim`, `printf` format string |
+| `"number"` | `typeof === "number"` or `bigint` (interchangeable) | `add`, `sub`, `mul`, `mod` |
+| `"bool"` | `typeof === "boolean"` | (rare; most boolean slots use `"truthy"`) |
+| `"T"` | Any non-primitive (consumer-defined fragment) | consumer-defined typed funcs returning `T` |
+| `"ordered"` | `string`, `number`, `bigint`, or `boolean` | `lt`, `le`, `gt`, `ge` — additionally requires both slots share a kind |
+| `"comparable"` | `"ordered"` ∪ nil ∪ arrays / Maps / Sets / plain objects (deep-equal) | `eq`, `ne` |
+| `"list"` | `Array.isArray` | `first`, `last`, `rest`, `uniq`, `concat`, `chunk` |
+| `"dict"` | plain object only (not `Map`, not class instance) | `get`, `keys`, `values`, `pluck`, `merge` |
+| `"sized"` | `string` ∪ array ∪ `Map` ∪ `Set` ∪ plain object | `len` |
+| `"stringifiable"` | `string`, or any value the engine's `toString` can flatten | `print`, `println`, `printf "%s"`, `printf "%q"` |
+| `"callable"` | `typeof === "function"` | `call` (first slot) |
+| `"collection"` | `string` ∪ array ∪ `Map` ∪ plain object | `index` (receiver slot) |
+| `"index-key"` | `string`, `number`, or `bigint` | `index` (key slots) |
+| `"sliceable"` | `string` or array | `slice` (receiver slot) |
+| `"truthy"` | anything (truthiness context) | `not`, `and`, `or`, `default`, `empty`, `coalesce`, `ternary` |
+| `"reflective"` | anything (type-inspection context) | `kindOf`, `typeOf`, `kindIs`, `typeIs`, `typeIsLike` |
+| `"serializable"` | anything `JSON.stringify`-encodable (rejects functions, symbols, `bigint`) | `toJson`, `toPrettyJson` |
+| `"value"` | anything (genuinely heterogeneous, by intent) | `list` constructor, `deepEqual`, `deepCopy`, `prepend` / `append` items |
+
+The legacy `"any"` kind was removed in epic `template-laws-3gt`. Slots that genuinely accept anything now declare their *intent* (`"truthy"` / `"reflective"` / `"value"` / `"serializable"`); slots that did not are pinned to their precise kind so the gate enforces the constraint instead of leaking it into func bodies.
+
+#### Variadic patterns
 
 For variadic funcs, declare the trailing slot's type once — every excess argument is validated against it.
+
+For funcs whose variadic tail *cycles* (e.g. `dict "k1" v1 "k2" v2 …`), set `argTypePattern: "alternating"` on the registration. The slot for arg index `i` becomes `argTypes[i % argTypes.length]`, so `dict` declares `argTypes: ["string", "value"]` and the gate enforces "string at even index, anything at odd index" without per-key revalidation in the body.
 
 ## Syntax reference
 
@@ -148,6 +179,8 @@ Notable parity statements (places where users sometimes expect divergence and th
 - Range over a Map / plain object iterates in **sorted-by-key order** in both engines (Go's `internal/fmtsort`; ours mirrors it).
 - Sprig `set` and `unset` mutate the receiver and return it — same as Go sprig.
 - `{{ "key" | get .dict }}` composes correctly: last-arg piping puts the key in the trailing slot, which is `get(d, key)`'s second parameter. The form `{{ .dict | get "key" }}` does *not* work in either engine — the dict ends up in the key slot.
+- `eq` / `ne` compare arrays, Maps, Sets, and plain objects by **structural deep-equal**, matching Go's `text/template` semantics. Reference-identity comparison is not a divergence — it was a bug fixed in epic `template-laws-3gt`.
+- Sprig dict ops (`get`, `keys`, `values`, `pluck`, `hasKey`, …) accept **plain objects only**, not `Map`. Pass `Object.fromEntries(map)` if you have a `Map` to feed in. Maps remain valid for field-access (`.get(key)`) and for `range`.
 
 ## Errors
 
