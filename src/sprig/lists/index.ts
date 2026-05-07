@@ -38,32 +38,45 @@ export {
 };
 
 export function sprigLists(): FuncMap {
-  // [LAW:single-enforcer] List APIs are inherently T-typed (lists hold
-  // arbitrary T values), so most slots stay "any". The two slots that
-  // genuinely accept only numbers — chunk's size and slice's i/j —
-  // tighten to "number".
+  // [LAW:single-enforcer] List slots declare "list" so the gate enforces
+  // array-ness once. Bodies trust the param type and drop the defensive
+  // `Array.isArray` guards that previously duplicated the check 14 times.
+  // Item slots that are genuinely heterogeneous use "value" — they still
+  // accept anything, but the label documents intent (per template-laws-3gt.1).
+  // `list` (constructor) and `len` keep "any" — `list` is migrated by
+  // template-laws-3gt.8 (intent-named kinds), `len` by template-laws-3gt.4
+  // (sized).
   return {
     list: { fn: (...a) => list(...a), argTypes: ["any"] },
-    first: { fn: (l) => first(l), argTypes: ["any"] },
-    last: { fn: (l) => last(l), argTypes: ["any"] },
-    rest: { fn: (l) => rest(l), argTypes: ["any"] },
-    initial: { fn: (l) => initial(l), argTypes: ["any"] },
+    first: { fn: (l) => first(l as unknown[]), argTypes: ["list"] },
+    last: { fn: (l) => last(l as unknown[]), argTypes: ["list"] },
+    rest: { fn: (l) => rest(l as unknown[]), argTypes: ["list"] },
+    initial: { fn: (l) => initial(l as unknown[]), argTypes: ["list"] },
     len: { fn: (l) => len(l), argTypes: ["any"] },
-    reverse: { fn: (l) => reverse(l), argTypes: ["any"] },
-    uniq: { fn: (l) => uniq(l), argTypes: ["any"] },
-    without: { fn: (l, ...e) => without(l, ...e), argTypes: ["any"] },
-    has: { fn: (i, l) => has(i, l), argTypes: ["any", "any"] },
-    compact: { fn: (l) => compact(l), argTypes: ["any"] },
+    reverse: { fn: (l) => reverse(l as unknown[]), argTypes: ["list"] },
+    uniq: { fn: (l) => uniq(l as unknown[]), argTypes: ["list"] },
+    without: {
+      fn: (l, ...e) => without(l as unknown[], ...e),
+      argTypes: ["list", "value"],
+    },
+    has: { fn: (i, l) => has(i, l as unknown[]), argTypes: ["value", "list"] },
+    compact: { fn: (l) => compact(l as unknown[]), argTypes: ["list"] },
     slice: {
-      fn: (l, i, j) => slice(l, i as number | bigint, j as number | bigint),
-      argTypes: ["any", "number", "number"],
+      fn: (l, i, j) => slice(l as unknown[], i as number | bigint, j as number | bigint),
+      argTypes: ["list", "number", "number"],
     },
-    concat: { fn: (...l) => concat(...l), argTypes: ["any"] },
+    concat: { fn: (...l) => concat(...(l as unknown[][])), argTypes: ["list"] },
     chunk: {
-      fn: (s, l) => chunk(s as number | bigint, l),
-      argTypes: ["number", "any"],
+      fn: (s, l) => chunk(s as number | bigint, l as unknown[]),
+      argTypes: ["number", "list"],
     },
-    prepend: { fn: (l, i) => prepend(l, i), argTypes: ["any", "any"] },
-    append: { fn: (l, i) => append(l, i), argTypes: ["any", "any"] },
+    prepend: {
+      fn: (l, i) => prepend(l as unknown[], i),
+      argTypes: ["list", "value"],
+    },
+    append: {
+      fn: (l, i) => append(l as unknown[], i),
+      argTypes: ["list", "value"],
+    },
   };
 }

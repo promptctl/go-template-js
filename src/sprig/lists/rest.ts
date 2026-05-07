@@ -1,5 +1,5 @@
 /** All elements except the first. */
-export function rest(list: unknown): unknown[] {
-  if (Array.isArray(list)) return list.slice(1);
-  return [];
+// [LAW:single-enforcer] The "list" gate validates array-ness.
+export function rest(list: unknown[]): unknown[] {
+  return list.slice(1);
 }

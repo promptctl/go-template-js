@@ -97,10 +97,25 @@ describe("conformance — no-silent-flatten universal property", () => {
   const cases: Array<{ funcName: string; slot: number; declared: ArgType }> = [];
   for (const [funcName, fn] of Object.entries(funcs)) {
     fn.argTypes.forEach((declared, slot) => {
-      // "any" is the explicit permissive escape; "T" accepts typed
-      // fragments by definition. Both are out of scope for the no-
-      // silent-flatten guarantee.
-      if (declared === "any" || declared === "T") return;
+      // Permissive-by-intent slots accept TaggedFragments by design and
+      // are out of scope for the no-silent-flatten property:
+      //  - "any":        explicit permissive escape (removed in .9)
+      //  - "T":          accepts typed fragments by definition
+      //  - "value":      genuinely heterogeneous (constructors / structural ops)
+      //  - "truthy":     truthiness context — anything is meaningful
+      //  - "reflective": type-inspection context — anything is meaningful
+      // ("serializable" is runtime-validated; a TaggedFragment is JSON-
+      // encodable so it would pass — that slot needs a different probe
+      // value, addressed by whichever ticket first registers one.)
+      if (
+        declared === "any" ||
+        declared === "T" ||
+        declared === "value" ||
+        declared === "truthy" ||
+        declared === "reflective"
+      ) {
+        return;
+      }
       cases.push({ funcName, slot, declared });
     });
   }

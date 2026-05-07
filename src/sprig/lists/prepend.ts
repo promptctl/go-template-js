@@ -1,5 +1,5 @@
 /** `prepend list item` — add item at the front. */
-export function prepend(list: unknown, item: unknown): unknown[] {
-  if (!Array.isArray(list)) return [item];
+// [LAW:single-enforcer] The "list" gate validates array-ness.
+export function prepend(list: unknown[], item: unknown): unknown[] {
   return [item, ...list];
 }
