@@ -104,15 +104,24 @@ describe("conformance — no-silent-flatten universal property", () => {
       //  - "value":      genuinely heterogeneous (constructors / structural ops)
       //  - "truthy":     truthiness context — anything is meaningful
       //  - "reflective": type-inspection context — anything is meaningful
-      // ("serializable" is runtime-validated; a TaggedFragment is JSON-
-      // encodable so it would pass — that slot needs a different probe
-      // value, addressed by whichever ticket first registers one.)
+      //
+      // Structurally-permissive slots: a TaggedFragment is structurally
+      // a plain `{ tag, text }` object, so the matcher cannot
+      // distinguish it from a "real" dict without a runtime brand. The
+      // no-silent-flatten property doesn't apply here: a typed fragment
+      // landing in a dict slot is *used* as a dict (Object.keys etc.),
+      // never flattened into a string, so there is no information loss
+      // for the property to detect.
+      //  - "dict":         TaggedFragment is structurally a plain object
+      //  - "serializable": TaggedFragment is JSON-encodable
       if (
         declared === "any" ||
         declared === "T" ||
         declared === "value" ||
         declared === "truthy" ||
-        declared === "reflective"
+        declared === "reflective" ||
+        declared === "dict" ||
+        declared === "serializable"
       ) {
         return;
       }
@@ -132,7 +141,15 @@ describe("conformance — no-silent-flatten universal property", () => {
       const values = fn.argTypes.map((t, i) => (i === slot ? TAGGED : fillerFor(t)));
       let caught: unknown;
       try {
-        enforceArgTypes(funcName, fn.argTypes, values, POS, undefined);
+        enforceArgTypes(
+          funcName,
+          fn.argTypes,
+          values,
+          POS,
+          undefined,
+          undefined,
+          fn.argTypePattern,
+        );
       } catch (err) {
         caught = err;
       }

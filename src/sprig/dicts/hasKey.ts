@@ -1,6 +1,9 @@
-/** Note: sprig's name is `hasKey` though docs sometimes say `haskey`. */
-export function hasKey(d: unknown, key: string): boolean {
-  if (d instanceof Map) return d.has(key);
-  if (d && typeof d === "object") return key in (d as object);
-  return false;
+/**
+ * `hasKey d key` — true when `key` is a own-property of `d`.
+ *
+ * Note: sprig's name is `hasKey` though docs sometimes say `haskey`.
+ * [LAW:single-enforcer] Receiver type validated at the gate.
+ */
+export function hasKey(d: Record<string, unknown>, key: string): boolean {
+  return key in d;
 }

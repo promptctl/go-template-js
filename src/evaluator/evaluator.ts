@@ -124,6 +124,22 @@ export interface TemplateFunc {
    */
   readonly argTypes: readonly ArgType[];
   readonly returnType?: ArgType;
+  /**
+   * Variadic-position lookup pattern.
+   *
+   * Default (omitted): the trailing slot repeats. `["string", "any"]`
+   * means "first arg string, every arg after is any".
+   *
+   * `"alternating"`: `argTypes` describes a *cycle*. The slot for arg
+   * index `i` is `argTypes[i % argTypes.length]`. Used by `dict`'s
+   * `string, value, string, value, …` kv pairing — without this the
+   * gate cannot distinguish even-index keys (must be string) from
+   * odd-index values (anything), and the body would re-validate per
+   * key, splitting `[LAW:single-enforcer]` across two layers.
+   *
+   * Added by template-laws-3gt.3.
+   */
+  readonly argTypePattern?: "alternating";
 }
 
 export type FuncMap = Record<string, TemplateFunc>;
@@ -522,7 +538,15 @@ export class Engine<T> {
       args.push(lazy ? () => v : v);
     }
 
-    enforceArgTypes(head.ident, fn.argTypes, args, cmd.pos, ctx.source, this.toString);
+    enforceArgTypes(
+      head.ident,
+      fn.argTypes,
+      args,
+      cmd.pos,
+      ctx.source,
+      this.toString,
+      fn.argTypePattern,
+    );
     // [LAW:single-enforcer] One cast at the dispatch site. `TemplateFunc.fn`
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
     // their parameter types; we erase that here, having already validated
@@ -572,7 +596,15 @@ export class Engine<T> {
             source: ctx.source,
             available: Object.keys(this.funcs),
           });
-        enforceArgTypes(node.ident, fn.argTypes, [], node.pos, ctx.source, this.toString);
+        enforceArgTypes(
+          node.ident,
+          fn.argTypes,
+          [],
+          node.pos,
+          ctx.source,
+          this.toString,
+          fn.argTypePattern,
+        );
         return (fn.fn as () => unknown)();
       }
       case "Chain":
@@ -714,15 +746,22 @@ export function enforceArgTypes(
   pos: Pos,
   src: string | undefined,
   toString: (value: unknown) => string = defaultToString,
+  pattern?: "alternating",
 ): void {
   // [LAW:dataflow-not-control-flow] No short-circuit. The shape of work
   // is fixed: validate every positional value against its declared
   // type. Variability lives in `argTypes` (use ["any"] as the explicit
   // permissive escape), never in whether validation runs.
-  const trailing = argTypes[argTypes.length - 1] ?? "any";
+  //
+  // [LAW:single-enforcer] Slot lookup is a single function — the
+  // variadic-overflow rule (trailing-repeat by default, modulo cycle
+  // when `pattern === "alternating"`) lives here once, not duplicated
+  // at the loop body. See template-laws-3gt.3 for the alternation
+  // motivation (`dict`'s string/value kv pairing).
+  const lookup = makeSlotLookup(argTypes, pattern);
   let firstOrdered = -1;
   for (let i = 0; i < values.length; i++) {
-    const declared = argTypes[i] ?? trailing;
+    const declared = lookup(i);
     const value = values[i];
     if (!matchesArgType(declared, value, toString)) {
       throw new TypeMismatchError(
@@ -754,6 +793,29 @@ export function enforceArgTypes(
       }
     }
   }
+}
+
+// [LAW:dataflow-not-control-flow] The variadic-overflow rule is encoded
+// as a function that maps an arg index to its declared kind, picked
+// once per call. The loop in `enforceArgTypes` then has the same shape
+// for every func — no per-iteration `if (pattern === "alternating")`.
+function makeSlotLookup(
+  argTypes: readonly ArgType[],
+  pattern: "alternating" | undefined,
+): (i: number) => ArgType {
+  if (argTypes.length === 0) {
+    // Funcs registered with `argTypes: []` are zero-arity at the gate.
+    // The loop only runs when `values.length > argTypes.length`, which
+    // is itself a registration bug — fall back to "any" so the loop
+    // does not throw on a stale zero-arity registration.
+    return () => "any";
+  }
+  if (pattern === "alternating") {
+    const len = argTypes.length;
+    return (i) => argTypes[i % len] as ArgType;
+  }
+  const trailing = argTypes[argTypes.length - 1] as ArgType;
+  return (i) => (i < argTypes.length ? (argTypes[i] as ArgType) : trailing);
 }
 
 function matchesArgType(

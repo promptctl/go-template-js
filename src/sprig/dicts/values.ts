@@ -1,5 +1,8 @@
-export function values(d: unknown): unknown[] {
-  if (d instanceof Map) return [...d.values()];
-  if (d && typeof d === "object") return Object.values(d);
-  return [];
+/**
+ * `values d` — list of own enumerable values.
+ *
+ * [LAW:single-enforcer] Receiver type validated at the gate.
+ */
+export function values(d: Record<string, unknown>): unknown[] {
+  return Object.values(d);
 }

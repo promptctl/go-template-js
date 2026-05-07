@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { TypeMismatchError } from "../../errors.js";
 import { unset } from "./unset.js";
 
 describe("sprig.unset", () => {
@@ -14,12 +13,5 @@ describe("sprig.unset", () => {
     const d = { a: 1 } as Record<string, unknown>;
     unset(d, "missing");
     expect(d).toEqual({ a: 1 });
-  });
-
-  it("throws TypeMismatchError on non-dict receivers", () => {
-    expect(() => unset(null, "k")).toThrow(TypeMismatchError);
-    expect(() => unset(new Map(), "k")).toThrow(TypeMismatchError);
-    expect(() => unset([], "k")).toThrow(TypeMismatchError);
-    expect(() => unset(42, "k")).toThrow(TypeMismatchError);
   });
 });

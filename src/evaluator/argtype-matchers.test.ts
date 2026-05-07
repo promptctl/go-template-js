@@ -246,6 +246,66 @@ describe("matchesArgType — serializable", () => {
   });
 });
 
+describe('argTypePattern: "alternating" (template-laws-3gt.3)', () => {
+  // The cycle pattern lets a func declare that argTypes describes a
+  // *period*, not a fixed prefix. dict's `string, value, string, value …`
+  // kv pairing is the motivating case: the gate validates every
+  // even-index arg as a string, eliminating the body-level per-key check.
+
+  const altDict = (): TemplateFunc => ({
+    fn: (...kv) => {
+      const out: Record<string, unknown> = {};
+      const args = kv as unknown[];
+      for (let i = 0; i < args.length; i += 2) out[args[i] as string] = args[i + 1];
+      return out;
+    },
+    argTypes: ["string", "value"],
+    argTypePattern: "alternating",
+  });
+
+  it("accepts alternating string/value pairs at every cycle", () => {
+    const eng = engineWithKind("d", altDict());
+    // 3 cycles of (string, value) = 6 args. Field access on the result
+    // verifies the kv pairing took effect without needing a sibling
+    // func registered alongside `d`.
+    expect(eng.parse('{{ (d "a" 1 "b" 2 "c" 3).c }}').evaluate(null).join("")).toBe("3");
+  });
+
+  it("rejects a non-string at the second key position (slot 3)", () => {
+    const eng = engineWithKind("d", altDict());
+    let caught: unknown;
+    try {
+      eng.parse('{{ d "a" 1 2 "v" }}').evaluate(null);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TypeMismatchError);
+    if (caught instanceof TypeMismatchError) {
+      expect(caught.funcName).toBe("d");
+      expect(caught.argIndex).toBe(3);
+    }
+  });
+
+  it("rejects a non-string at the third key position (slot 5)", () => {
+    const eng = engineWithKind("d", altDict());
+    let caught: unknown;
+    try {
+      eng.parse('{{ d "a" 1 "b" 2 3 4 }}').evaluate(null);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TypeMismatchError);
+    if (caught instanceof TypeMismatchError) {
+      expect(caught.argIndex).toBe(5);
+    }
+  });
+
+  it("single string-keyed pair passes (i=0 cycles to argTypes[0])", () => {
+    const eng = engineWithKind("d", altDict());
+    expect(eng.parse('{{ (d "only" 7).only }}').evaluate(null).join("")).toBe("7");
+  });
+});
+
 describe("matchesArgType — intent-named pass-through kinds", () => {
   // truthy / reflective / value share the "any" runtime behavior; the
   // matcher must accept anything for these kinds. The label exists so a

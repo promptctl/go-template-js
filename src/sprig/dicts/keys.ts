@@ -1,5 +1,9 @@
-export function keys(d: unknown): string[] {
-  if (d instanceof Map) return [...d.keys()].map(String);
-  if (d && typeof d === "object") return Object.keys(d);
-  return [];
+/**
+ * `keys d` — list of own enumerable string keys.
+ *
+ * [LAW:single-enforcer] Receiver type validated at the gate (`"dict"`);
+ * the body trusts the parameter. Map-key behavior is template-laws-3gt.7.
+ */
+export function keys(d: Record<string, unknown>): string[] {
+  return Object.keys(d);
 }
