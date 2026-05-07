@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { parse } from "../parser/parser.js";
 import { FuncNotFoundError, TypeMismatchError } from "./errors.js";
 import { createEngine, type FuncMap } from "./evaluator.js";
 
@@ -21,10 +20,8 @@ const concat: FuncMap = {
 
 const stringEngine = (funcs: FuncMap = {}) => createEngine<string>({ fromString: (s) => s, funcs });
 
-const renderString = (src: string, scope: unknown, funcs: FuncMap = {}): string => {
-  const { root } = parse(src);
-  return stringEngine(funcs).evaluate(root, scope, src).join("");
-};
+const renderString = (src: string, scope: unknown, funcs: FuncMap = {}): string =>
+  stringEngine(funcs).parse(src).evaluate(scope).join("");
 
 describe("pipelines — multi-command", () => {
   it("threads the previous result as the LAST argument of the next command", () => {
@@ -115,8 +112,7 @@ describe("type guard — no silent flatten", () => {
     const funcs: FuncMap = { upper: upper.upper as never };
     let err: unknown;
     try {
-      const { root } = parse("{{ . | upper }}");
-      fragEngine(funcs).evaluate(root, styled);
+      fragEngine(funcs).parse("{{ . | upper }}").evaluate(styled);
     } catch (e) {
       err = e;
     }
@@ -143,11 +139,12 @@ describe("type guard — no silent flatten", () => {
         returnType: "T",
       },
     };
-    const { root } = parse("{{ . | stripColor }}");
     const out = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
       funcs,
-    }).evaluate(root, styled);
+    })
+      .parse("{{ . | stripColor }}")
+      .evaluate(styled);
     expect(out).toEqual([{ color: "default", text: "ALERT" }]);
   });
 
@@ -159,9 +156,10 @@ describe("type guard — no silent flatten", () => {
         returnType: "string",
       },
     };
-    const { root } = parse("{{ . | describe }}");
     const eng = createEngine<string>({ fromString: (s) => s, funcs });
-    expect(eng.evaluate(root, { color: "red", text: "x" }).join("")).toMatch(/kind=object/);
+    expect(eng.parse("{{ . | describe }}").evaluate({ color: "red", text: "x" }).join("")).toMatch(
+      /kind=object/,
+    );
   });
 
   it("argTypes ['any'] is the explicit permissive escape — T flows through unchanged", () => {
@@ -169,13 +167,12 @@ describe("type guard — no silent flatten", () => {
     const funcs: FuncMap = {
       identity: { fn: (x: unknown) => x, argTypes: ["any"] },
     };
-    const { root } = parse("{{ . | identity }}");
     const eng = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
       funcs,
     });
     const styled: Frag = { color: "red", text: "x" };
-    expect(eng.evaluate(root, styled)).toEqual([styled]);
+    expect(eng.parse("{{ . | identity }}").evaluate(styled)).toEqual([styled]);
   });
 
   it("number-typed slot rejects strings", () => {

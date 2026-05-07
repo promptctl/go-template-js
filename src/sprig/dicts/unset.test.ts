@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TypeMismatchError } from "../../errors.js";
 import { unset } from "./unset.js";
 
 describe("sprig.unset", () => {
@@ -15,7 +16,10 @@ describe("sprig.unset", () => {
     expect(d).toEqual({ a: 1 });
   });
 
-  it("non-dict receivers pass through untouched", () => {
-    expect(unset(null, "k")).toBeNull();
+  it("throws TypeMismatchError on non-dict receivers", () => {
+    expect(() => unset(null, "k")).toThrow(TypeMismatchError);
+    expect(() => unset(new Map(), "k")).toThrow(TypeMismatchError);
+    expect(() => unset([], "k")).toThrow(TypeMismatchError);
+    expect(() => unset(42, "k")).toThrow(TypeMismatchError);
   });
 });

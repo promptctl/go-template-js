@@ -5,15 +5,13 @@
 
 import { describe, expect, it } from "vitest";
 import { createEngine } from "../../evaluator/evaluator.js";
-import { parse } from "../../parser/parser.js";
 import { sprigDefaults } from "./index.js";
 
-const render = (src: string, scope: unknown): string => {
-  const result = parse(src);
-  return createEngine<string>({ fromString: (s) => s, funcs: sprigDefaults() })
-    .evaluate(result, scope)
+const render = (src: string, scope: unknown): string =>
+  createEngine<string>({ fromString: (s) => s, funcs: sprigDefaults() })
+    .parse(src)
+    .evaluate(scope)
     .join("");
-};
 
 describe("sprig defaults — integration through the engine", () => {
   it("default fills in for empty values via pipe", () => {

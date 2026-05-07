@@ -17,10 +17,12 @@ import { values } from "./values.js";
 export { dict, get, hasKey, keys, merge, mergeOverwrite, omit, pick, pluck, set, unset, values };
 
 export function sprigDicts(): FuncMap {
-  // [LAW:single-enforcer] enforceArgTypes validates dict keys as
-  // strings at the boundary. Note dict's variadic key/value alternation
-  // can only validate the first key — index >=2 falls to the trailing
-  // "any" slot, so dict's body still coerces those keys explicitly.
+  // [LAW:single-enforcer] enforceArgTypes validates each func's
+  // first-class arg types at the boundary. dict's variadic key/value
+  // alternation can only describe the first key as "string" — keys at
+  // index >= 2 fall to the trailing "any" slot, so dict's body
+  // validates those positions and throws TypeMismatchError on
+  // non-strings (re-emitted with call-site pos by evalCommand).
   return {
     dict: { fn: (...kv) => dict(...kv), argTypes: ["string", "any"] },
     get: { fn: (d, k) => get(d, k as string), argTypes: ["any", "string"] },

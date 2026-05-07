@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parse } from "../parser/parser.js";
 import { createEngine } from "./evaluator.js";
 
-const render = (src: string, scope: unknown): string => {
-  const result = parse(src);
-  return createEngine<string>({ fromString: (s) => s })
-    .evaluate(result, scope)
+const render = (src: string, scope: unknown): string =>
+  createEngine<string>({ fromString: (s) => s })
+    .parse(src)
+    .evaluate(scope)
     .join("");
-};
 
 describe("control flow — if/else/end", () => {
   it("renders the then branch when the pipe is truthy", () => {

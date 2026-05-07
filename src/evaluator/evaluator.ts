@@ -121,20 +121,32 @@ const NO_PIPE: Piped = { kind: "none" };
  * "parse-once-eval-many" invariant from the epic spec. The `source`
  * property exposes the original template text for debugging /
  * diagnostics.
+ *
+ * Construct via `engine.parse(src)`. The constructor is private so
+ * the public type surface need not reference internal AST shapes.
  */
+// [LAW:one-source-of-truth] `internalCreateTemplate` is the *only*
+// callable factory for Template. Captured from the static block below
+// so that Engine (and only Engine) can construct Templates without
+// exposing the parsed AST shape on the public type surface.
+let internalCreateTemplate: <U>(source: string, evaluate: (scope: unknown) => U[]) => Template<U>;
+
 export class Template<T> {
   readonly source: string;
-  private readonly engine: Engine<T>;
-  private readonly parsed: ParseResult;
+  private readonly _evaluate: (scope: unknown) => T[];
 
-  constructor(engine: Engine<T>, parsed: ParseResult) {
-    this.engine = engine;
-    this.parsed = parsed;
-    this.source = parsed.source;
+  private constructor(source: string, evaluate: (scope: unknown) => T[]) {
+    this.source = source;
+    this._evaluate = evaluate;
+  }
+
+  static {
+    internalCreateTemplate = <U>(source: string, evaluate: (scope: unknown) => U[]) =>
+      new Template(source, evaluate);
   }
 
   evaluate(scope: unknown): T[] {
-    return this.engine.evaluate(this.parsed, scope);
+    return this._evaluate(scope);
   }
 }
 
@@ -158,7 +170,8 @@ export class Engine<T> {
    * re-parsing.
    */
   parse(source: string): Template<T> {
-    return new Template(this, parseSource(source));
+    const parsed = parseSource(source);
+    return internalCreateTemplate(parsed.source, (scope) => this.evalParsed(parsed, scope));
   }
 
   /**
@@ -175,24 +188,24 @@ export class Engine<T> {
   /**
    * Evaluate a parsed template against a scope value, producing T[].
    *
-   * The first argument may be either:
-   *  - a bare `ListNode` (the simplest case — no `{{template}}` /
-   *    `{{block}}` resolution available);
-   *  - a full `ParseResult` (with `root`, `defines`, `source`) which
-   *    enables sub-template invocation and rich error snippets.
+   * Accepts only Templates produced by `engine.parse(src)` so the
+   * public type surface stays clear of internal AST shapes.
    */
-  evaluate(astOrResult: ListNode | ParseResult, scope: unknown, sourceText?: string): T[] {
-    const result: ParseResult = isParseResult(astOrResult)
-      ? astOrResult
-      : { root: astOrResult, defines: new Map(), source: sourceText ?? "" };
+  evaluate(template: Template<T>, scope: unknown): T[] {
+    return template.evaluate(scope);
+  }
+
+  // [LAW:single-enforcer] All evaluation flows through here; the
+  // Template closure built in `parse()` calls back into this method.
+  private evalParsed(parsed: ParseResult, scope: unknown): T[] {
     const out: T[] = [];
     const root = rootScope(scope);
     const ctx: EvalContext<T> = {
       out,
-      defines: result.defines,
-      source: result.source || sourceText,
+      defines: parsed.defines,
+      source: parsed.source,
     };
-    this.evalList(result.root, root, ctx);
+    this.evalList(parsed.root, root, ctx);
     return out;
   }
 
@@ -445,7 +458,26 @@ export class Engine<T> {
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
     // their parameter types; we erase that here, having already validated
     // the runtime types via `enforceArgTypes`.
-    return (fn.fn as (...a: unknown[]) => unknown)(...args);
+    try {
+      return (fn.fn as (...a: unknown[]) => unknown)(...args);
+    } catch (e) {
+      // [LAW:single-enforcer] The dispatch site is the *one* place that
+      // owns call-site context (pos, source). Funcs that validate nested
+      // structure (e.g. list elements, alternating variadic positions)
+      // throw TypeMismatchError without pos info; we re-emit with the
+      // call-site pos so the snippet points at the failing call.
+      if (e instanceof TypeMismatchError) {
+        throw new TypeMismatchError(
+          e.funcName,
+          e.argIndex,
+          e.expected,
+          e.receivedSummary,
+          cmd.pos,
+          { source: ctx.source },
+        );
+      }
+      throw e;
+    }
   }
 
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>): unknown {
@@ -754,12 +786,8 @@ function compareMapKeys(a: unknown, b: unknown): number {
 }
 
 // ---------------------------------------------------------------------------
-// ParseResult discriminator + numeric-literal helper.
+// Numeric-literal helper.
 // ---------------------------------------------------------------------------
-
-function isParseResult(x: ListNode | ParseResult): x is ParseResult {
-  return (x as ParseResult).root !== undefined;
-}
 
 function numberValue(n: {
   readonly intValue?: bigint;

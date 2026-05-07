@@ -68,11 +68,13 @@ export {
 };
 
 export function sprigStrings(): FuncMap {
-  // [LAW:single-enforcer] argTypes is the *one* contract describing
-  // what each func accepts. enforceArgTypes runs at the boundary, so
-  // the `as` casts below are provably-safe — the runtime types match
-  // the declared argTypes. The function bodies trust those types and
-  // no longer re-coerce with `String(.)`.
+  // [LAW:single-enforcer] argTypes is the contract describing what each
+  // func accepts; enforceArgTypes runs at the boundary, so the `as`
+  // casts below are provably-safe — the runtime types match the
+  // declared argTypes. Function bodies coerce primitives with
+  // `String(.)` only after asserting the value is not a typed-T
+  // object; see `join` for the nested-element case the boundary gate
+  // can't describe.
   return {
     abbrev: {
       fn: (w, s) => abbrev(w as number | bigint, s as string),

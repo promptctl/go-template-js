@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parse } from "../parser/parser.js";
 import { TypeMismatchError } from "./errors.js";
 import { createEngine } from "./evaluator.js";
 
-const render = (src: string, scope: unknown = null): string => {
-  const result = parse(src);
-  return createEngine<string>({ fromString: (s) => s })
-    .evaluate(result, scope)
+const render = (src: string, scope: unknown = null): string =>
+  createEngine<string>({ fromString: (s) => s })
+    .parse(src)
+    .evaluate(scope)
     .join("");
-};
 
 describe("builtins — comparison", () => {
   it("eq with two args", () => {

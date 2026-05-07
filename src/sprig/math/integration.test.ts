@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createEngine } from "../../evaluator/evaluator.js";
-import { parse } from "../../parser/parser.js";
 import { sprigMath } from "./index.js";
 
-const render = (src: string, scope: unknown = null): string => {
-  const result = parse(src);
-  return createEngine<string>({ fromString: (s) => s, funcs: sprigMath() })
-    .evaluate(result, scope)
+const render = (src: string, scope: unknown = null): string =>
+  createEngine<string>({ fromString: (s) => s, funcs: sprigMath() })
+    .parse(src)
+    .evaluate(scope)
     .join("");
-};
 
 describe("sprig math — integration", () => {
   it("add via pipe", () => {

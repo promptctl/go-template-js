@@ -1,22 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { parse } from "../parser/parser.js";
 import { EvalError } from "./errors.js";
 import { createEngine, type Engine } from "./evaluator.js";
 
 const stringEngine = (): Engine<string> => createEngine<string>({ fromString: (s) => s });
 
-const renderString = (src: string, scope: unknown): string => {
-  const { root } = parse(src);
-  return stringEngine().evaluate(root, scope, src).join("");
-};
+const renderString = (src: string, scope: unknown): string =>
+  stringEngine().parse(src).evaluate(scope).join("");
 
 describe("evaluator — text and dot", () => {
   it("emits text literals through fromString", () => {
     const eng = createEngine<{ kind: "txt"; v: string }>({
       fromString: (s) => ({ kind: "txt", v: s }),
     });
-    const { root } = parse("hello");
-    expect(eng.evaluate(root, null)).toEqual([{ kind: "txt", v: "hello" }]);
+    expect(eng.parse("hello").evaluate(null)).toEqual([{ kind: "txt", v: "hello" }]);
   });
 
   it("renders {{ . }} as the scope value via fromString", () => {
@@ -114,8 +110,7 @@ describe("evaluator — generic over T", () => {
     const eng = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
     });
-    const { root } = parse("hi {{ . }}!");
-    const frags = eng.evaluate(root, "world");
+    const frags = eng.parse("hi {{ . }}!").evaluate("world");
     expect(frags).toEqual([
       { color: "default", text: "hi " },
       { color: "default", text: "world" },
@@ -128,8 +123,7 @@ describe("evaluator — generic over T", () => {
       fromString: (s) => ({ color: "default", text: s }),
     });
     const tagged: Frag = { color: "red", text: "ALERT" };
-    const { root } = parse("{{ . }}");
-    const out = eng.evaluate(root, tagged);
+    const out = eng.parse("{{ . }}").evaluate(tagged);
     expect(out).toEqual([tagged]);
   });
 });

@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createEngine } from "../../evaluator/evaluator.js";
-import { parse } from "../../parser/parser.js";
 import { sprigDicts } from "./index.js";
 
-const render = (src: string, scope: unknown = null): string => {
-  const result = parse(src);
-  return createEngine<string>({ fromString: (s) => s, funcs: sprigDicts() })
-    .evaluate(result, scope)
+const render = (src: string, scope: unknown = null): string =>
+  createEngine<string>({ fromString: (s) => s, funcs: sprigDicts() })
+    .parse(src)
+    .evaluate(scope)
     .join("");
-};
 
 describe("sprig dicts — integration", () => {
   it("dict builds + get reads (direct-call form)", () => {
