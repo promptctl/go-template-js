@@ -52,6 +52,10 @@ const allRegisteredFuncs = (): FuncMap => ({
 // Sane filler value for a slot that's NOT under test. Picks a value
 // that satisfies the slot's declared type so the per-slot gate passes
 // for all slots except the one carrying the TaggedFragment.
+//
+// New ArgType kinds (template-laws-3gt.1) get fillers here so the
+// exhaustive switch typechecks; no registration uses them yet, so the
+// fillers will not actually be exercised until .2–.8 land.
 function fillerFor(slot: ArgType): unknown {
   switch (slot) {
     case "string":
@@ -65,7 +69,24 @@ function fillerFor(slot: ArgType): unknown {
     case "T":
       return TAGGED;
     case "any":
+    case "truthy":
+    case "reflective":
+    case "value":
       return "x";
+    case "list":
+      return [];
+    case "dict":
+      return {};
+    case "sized":
+      return "";
+    case "comparable":
+      return 0;
+    case "stringifiable":
+      return "x";
+    case "callable":
+      return () => undefined;
+    case "serializable":
+      return 0;
   }
 }
 

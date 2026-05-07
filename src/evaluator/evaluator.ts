@@ -49,13 +49,53 @@ import { isTruthy } from "./truthy.js";
  * - "T"      — opaque caller-defined T; treated as "anything that is
  *   not a string". The guard does no further checking.
  * - "any"    — accepts anything (the explicit permissive escape).
+ *   TODO(template-laws-3gt.9): remove from the union once every
+ *   registration has migrated to a precise or intent-named kind.
  * - "ordered" — orderable primitive (string, number, bigint, boolean).
  *   When two or more "ordered" slots appear in the same call, all of
  *   them must share a kind, with `number` and `bigint` bridged. Used
  *   by `lt`/`le`/`gt`/`ge` to match Go's `text/template` rule that
  *   ordering operands have the same type.
+ *
+ * Precise kinds (added template-laws-3gt.1, consumed in .2–.7):
+ * - "list"   — array. Excludes string (Go-parity: string is not a list).
+ * - "dict"   — plain object (not Map; Maps are handled separately).
+ * - "sized"  — has a meaningful `len`: string | array | Map | Set | object.
+ * - "comparable" — accepted by `eq`/`ne`: ordered values plus nil.
+ *   Deep-equal semantics for objects are layered in .5; the matcher
+ *   here only validates kind.
+ * - "stringifiable" — string directly OR a value the engine's
+ *   `toString` can flatten. The matcher *probes* the conversion;
+ *   downstream func bodies call `engine.toString` to actually flatten.
+ * - "callable" — `typeof v === "function"`.
+ *
+ * Intent-named kinds (added template-laws-3gt.1, consumed in .8) —
+ * the labels carry intent for readers; runtime behavior is documented
+ * pass-through except where noted:
+ * - "truthy"     — anything (truthiness context).
+ * - "reflective" — anything (type-inspection context).
+ * - "value"      — anything (genuinely heterogeneous: constructors,
+ *   structural ops). Documents intent.
+ * - "serializable" — anything JSON-encodable. Runtime-validated:
+ *   functions, symbols, and circular refs fail the gate.
  */
-export type ArgType = "string" | "number" | "bool" | "T" | "any" | "ordered";
+export type ArgType =
+  | "string"
+  | "number"
+  | "bool"
+  | "T"
+  | "any"
+  | "ordered"
+  | "list"
+  | "dict"
+  | "sized"
+  | "comparable"
+  | "stringifiable"
+  | "callable"
+  | "truthy"
+  | "reflective"
+  | "value"
+  | "serializable";
 
 export interface TemplateFunc {
   /**
@@ -91,6 +131,23 @@ export type FuncMap = Record<string, TemplateFunc>;
 export interface EngineConfig<T> {
   /** Convert a text literal (or string-returning function result) into T. */
   readonly fromString: (s: string) => T;
+  /**
+   * Flatten a T (or other engine-managed value) into a string.
+   *
+   * [LAW:single-enforcer] Dual of `fromString`: one place owns the
+   * string→T direction, this owns the T→string direction. Built-ins
+   * registered against the `"stringifiable"` ArgType call this when
+   * they need to format a non-string value (the matcher probes via
+   * `toString` to validate; the body re-uses it to flatten).
+   *
+   * Default behaviour: passes through any value that is already a
+   * `typeof "string"` and throws `TypeMismatchError` for everything
+   * else. That makes the `T = string` case (consumer set
+   * `fromString: (s) => s`) work out of the box, while a non-string T
+   * configured without a `toString` errors loudly the first time a
+   * `"stringifiable"` slot encounters a T value — never silently.
+   */
+  readonly toString?: (value: T) => string;
   /** Optional registry of named functions usable in pipelines. */
   readonly funcs?: FuncMap;
 }
@@ -152,10 +209,22 @@ export class Template<T> {
 
 export class Engine<T> {
   private readonly fromString: (s: string) => T;
+  // [LAW:single-enforcer] Stored alongside `fromString` so the engine
+  // owns both halves of the text↔T boundary. Threaded into
+  // `enforceArgTypes` so `"stringifiable"` slots probe with the same
+  // function that downstream func bodies will re-use to flatten.
+  private readonly toString: (value: unknown) => string;
   private readonly funcs: FuncMap;
 
   constructor(config: EngineConfig<T>) {
     this.fromString = config.fromString;
+    // `toString` collides with `Object.prototype.toString`, so a plain
+    // `config.toString ?? default` would silently bind the prototype
+    // method when the consumer didn't pass anything. Check for an own
+    // property explicitly so the fallback only fires for unconfigured
+    // engines.
+    const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
+    this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
@@ -453,7 +522,7 @@ export class Engine<T> {
       args.push(lazy ? () => v : v);
     }
 
-    enforceArgTypes(head.ident, fn.argTypes, args, cmd.pos, ctx.source);
+    enforceArgTypes(head.ident, fn.argTypes, args, cmd.pos, ctx.source, this.toString);
     // [LAW:single-enforcer] One cast at the dispatch site. `TemplateFunc.fn`
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
     // their parameter types; we erase that here, having already validated
@@ -503,7 +572,7 @@ export class Engine<T> {
             source: ctx.source,
             available: Object.keys(this.funcs),
           });
-        enforceArgTypes(node.ident, fn.argTypes, [], node.pos, ctx.source);
+        enforceArgTypes(node.ident, fn.argTypes, [], node.pos, ctx.source, this.toString);
         return (fn.fn as () => unknown)();
       }
       case "Chain":
@@ -633,12 +702,18 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 // Exported for the deep-import universal-property harness (see
 // `test/conformance/no-silent-flatten-universal.test.ts`). Not part of
 // the public stability surface — `src/index.ts` does not re-export it.
+//
+// `toString` is optional so the harness (and any other deep-import
+// caller) keeps compiling unchanged. When omitted, the default
+// stringifier is used; that only affects `"stringifiable"` slots, none
+// of which appear in any registration as of template-laws-3gt.1.
 export function enforceArgTypes(
   funcName: string,
   argTypes: readonly ArgType[],
   values: readonly unknown[],
   pos: Pos,
   src: string | undefined,
+  toString: (value: unknown) => string = defaultToString,
 ): void {
   // [LAW:dataflow-not-control-flow] No short-circuit. The shape of work
   // is fixed: validate every positional value against its declared
@@ -649,7 +724,7 @@ export function enforceArgTypes(
   for (let i = 0; i < values.length; i++) {
     const declared = argTypes[i] ?? trailing;
     const value = values[i];
-    if (!matchesArgType(declared, value)) {
+    if (!matchesArgType(declared, value, toString)) {
       throw new TypeMismatchError(
         funcName,
         i + 1,
@@ -681,9 +756,21 @@ export function enforceArgTypes(
   }
 }
 
-function matchesArgType(declared: ArgType, value: unknown): boolean {
+function matchesArgType(
+  declared: ArgType,
+  value: unknown,
+  toString: (value: unknown) => string,
+): boolean {
   switch (declared) {
     case "any":
+    case "truthy":
+    case "reflective":
+    case "value":
+      // [LAW:dataflow-not-control-flow] Same matcher behavior as
+      // "any"; the *label* carries reader-facing intent so a future
+      // grep can distinguish "we accept anything because we inspect
+      // the type" from "we accept anything because we run truthiness"
+      // from "any escape-hatch leftover". Migration target for .8.
       return true;
     case "string":
       return typeof value === "string";
@@ -708,6 +795,97 @@ function matchesArgType(declared: ArgType, value: unknown): boolean {
         typeof value !== "bigint" &&
         typeof value !== "symbol"
       );
+    case "list":
+      // Go-parity: a string is not a list to sprig, even though it is
+      // iterable. Excluding string here forces consumers to spell out
+      // string-vs-list intent at the slot.
+      return Array.isArray(value);
+    case "dict":
+      // Plain object only. Maps, arrays, Sets, class instances, and
+      // null are not "dicts" — the dict slot expects bag-of-keys
+      // semantics with `Object.keys` / `Record<string, unknown>` shape.
+      return isPlainObject(value);
+    case "sized":
+      return (
+        typeof value === "string" ||
+        Array.isArray(value) ||
+        value instanceof Map ||
+        value instanceof Set ||
+        isPlainObject(value)
+      );
+    case "comparable":
+      // Same membership as "ordered" plus `nil` (null/undefined). Deep
+      // equality on objects is layered in template-laws-3gt.5 — at the
+      // matcher level, reference equality is implicit for everything
+      // not listed here, which is fine because eq/ne accept "any" today.
+      return (
+        value === null ||
+        value === undefined ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "bigint" ||
+        typeof value === "boolean"
+      );
+    case "callable":
+      return typeof value === "function";
+    case "stringifiable": {
+      // Probe (do not transform). String passes through trivially —
+      // avoids invoking the consumer's `toString` for the common case.
+      // For non-strings, attempt the conversion: a successful return
+      // means the value can flatten, a throw means it cannot. The
+      // matcher reports the boolean; downstream func bodies (.6) call
+      // `engine.toString` again to actually flatten.
+      if (typeof value === "string") return true;
+      try {
+        toString(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    case "serializable":
+      // Runtime-validate JSON encodability. `JSON.stringify` returns
+      // `undefined` for functions/symbols and throws on circular refs;
+      // either result fails the gate.
+      return isJsonSerializable(value);
+  }
+}
+
+// Identity-for-string default. Strings flow through unchanged, which
+// recovers the `T = string` case (`fromString: (s) => s`) without
+// runtime type detection. Non-string values throw a TypeMismatchError
+// with no call-site pos — `evalCommand` wraps and re-emits with the
+// proper context (see [LAW:single-enforcer] above).
+function defaultToString(value: unknown): string {
+  if (typeof value === "string") return value;
+  throw new TypeMismatchError(
+    "<engine.toString>",
+    1,
+    "string (or a consumer-supplied toString that flattens T)",
+    describeValue(value),
+    { line: 0, column: 0, offset: 0 },
+  );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  if (value instanceof Map || value instanceof Set) return false;
+  // Reject typed arrays, Dates, RegExps, and other built-ins by
+  // requiring a null prototype or the plain Object prototype.
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || proto === Object.prototype;
+}
+
+function isJsonSerializable(value: unknown): boolean {
+  try {
+    const encoded = JSON.stringify(value);
+    // `JSON.stringify` returns `undefined` for top-level functions /
+    // symbols / undefined; treat that as "not serializable".
+    return encoded !== undefined;
+  } catch {
+    // Circular references or BigInt land here.
+    return false;
   }
 }
 
@@ -721,9 +899,34 @@ function sameOrderedKind(a: unknown, b: unknown): boolean {
 }
 
 function humanArgType(t: ArgType): string {
-  if (t === "T") return "T (consumer-defined fragment)";
-  if (t === "ordered") return "orderable primitive";
-  return t;
+  switch (t) {
+    case "T":
+      return "T (consumer-defined fragment)";
+    case "ordered":
+      return "orderable primitive";
+    case "list":
+      return "list";
+    case "dict":
+      return "dict (plain object)";
+    case "sized":
+      return "sized value (string, list, map, set, or dict)";
+    case "comparable":
+      return "comparable value (orderable primitive or nil)";
+    case "stringifiable":
+      return "stringifiable value (string or convertible via the engine's toString)";
+    case "callable":
+      return "callable (function value)";
+    case "serializable":
+      return "JSON-serializable value";
+    case "truthy":
+    case "reflective":
+    case "value":
+    case "any":
+    case "string":
+    case "number":
+    case "bool":
+      return t;
+  }
 }
 
 function describeValue(value: unknown): string {
