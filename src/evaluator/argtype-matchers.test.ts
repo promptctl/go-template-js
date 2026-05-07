@@ -165,6 +165,45 @@ describe("matchesArgType — comparable", () => {
   });
 });
 
+describe("matchesArgType — collection", () => {
+  it("accepts strings, arrays, Maps, plain objects", () => {
+    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["collection"] });
+    expect(eng.parse("{{ f . }}").evaluate("abc").join("")).toBe("ok");
+    expect(eng.parse("{{ f . }}").evaluate([1, 2]).join("")).toBe("ok");
+    expect(
+      eng
+        .parse("{{ f . }}")
+        .evaluate(new Map([["k", 1]]))
+        .join(""),
+    ).toBe("ok");
+    expect(eng.parse("{{ f . }}").evaluate({ a: 1 }).join("")).toBe("ok");
+  });
+
+  it("rejects Sets, numbers, booleans, null", () => {
+    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["collection"] });
+    expect(() => eng.parse("{{ f . }}").evaluate(new Set([1]))).toThrow(TypeMismatchError);
+    expect(() => eng.parse("{{ f . }}").evaluate(42)).toThrow(TypeMismatchError);
+    expect(() => eng.parse("{{ f . }}").evaluate(true)).toThrow(TypeMismatchError);
+    expect(() => eng.parse("{{ f . }}").evaluate(null)).toThrow(TypeMismatchError);
+  });
+});
+
+describe("matchesArgType — index-key", () => {
+  it("accepts numbers, bigints, and strings", () => {
+    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["collection", "index-key"] });
+    expect(eng.parse("{{ f . 0 }}").evaluate([1, 2]).join("")).toBe("ok");
+    expect(eng.parse('{{ f . "k" }}').evaluate({ k: 1 }).join("")).toBe("ok");
+  });
+
+  it("rejects booleans, plain objects (typed-T keys)", () => {
+    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["collection", "index-key"] });
+    expect(() => eng.parse("{{ f . true }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
+    expect(() => eng.parse("{{ f . .key }}").evaluate({ a: 1, key: { tag: "x" } })).toThrow(
+      TypeMismatchError,
+    );
+  });
+});
+
 describe("matchesArgType — callable", () => {
   it("accepts function values from the scope", () => {
     const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["callable"] });

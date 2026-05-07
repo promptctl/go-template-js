@@ -181,6 +181,33 @@ describe("builtins — len / index / slice", () => {
     expect(render("{{ slice . 1 4 }}", "abcdef")).toBe("bcd");
     expect(render("{{ index (slice . 1 3) 0 }}", [10, 20, 30, 40])).toBe("20");
   });
+
+  // [LAW:single-enforcer] Closes audit B5: the gate rejects typed-T
+  // keys before the body's `String(key)` could silently flatten them.
+  it("index rejects a typed-T key against an object collection (B5)", () => {
+    let err: unknown;
+    try {
+      render("{{ index . .key }}", { a: 1, key: { tag: "color", text: "x" } });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(TypeMismatchError);
+    if (err instanceof TypeMismatchError) {
+      expect(err.funcName).toBe("index");
+      expect(err.argIndex).toBe(2);
+    }
+  });
+
+  // [LAW:single-enforcer] index's collection slot rejects nil — the
+  // body no longer needs an "indexing into nil" branch on the initial
+  // receiver. Mid-walk nil still surfaces via the catch-all.
+  it("index rejects a nil receiver at the gate", () => {
+    expect(() => render("{{ index . 0 }}", null)).toThrow(TypeMismatchError);
+  });
+
+  it("index on object requires a string key (number-on-object body error)", () => {
+    expect(() => render("{{ index . 0 }}", { a: 1 })).toThrow(/object index must be string/);
+  });
 });
 
 describe("builtins — print / println / printf", () => {

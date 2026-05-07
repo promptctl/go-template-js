@@ -71,6 +71,13 @@ import { isTruthy } from "./truthy.js";
  *   `toString` can flatten. The matcher *probes* the conversion;
  *   downstream func bodies call `engine.toString` to actually flatten.
  * - "callable" — `typeof v === "function"`.
+ * - "collection" — string | array | Map | plain object. The receiver
+ *   shape `index` accepts. Sets and primitives are rejected. Nil is
+ *   rejected by the gate; the body trusts a non-nil collection.
+ *   (Added template-laws-3gt.7 alongside the index migration.)
+ * - "index-key" — string | number | bigint. The key shape `index`
+ *   accepts. The body decides which collection kind a given key fits
+ *   (arrays want integer; objects want string).
  *
  * Intent-named kinds (added template-laws-3gt.1, consumed in .8) —
  * the labels carry intent for readers; runtime behavior is documented
@@ -95,6 +102,8 @@ export type ArgType =
   | "comparable"
   | "stringifiable"
   | "callable"
+  | "collection"
+  | "index-key"
   | "truthy"
   | "reflective"
   | "value"
@@ -917,6 +926,21 @@ function matchesArgType(
       );
     case "callable":
       return typeof value === "function";
+    case "collection":
+      // Receiver shape for `index`. Sets and class instances are
+      // rejected (Sets aren't keyed; class instances aren't sprig
+      // dicts). Nil is rejected so the body never has to defend.
+      return (
+        typeof value === "string" ||
+        Array.isArray(value) ||
+        value instanceof Map ||
+        isPlainObject(value)
+      );
+    case "index-key":
+      // Key shape for `index`. The body decides which collection kind
+      // a key actually fits (array wants integer; object wants string;
+      // Map's get accepts the key as-is for whatever it stores).
+      return typeof value === "string" || typeof value === "number" || typeof value === "bigint";
     case "stringifiable": {
       // Probe (do not transform). String passes through trivially —
       // avoids invoking the consumer's `toString` for the common case.
@@ -1034,6 +1058,10 @@ function humanArgType(t: ArgType): string {
       return "stringifiable value (string or convertible via the engine's toString)";
     case "callable":
       return "callable (function value)";
+    case "collection":
+      return "collection (string, array, Map, or dict)";
+    case "index-key":
+      return "index key (number, bigint, or string)";
     case "serializable":
       return "JSON-serializable value";
     case "truthy":

@@ -61,14 +61,19 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
     // the kind and only fans out the per-kind size readout.
     len: { fn: (v: unknown) => goLen(v), argTypes: ["sized"] },
 
-    // Positional access on collections. `index x i j` walks i, then j…
+    // [LAW:single-enforcer] `index x i j` walks i, then j. The first
+    // slot is "collection" (string | array | Map | dict); every key
+    // slot is "index-key" (string | number | bigint). The body trusts
+    // the gate — nil/Set/class-instance receivers are rejected before
+    // it runs. Closes audit finding B5: typed-T keys no longer
+    // silently `String(key)`-flatten on object collections.
     index: {
       fn: (collection: unknown, ...keys: unknown[]) => {
         let cur: unknown = collection;
         for (const k of keys) cur = goIndex(cur, k);
         return cur;
       },
-      argTypes: ["any"],
+      argTypes: ["collection", "index-key"],
     },
 
     // `slice x i j` — array/slice/string slicing.
@@ -216,9 +221,11 @@ function goLen(value: unknown): number {
 }
 
 function goIndex(collection: unknown, key: unknown): unknown {
-  if (collection === null || collection === undefined) {
-    throw new Error("index: indexing into nil");
-  }
+  // [LAW:single-enforcer] The gate validates the *initial* collection
+  // and key shapes. Mid-walk, `collection` is whatever the previous
+  // step returned — so the body keeps a "cannot index" defense for
+  // intermediate non-collection values (e.g., a leaf number). The nil
+  // case is folded into that catch-all.
   if (Array.isArray(collection)) {
     const i = Number(key);
     if (!Number.isInteger(i))
@@ -235,8 +242,15 @@ function goIndex(collection: unknown, key: unknown): unknown {
     const i = Number(key);
     return collection[i];
   }
-  if (typeof collection === "object") {
-    return (collection as Record<string, unknown>)[String(key)];
+  if (collection !== null && typeof collection === "object") {
+    // Closes B5: no silent `String(key)`. Object access requires a
+    // string key; numeric/bigint keys for an object collection are a
+    // body-level kind error (the gate's per-slot rule can't express
+    // "key kind depends on receiver kind" without cross-slot logic).
+    if (typeof key !== "string") {
+      throw new Error(`index: object index must be string, got ${describeType(key)}`);
+    }
+    return (collection as Record<string, unknown>)[key];
   }
   throw new Error(`index: cannot index ${describeType(collection)}`);
 }

@@ -94,6 +94,10 @@ function fillerFor(slot: ArgType): unknown {
       return "x";
     case "callable":
       return () => undefined;
+    case "collection":
+      return [];
+    case "index-key":
+      return 0;
     case "serializable":
       return 0;
   }
@@ -126,6 +130,11 @@ describe("conformance — no-silent-flatten universal property", () => {
       //  - "comparable":   TaggedFragment is a plain object → eq/ne
       //                    compare it structurally via deepEqual; no
       //                    string flattening occurs.
+      //  - "collection":   TaggedFragment is structurally a plain
+      //                    object → `index`'s receiver-shape gate
+      //                    accepts it; the body's per-key access
+      //                    routes through `Record<string, unknown>[k]`
+      //                    without flattening.
       //  - "sized":        TaggedFragment is a plain object → has a
       //                    meaningful `Object.keys` length, so the
       //                    "sized" matcher accepts it. The body returns
@@ -143,6 +152,7 @@ describe("conformance — no-silent-flatten universal property", () => {
         declared === "dict" ||
         declared === "serializable" ||
         declared === "comparable" ||
+        declared === "collection" ||
         declared === "sized"
       ) {
         return;
