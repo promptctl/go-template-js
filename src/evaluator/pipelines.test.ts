@@ -74,7 +74,7 @@ describe("pipelines — multi-command", () => {
       maybe: { fn: () => undefined, argTypes: [] },
       isnil: {
         fn: (v: unknown) => (v === undefined ? "nil" : "set"),
-        argTypes: ["any"],
+        argTypes: ["value"],
       },
     };
     expect(renderString("{{ maybe | isnil }}", null, funcs)).toBe("nil");
@@ -152,7 +152,7 @@ describe("type guard — no silent flatten", () => {
     const funcs: FuncMap = {
       describe: {
         fn: (v: unknown) => `kind=${typeof v}`,
-        argTypes: ["any"],
+        argTypes: ["value"],
         returnType: "string",
       },
     };
@@ -165,7 +165,7 @@ describe("type guard — no silent flatten", () => {
   it("argTypes ['any'] is the explicit permissive escape — T flows through unchanged", () => {
     type Frag = { color: string; text: string };
     const funcs: FuncMap = {
-      identity: { fn: (x: unknown) => x, argTypes: ["any"] },
+      identity: { fn: (x: unknown) => x, argTypes: ["value"] },
     };
     const eng = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),

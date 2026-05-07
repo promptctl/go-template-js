@@ -60,7 +60,7 @@ const stylingFuncs: FuncMap = {
       tag: String(tag),
       text: String(value),
     }),
-    argTypes: ["string", "any"],
+    argTypes: ["string", "value"],
     returnType: "T",
   },
 };

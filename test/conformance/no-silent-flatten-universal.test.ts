@@ -9,7 +9,7 @@
  *
  * [LAW:verifiable-goals] This harness asserts that property mechanically
  * for every entry in the merged FuncMap (default builtins + every sprig
- * category). For each non-"any", non-"T" `argTypes` slot, it places a
+ * category). For each non-"T", non-permissive `argTypes` slot, it places a
  * TaggedFragment in that slot and confirms the gate throws
  * `TypeMismatchError` naming the func and (1-based) slot index.
  *
@@ -77,7 +77,6 @@ function fillerFor(slot: ArgType): unknown {
       return 0;
     case "T":
       return TAGGED;
-    case "any":
     case "truthy":
     case "reflective":
     case "value":
@@ -114,7 +113,6 @@ describe("conformance — no-silent-flatten universal property", () => {
     fn.argTypes.forEach((declared, slot) => {
       // Permissive-by-intent slots accept TaggedFragments by design and
       // are out of scope for the no-silent-flatten property:
-      //  - "any":        explicit permissive escape (removed in .9)
       //  - "T":          accepts typed fragments by definition
       //  - "value":      genuinely heterogeneous (constructors / structural ops)
       //  - "truthy":     truthiness context — anything is meaningful
@@ -146,7 +144,6 @@ describe("conformance — no-silent-flatten universal property", () => {
       //                    no-silent-flatten property doesn't apply
       //                    because no string flattening occurs.
       if (
-        declared === "any" ||
         declared === "T" ||
         declared === "value" ||
         declared === "truthy" ||

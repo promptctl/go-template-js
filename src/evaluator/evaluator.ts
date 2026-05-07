@@ -48,9 +48,6 @@ import { isTruthy } from "./truthy.js";
  * - "bool"   — must be `typeof "boolean"`.
  * - "T"      — opaque caller-defined T; treated as "anything that is
  *   not a string". The guard does no further checking.
- * - "any"    — accepts anything (the explicit permissive escape).
- *   TODO(template-laws-3gt.9): remove from the union once every
- *   registration has migrated to a precise or intent-named kind.
  * - "ordered" — orderable primitive (string, number, bigint, boolean).
  *   When two or more "ordered" slots appear in the same call, all of
  *   them must share a kind, with `number` and `bigint` bridged. Used
@@ -80,7 +77,7 @@ import { isTruthy } from "./truthy.js";
  *   (arrays want integer; objects want string).
  * - "sliceable" — string | array. Receiver shape for `slice`. Folded
  *   into template-laws-3gt.8 alongside the intent-named migration so
- *   .9 can delete `"any"` from the union.
+ *   .9 could delete `"any"` from the union.
  *
  * Intent-named kinds (added template-laws-3gt.1, consumed in .8) —
  * the labels carry intent for readers; runtime behavior is documented
@@ -91,13 +88,19 @@ import { isTruthy } from "./truthy.js";
  *   structural ops). Documents intent.
  * - "serializable" — anything JSON-encodable. Runtime-validated:
  *   functions, symbols, and circular refs fail the gate.
+ *
+ * [LAW:make-it-impossible] `"any"` is intentionally absent from this
+ * union. Every slot must engage with the type system. If a slot is
+ * genuinely heterogeneous, use the kind that documents the reason
+ * (`"truthy"`, `"reflective"`, `"serializable"`, `"value"`,
+ * `"callable"`). The history for this decision lives in epic
+ * template-laws-3gt.
  */
 export type ArgType =
   | "string"
   | "number"
   | "bool"
   | "T"
-  | "any"
   | "ordered"
   | "list"
   | "dict"
@@ -143,8 +146,8 @@ export interface TemplateFunc {
   /**
    * Variadic-position lookup pattern.
    *
-   * Default (omitted): the trailing slot repeats. `["string", "any"]`
-   * means "first arg string, every arg after is any".
+   * Default (omitted): the trailing slot repeats. `["string", "value"]`
+   * means "first arg string, every arg after is value (heterogeneous)".
    *
    * `"alternating"`: `argTypes` describes a *cycle*. The slot for arg
    * index `i` is `argTypes[i % argTypes.length]`. Used by `dict`'s
@@ -540,8 +543,8 @@ export class Engine<T> {
     // receive thunks (so they can short-circuit), eager funcs receive
     // values — that's the only difference, and it's encoded in the
     // shape of `args`, not in whether `enforceArgTypes` runs. Lazy
-    // funcs declare `argTypes: ["any"]` so the validation is a no-op
-    // against thunks.
+    // funcs declare permissive slots (e.g. `"truthy"`) so the
+    // validation is a no-op against thunks.
     const lazy = isLazy(fn);
     const args: unknown[] = argNodes.map((n) =>
       lazy ? () => this.evalPrimary(n, scope, ctx) : this.evalPrimary(n, scope, ctx),
@@ -766,8 +769,9 @@ export function enforceArgTypes(
 ): void {
   // [LAW:dataflow-not-control-flow] No short-circuit. The shape of work
   // is fixed: validate every positional value against its declared
-  // type. Variability lives in `argTypes` (use ["any"] as the explicit
-  // permissive escape), never in whether validation runs.
+  // type. Variability lives in `argTypes` (use intent-named kinds like
+  // `"value"` for genuinely heterogeneous slots), never in whether
+  // validation runs.
   //
   // [LAW:single-enforcer] Slot lookup is a single function — the
   // variadic-overflow rule (trailing-repeat by default, modulo cycle
@@ -841,9 +845,9 @@ function makeSlotLookup(
   if (argTypes.length === 0) {
     // Funcs registered with `argTypes: []` are zero-arity at the gate.
     // The loop only runs when `values.length > argTypes.length`, which
-    // is itself a registration bug — fall back to "any" so the loop
+    // is itself a registration bug — fall back to "value" so the loop
     // does not throw on a stale zero-arity registration.
-    return () => "any";
+    return () => "value";
   }
   if (pattern === "alternating") {
     const len = argTypes.length;
@@ -859,14 +863,13 @@ function matchesArgType(
   toString: (value: unknown) => string,
 ): boolean {
   switch (declared) {
-    case "any":
     case "truthy":
     case "reflective":
     case "value":
-      // [LAW:dataflow-not-control-flow] Same matcher behavior as
-      // "any"; the *label* carries reader-facing intent so a future
-      // grep can distinguish "we accept anything because we inspect
-      // the type" from "we accept anything because we run truthiness"
+      // [LAW:dataflow-not-control-flow] Permissive matcher; the
+      // *label* carries reader-facing intent so a future grep can
+      // distinguish "we accept anything because we inspect the type"
+      // from "we accept anything because we run truthiness"
       // from "any escape-hatch leftover". Migration target for .8.
       return true;
     case "string":
@@ -1077,7 +1080,6 @@ function humanArgType(t: ArgType): string {
     case "truthy":
     case "reflective":
     case "value":
-    case "any":
     case "string":
     case "number":
     case "bool":

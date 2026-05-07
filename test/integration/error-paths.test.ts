@@ -41,7 +41,7 @@ describe("error paths via the public API", () => {
   it("FuncNotFoundError lists nearest matches", () => {
     let err: unknown;
     try {
-      eng({ myFunc: { fn: () => "", argTypes: ["any"] } })
+      eng({ myFunc: { fn: () => "", argTypes: ["value"] } })
         .parse("{{ myFnc }}")
         .evaluate(null);
     } catch (e) {
