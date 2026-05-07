@@ -1,0 +1,6 @@
+d-string=%!d(string=foo)
+d-bool=%!d(bool=true)
+f-string=%!f(string=foo)
+f-bool=%!f(bool=true)
+x-string=666f6f
+x-bool=%!x(bool=true)

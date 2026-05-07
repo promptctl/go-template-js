@@ -263,6 +263,19 @@ function describeType(v: unknown): string {
   return typeof v;
 }
 
+// Go-style type name for `%!<verb>(<type>=<value>)` printf diagnostics.
+// Mirrors what Go's fmt prints for the common scalar types we accept.
+function goPrintfType(v: unknown): string {
+  if (v === null || v === undefined) return "<nil>";
+  if (typeof v === "string") return "string";
+  if (typeof v === "boolean") return "bool";
+  if (typeof v === "bigint") return "int64";
+  if (typeof v === "number") return Number.isInteger(v) ? "int" : "float64";
+  if (Array.isArray(v)) return "[]interface {}";
+  if (v instanceof Map || typeof v === "object") return "map[string]interface {}";
+  return typeof v;
+}
+
 // ---------------------------------------------------------------------------
 // Print + sprintf.
 //
@@ -348,7 +361,12 @@ function formatVerb(
         ? applyWidth(spec, arg)
         : applyWidth(spec, stringifyForPrint(arg, toString));
     case "d": {
-      const n = typeof arg === "bigint" ? arg : Math.trunc(Number(arg));
+      // [LAW:single-enforcer] Non-numeric primitives route to the same
+      // diagnostic format as the `default:` arm — no silent NaN.
+      if (typeof arg !== "number" && typeof arg !== "bigint") {
+        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+      }
+      const n = typeof arg === "bigint" ? arg : Math.trunc(arg);
       return applyWidth(spec, String(n));
     }
     case "v":
@@ -356,6 +374,10 @@ function formatVerb(
     case "q":
       return applyWidth(spec, JSON.stringify(stringifyForPrint(arg, toString)));
     case "f": {
+      // [LAW:single-enforcer] See %d.
+      if (typeof arg !== "number" && typeof arg !== "bigint") {
+        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+      }
       const precision = spec.includes(".") ? Number(spec.split(".")[1]) : 6;
       const n = Number(arg);
       return applyWidth(spec, n.toFixed(precision));
@@ -363,12 +385,23 @@ function formatVerb(
     case "t":
       return applyWidth(spec, isTruthy(arg) ? "true" : "false");
     case "x": {
+      // Go's %x on a string emits the hex of its UTF-8 bytes.
+      if (typeof arg === "string") {
+        const bytes = new TextEncoder().encode(arg);
+        let hex = "";
+        for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+        return applyWidth(spec, hex);
+      }
+      // [LAW:single-enforcer] See %d.
+      if (typeof arg !== "number" && typeof arg !== "bigint") {
+        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+      }
       if (typeof arg === "bigint") return applyWidth(spec, arg.toString(16));
-      const n = Math.trunc(Number(arg));
+      const n = Math.trunc(arg);
       return applyWidth(spec, n.toString(16));
     }
     default:
-      return `%!${verb}(${describeType(arg)}=${stringifyForPrint(arg, toString)})`;
+      return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
   }
 }
 

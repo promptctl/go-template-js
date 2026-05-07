@@ -166,7 +166,7 @@ Go template's runtime built-ins (the names listed under "Built-in functions" abo
 
 The engine matches Go's `text/template` semantics aggressively. The remaining divergences are host-imposed — JavaScript cannot represent the relevant Go type, or the standard libraries differ:
 
-- **Numeric typing.** Go has `int`, `float64`, and friends as distinct runtime types; JavaScript has one `number`. `printf` verbs that diagnose type mismatches (`%!d(float64=42)`) cannot be replicated without a separate type-tracking scheme on the JS side, so JS renders the value plainly per the verb.
+- **Numeric typing.** Go has `int`, `float64`, and friends as distinct runtime types; JavaScript has one `number`. The numeric-verb type label reflects JS's view: integer JS numbers report as `int`, fractional as `float64`, `bigint` as `int64`. Non-numeric values into `%d`/`%f`/`%x` produce a Go-style `%!<verb>(<type>=<value>)` diagnostic — e.g. `printf "%d" "foo"` → `%!d(string=foo)`.
 - **Regex semantics.** `sprigRegex()` uses ECMAScript regex, not Go's RE2. Lookbehind syntax, Unicode property escapes, and certain catastrophic-backtracking patterns differ.
 - **String length.** Go strings are UTF-8 byte sequences; `len("é")` is `2` in Go. JS strings are UTF-16 code units; `len("é")` is `1` here. Choose grapheme libraries on the JS side if you need byte/grapheme counts.
 - **Field access.** Walks JS objects, Maps, and arrays using JS property semantics, not Go reflection. Named-field access on an array is a `MissingFieldError` (no `length` / `[N]` magic — use the `index` and `len` built-ins).
