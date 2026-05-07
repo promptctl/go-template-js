@@ -38,8 +38,17 @@ interface TaggedFragment {
 
 const TAGGED: TaggedFragment = { tag: "color", text: "x" };
 
+// Bodies are never executed by this harness — it inspects argTypes /
+// argTypePattern only, then drives `enforceArgTypes` directly. The
+// `toString` passed here is therefore a stub; the matcher uses the
+// `enforceArgTypes` parameter, which defaults to the engine's real
+// `defaultToString`.
+const HARNESS_TOSTRING = (v: unknown): string => {
+  throw new Error(`harness toString not exercised (got ${typeof v})`);
+};
+
 const allRegisteredFuncs = (): FuncMap => ({
-  ...defaultBuiltins(),
+  ...defaultBuiltins(HARNESS_TOSTRING),
   ...sprigDefaults(),
   ...sprigStrings(),
   ...sprigMath(),

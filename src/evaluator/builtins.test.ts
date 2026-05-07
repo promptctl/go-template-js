@@ -218,6 +218,71 @@ describe("builtins — print / println / printf", () => {
     // `42 | printf "%d"` → printf("%d", 42)
     expect(render('{{ 42 | printf "%d" }}')).toBe("42");
   });
+
+  // [LAW:single-enforcer] Closes audit findings B1–B4. typed-T no
+  // longer silently `String(v)`-flattens to "[object Object]"; the
+  // gate routes through `engine.toString` (consumer-supplied or the
+  // default that throws for non-primitive non-string values).
+  describe("typed-T flattening via engine.toString", () => {
+    interface Frag {
+      readonly tag: string;
+      readonly text: string;
+    }
+    const color = (text: string): Frag => ({ tag: "color", text });
+
+    it("print throws TypeMismatchError when no engine.toString is configured for typed-T", () => {
+      const eng = createEngine<string>({ fromString: (s) => s });
+      expect(() => eng.parse("{{ print .frag }}").evaluate({ frag: color("x") })).toThrow(
+        TypeMismatchError,
+      );
+    });
+
+    it("print routes typed-T through consumer-supplied engine.toString", () => {
+      const eng = createEngine<string>({
+        fromString: (s) => s,
+        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      });
+      expect(
+        eng
+          .parse("{{ print .frag }}")
+          .evaluate({ frag: color("x") })
+          .join(""),
+      ).toBe("x");
+    });
+
+    it('printf "%s" routes typed-T through consumer-supplied engine.toString', () => {
+      const eng = createEngine<string>({
+        fromString: (s) => s,
+        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      });
+      expect(
+        eng
+          .parse('{{ printf "%s" .frag }}')
+          .evaluate({ frag: color("x") })
+          .join(""),
+      ).toBe("x");
+    });
+
+    it('printf "%q" wraps the consumer-flattened text in JSON escape', () => {
+      const eng = createEngine<string>({
+        fromString: (s) => s,
+        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      });
+      expect(
+        eng
+          .parse('{{ printf "%q" .frag }}')
+          .evaluate({ frag: color("x") })
+          .join(""),
+      ).toBe('"x"');
+    });
+
+    it("println throws when no engine.toString is configured for typed-T", () => {
+      const eng = createEngine<string>({ fromString: (s) => s });
+      expect(() => eng.parse("{{ println .frag }}").evaluate({ frag: color("x") })).toThrow(
+        TypeMismatchError,
+      );
+    });
+  });
 });
 
 describe("builtins — call", () => {

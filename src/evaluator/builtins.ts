@@ -21,98 +21,109 @@ import { isTruthy } from "./truthy.js";
 
 // ---------------------------------------------------------------------------
 // Eager built-ins.
+//
+// [LAW:single-enforcer] The print/printf family closes over the
+// engine's `toString` so that the value flattening uses the same
+// function the `"stringifiable"` matcher probes with. Two callsites
+// (probe at the gate, flatten in the body) — one source of truth.
 // ---------------------------------------------------------------------------
 
-const eagerBuiltins: FuncMap = {
-  // Comparison — Go template promotes numeric types and compares
-  // strings/bools by value. We match that by leaning on JS `<`/`===`
-  // which already does the right thing for primitives.
-  // [LAW:single-enforcer] `argTypes: ["comparable"]` puts the kind
-  // check + cross-slot same-kind rule (with number↔bigint bridged and
-  // nil-wildcarded) at the gate. The body trusts kinds and routes
-  // structural compares through `deepEqual`. Variadic per Go: `eq a
-  // b c` is true if any of b, c equals a.
-  eq: {
-    fn: (a: unknown, ...rest: unknown[]) => rest.some((r) => goEqPair(a, r)),
-    argTypes: ["comparable"],
-  },
-  ne: {
-    fn: (a: unknown, b: unknown) => !goEqPair(a, b),
-    argTypes: ["comparable", "comparable"],
-  },
-  // [LAW:single-enforcer] `argTypes: ["ordered", "ordered"]` routes
-  // both per-slot kind validation and the cross-slot same-kind rule
-  // through `enforceArgTypes`. By the time `compare` runs, the args
-  // are guaranteed orderable and same-kinded, so it can be a thin
-  // numeric/lexicographic body — no defensive cross-type check.
-  lt: { fn: (a: unknown, b: unknown) => compare(a, b) < 0, argTypes: ["ordered", "ordered"] },
-  le: { fn: (a: unknown, b: unknown) => compare(a, b) <= 0, argTypes: ["ordered", "ordered"] },
-  gt: { fn: (a: unknown, b: unknown) => compare(a, b) > 0, argTypes: ["ordered", "ordered"] },
-  ge: { fn: (a: unknown, b: unknown) => compare(a, b) >= 0, argTypes: ["ordered", "ordered"] },
-
-  // [LAW:single-enforcer] `len` declares "sized" so the gate rejects
-  // numbers/booleans/nil once with TypeMismatchError. The body trusts
-  // the kind and only fans out the per-kind size readout.
-  len: { fn: (v: unknown) => goLen(v), argTypes: ["sized"] },
-
-  // Positional access on collections. `index x i j` walks i, then j…
-  index: {
-    fn: (collection: unknown, ...keys: unknown[]) => {
-      let cur: unknown = collection;
-      for (const k of keys) cur = goIndex(cur, k);
-      return cur;
+function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
+  return {
+    // Comparison — Go template promotes numeric types and compares
+    // strings/bools by value. We match that by leaning on JS `<`/`===`
+    // which already does the right thing for primitives.
+    // [LAW:single-enforcer] `argTypes: ["comparable"]` puts the kind
+    // check + cross-slot same-kind rule (with number↔bigint bridged and
+    // nil-wildcarded) at the gate. The body trusts kinds and routes
+    // structural compares through `deepEqual`. Variadic per Go: `eq a
+    // b c` is true if any of b, c equals a.
+    eq: {
+      fn: (a: unknown, ...rest: unknown[]) => rest.some((r) => goEqPair(a, r)),
+      argTypes: ["comparable"],
     },
-    argTypes: ["any"],
-  },
-
-  // `slice x i j` — array/slice/string slicing.
-  slice: {
-    fn: (collection: unknown, ...indices: unknown[]) => {
-      const i = indices.length >= 1 ? Number(indices[0]) : 0;
-      const j = indices.length >= 2 ? Number(indices[1]) : undefined;
-      if (typeof collection === "string") {
-        return collection.slice(i, j);
-      }
-      if (Array.isArray(collection)) {
-        return collection.slice(i, j);
-      }
-      throw new Error(`slice: cannot slice value of type ${describeType(collection)}`);
+    ne: {
+      fn: (a: unknown, b: unknown) => !goEqPair(a, b),
+      argTypes: ["comparable", "comparable"],
     },
-    argTypes: ["any"],
-  },
+    // [LAW:single-enforcer] `argTypes: ["ordered", "ordered"]` routes
+    // both per-slot kind validation and the cross-slot same-kind rule
+    // through `enforceArgTypes`. By the time `compare` runs, the args
+    // are guaranteed orderable and same-kinded, so it can be a thin
+    // numeric/lexicographic body — no defensive cross-type check.
+    lt: { fn: (a: unknown, b: unknown) => compare(a, b) < 0, argTypes: ["ordered", "ordered"] },
+    le: { fn: (a: unknown, b: unknown) => compare(a, b) <= 0, argTypes: ["ordered", "ordered"] },
+    gt: { fn: (a: unknown, b: unknown) => compare(a, b) > 0, argTypes: ["ordered", "ordered"] },
+    ge: { fn: (a: unknown, b: unknown) => compare(a, b) >= 0, argTypes: ["ordered", "ordered"] },
 
-  // Formatted printers.
-  print: { fn: (...args: unknown[]) => goPrint(args), argTypes: ["any"], returnType: "string" },
-  println: {
-    fn: (...args: unknown[]) => `${goPrint(args)}\n`,
-    argTypes: ["any"],
-    returnType: "string",
-  },
-  printf: {
-    // [LAW:single-enforcer] Param type narrowed to `string` because
-    // `enforceArgTypes` validates the first arg against `argTypes[0]`
-    // = "string" before this body runs. Any leftover coercion would
-    // duplicate the gate.
-    fn: (format: string, ...args: unknown[]) => sprintf(format, args),
-    argTypes: ["string", "any"],
-    returnType: "string",
-  },
+    // [LAW:single-enforcer] `len` declares "sized" so the gate rejects
+    // numbers/booleans/nil once with TypeMismatchError. The body trusts
+    // the kind and only fans out the per-kind size readout.
+    len: { fn: (v: unknown) => goLen(v), argTypes: ["sized"] },
 
-  // Invokes a JS function value pulled out of the scope.
-  call: {
-    fn: (fn: unknown, ...args: unknown[]) => {
-      if (typeof fn !== "function") {
-        throw new Error("call: first argument must be a function");
-      }
-      return (fn as (...a: unknown[]) => unknown)(...args);
+    // Positional access on collections. `index x i j` walks i, then j…
+    index: {
+      fn: (collection: unknown, ...keys: unknown[]) => {
+        let cur: unknown = collection;
+        for (const k of keys) cur = goIndex(cur, k);
+        return cur;
+      },
+      argTypes: ["any"],
     },
-    argTypes: ["any"],
-  },
 
-  // `not` is also lazy in spirit, but with a single argument it's
-  // semantically equivalent to eager evaluation. Keep it eager.
-  not: { fn: (v: unknown) => !isTruthy(v), argTypes: ["any"] },
-};
+    // `slice x i j` — array/slice/string slicing.
+    slice: {
+      fn: (collection: unknown, ...indices: unknown[]) => {
+        const i = indices.length >= 1 ? Number(indices[0]) : 0;
+        const j = indices.length >= 2 ? Number(indices[1]) : undefined;
+        if (typeof collection === "string") {
+          return collection.slice(i, j);
+        }
+        if (Array.isArray(collection)) {
+          return collection.slice(i, j);
+        }
+        throw new Error(`slice: cannot slice value of type ${describeType(collection)}`);
+      },
+      argTypes: ["any"],
+    },
+
+    // [LAW:single-enforcer] Formatted printers declare "stringifiable"
+    // so the gate probes each non-string arg through `engine.toString`.
+    // Bodies re-call `toString` to actually flatten — same source of
+    // truth as the matcher. Closes audit findings B1–B4: typed-T no
+    // longer silently `String(v)`-flattens to "[object Object]".
+    print: {
+      fn: (...args: unknown[]) => goPrint(args, toString),
+      argTypes: ["stringifiable"],
+      returnType: "string",
+    },
+    println: {
+      fn: (...args: unknown[]) => `${goPrint(args, toString)}\n`,
+      argTypes: ["stringifiable"],
+      returnType: "string",
+    },
+    printf: {
+      fn: (format: string, ...args: unknown[]) => sprintf(format, args, toString),
+      argTypes: ["string", "stringifiable"],
+      returnType: "string",
+    },
+
+    // Invokes a JS function value pulled out of the scope.
+    call: {
+      fn: (fn: unknown, ...args: unknown[]) => {
+        if (typeof fn !== "function") {
+          throw new Error("call: first argument must be a function");
+        }
+        return (fn as (...a: unknown[]) => unknown)(...args);
+      },
+      argTypes: ["any"],
+    },
+
+    // `not` is also lazy in spirit, but with a single argument it's
+    // semantically equivalent to eager evaluation. Keep it eager.
+    not: { fn: (v: unknown) => !isTruthy(v), argTypes: ["any"] },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Lazy short-circuiting forms.
@@ -155,8 +166,8 @@ function lazyBuiltins(): FuncMap {
 // Public default registry.
 // ---------------------------------------------------------------------------
 
-export function defaultBuiltins(): FuncMap {
-  return { ...eagerBuiltins, ...lazyBuiltins() };
+export function defaultBuiltins(toString: (v: unknown) => string): FuncMap {
+  return { ...eagerBuiltins(toString), ...lazyBuiltins() };
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +257,7 @@ function describeType(v: unknown): string {
 // `%!<verb>(<arg>)` matching Go's diagnostic style.
 // ---------------------------------------------------------------------------
 
-function goPrint(args: readonly unknown[]): string {
+function goPrint(args: readonly unknown[], toString: (v: unknown) => string): string {
   // Go's `fmt.Sprint`: emits a space between adjacent operands when
   // *neither* of the two flanking values is a string. So `x` `1` is
   // joined as `x1` (string adjacent), but `1` `true` is joined as
@@ -257,19 +268,26 @@ function goPrint(args: readonly unknown[]): string {
     const arg = args[i];
     const isString = typeof arg === "string";
     if (i > 0 && !prevIsString && !isString) out += " ";
-    out += stringifyForPrint(arg);
+    out += stringifyForPrint(arg, toString);
     prevIsString = isString;
   }
   return out;
 }
 
-function stringifyForPrint(value: unknown): string {
+// [LAW:single-enforcer] No `String(value)` here — the gate guarantees
+// each arg is `"stringifiable"`. nil keeps Go-parity ("<nil>"); strings
+// pass through; anything else routes through the engine's `toString`.
+function stringifyForPrint(value: unknown, toString: (v: unknown) => string): string {
   if (value === null || value === undefined) return "<nil>";
   if (typeof value === "string") return value;
-  return String(value);
+  return toString(value);
 }
 
-function sprintf(format: string, args: readonly unknown[]): string {
+function sprintf(
+  format: string,
+  args: readonly unknown[],
+  toString: (v: unknown) => string,
+): string {
   let out = "";
   let argIdx = 0;
   let i = 0;
@@ -298,18 +316,23 @@ function sprintf(format: string, args: readonly unknown[]): string {
     const verb = format[j];
     const spec = format.slice(i + 1, j);
     const arg = args[argIdx++];
-    out += formatVerb(verb ?? "", spec, arg);
+    out += formatVerb(verb ?? "", spec, arg, toString);
     i = j + 1;
   }
   return out;
 }
 
-function formatVerb(verb: string, spec: string, arg: unknown): string {
+function formatVerb(
+  verb: string,
+  spec: string,
+  arg: unknown,
+  toString: (v: unknown) => string,
+): string {
   switch (verb) {
     case "s":
       return typeof arg === "string"
         ? applyWidth(spec, arg)
-        : applyWidth(spec, stringifyForPrint(arg));
+        : applyWidth(spec, stringifyForPrint(arg, toString));
     case "d": {
       const n = typeof arg === "bigint" ? arg : Math.trunc(Number(arg));
       return applyWidth(spec, String(n));
@@ -317,7 +340,7 @@ function formatVerb(verb: string, spec: string, arg: unknown): string {
     case "v":
       return applyWidth(spec, formatV(arg));
     case "q":
-      return applyWidth(spec, JSON.stringify(stringifyForPrint(arg)));
+      return applyWidth(spec, JSON.stringify(stringifyForPrint(arg, toString)));
     case "f": {
       const precision = spec.includes(".") ? Number(spec.split(".")[1]) : 6;
       const n = Number(arg);
@@ -331,7 +354,7 @@ function formatVerb(verb: string, spec: string, arg: unknown): string {
       return applyWidth(spec, n.toString(16));
     }
     default:
-      return `%!${verb}(${describeType(arg)}=${stringifyForPrint(arg)})`;
+      return `%!${verb}(${describeType(arg)}=${stringifyForPrint(arg, toString)})`;
   }
 }
 

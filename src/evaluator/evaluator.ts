@@ -247,7 +247,7 @@ export class Engine<T> {
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
-    this.funcs = { ...defaultBuiltins(), ...(config.funcs ?? {}) };
+    this.funcs = { ...defaultBuiltins(this.toString), ...(config.funcs ?? {}) };
   }
 
   /**
@@ -940,13 +940,21 @@ function matchesArgType(
   }
 }
 
-// Identity-for-string default. Strings flow through unchanged, which
-// recovers the `T = string` case (`fromString: (s) => s`) without
-// runtime type detection. Non-string values throw a TypeMismatchError
-// with no call-site pos — `evalCommand` wraps and re-emits with the
-// proper context (see [LAW:single-enforcer] above).
+// Default flattener for engines that don't supply `toString`. Strings
+// flow through unchanged (the `T = string` happy path). Primitives
+// (number/bigint/boolean) and nil get their natural string form so
+// vanilla string-engine consumers can `print 1`, `printf "%s" true`
+// etc. without configuring a flattener. Anything else — arrays,
+// objects, Maps, Sets, functions, symbols — is the actual "typed-T
+// without consumer flattener" case the README contract is about, and
+// throws a TypeMismatchError. `evalCommand` wraps and re-emits with
+// the proper call-site pos (see [LAW:single-enforcer] above).
 function defaultToString(value: unknown): string {
   if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "<nil>";
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+    return String(value);
+  }
   throw new TypeMismatchError(
     "<engine.toString>",
     1,
