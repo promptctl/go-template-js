@@ -3,16 +3,15 @@ import { bodyTypeMismatch } from "../../evaluator/errors.js";
 /**
  * `join sep list` — joins a list with the separator.
  *
- * [LAW:single-enforcer] The architectural commitment from the README
- * — "typed values never become strings without an explicit conversion"
- * — applies *inside* lists too. The boundary gate validates `list` as
- * "any" (it has to: lists are heterogeneous), so the body validates
- * each element. Primitives stringify naturally; non-primitive (typed-T)
- * elements throw TypeMismatchError, which `evalCommand` re-emits with
- * the call-site pos.
+ * [LAW:single-enforcer] The list-shape gate is `argTypes: ["string",
+ * "list"]` — non-arrays raise TypeMismatchError before this body runs.
+ * The body validates each *element* because the no-silent-flatten
+ * commitment ("typed values never become strings without an explicit
+ * conversion") applies inside lists too: primitives stringify
+ * naturally; non-primitive (typed-T) elements throw, and `evalCommand`
+ * re-emits with the call-site pos.
  */
-export function join(sep: string, list: unknown): string {
-  if (!Array.isArray(list)) return "";
+export function join(sep: string, list: readonly unknown[]): string {
   const parts: string[] = [];
   for (const v of list) {
     if (v !== null && v !== undefined && typeof v === "object") {

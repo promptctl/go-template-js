@@ -98,6 +98,8 @@ function fillerFor(slot: ArgType): unknown {
       return [];
     case "index-key":
       return 0;
+    case "sliceable":
+      return "";
     case "serializable":
       return 0;
   }

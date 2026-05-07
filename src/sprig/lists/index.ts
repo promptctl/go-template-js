@@ -44,10 +44,10 @@ export function sprigLists(): FuncMap {
   // Item slots that are genuinely heterogeneous use "value" — they still
   // accept anything, but the label documents intent (per template-laws-3gt.1).
   // `len` declares "sized" (template-laws-3gt.4) — the body trusts the
-  // gate. `list` (constructor) keeps "any" — migrated by
-  // template-laws-3gt.8 (intent-named kinds).
+  // gate. `list` (constructor) declares "value" (template-laws-3gt.8)
+  // — heterogeneous-by-intent.
   return {
-    list: { fn: (...a) => list(...a), argTypes: ["any"] },
+    list: { fn: (...a) => list(...a), argTypes: ["value"] },
     first: { fn: (l) => first(l as unknown[]), argTypes: ["list"] },
     last: { fn: (l) => last(l as unknown[]), argTypes: ["list"] },
     rest: { fn: (l) => rest(l as unknown[]), argTypes: ["list"] },

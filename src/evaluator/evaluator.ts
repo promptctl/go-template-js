@@ -78,6 +78,9 @@ import { isTruthy } from "./truthy.js";
  * - "index-key" — string | number | bigint. The key shape `index`
  *   accepts. The body decides which collection kind a given key fits
  *   (arrays want integer; objects want string).
+ * - "sliceable" — string | array. Receiver shape for `slice`. Folded
+ *   into template-laws-3gt.8 alongside the intent-named migration so
+ *   .9 can delete `"any"` from the union.
  *
  * Intent-named kinds (added template-laws-3gt.1, consumed in .8) —
  * the labels carry intent for readers; runtime behavior is documented
@@ -104,6 +107,7 @@ export type ArgType =
   | "callable"
   | "collection"
   | "index-key"
+  | "sliceable"
   | "truthy"
   | "reflective"
   | "value"
@@ -941,6 +945,10 @@ function matchesArgType(
       // a key actually fits (array wants integer; object wants string;
       // Map's get accepts the key as-is for whatever it stores).
       return typeof value === "string" || typeof value === "number" || typeof value === "bigint";
+    case "sliceable":
+      // Receiver shape for `slice`: string or array. Maps/dicts/Sets
+      // are not sliceable in Go's `text/template`.
+      return typeof value === "string" || Array.isArray(value);
     case "stringifiable": {
       // Probe (do not transform). String passes through trivially —
       // avoids invoking the consumer's `toString` for the common case.
@@ -1062,6 +1070,8 @@ function humanArgType(t: ArgType): string {
       return "collection (string, array, Map, or dict)";
     case "index-key":
       return "index key (number, bigint, or string)";
+    case "sliceable":
+      return "sliceable value (string or array)";
     case "serializable":
       return "JSON-serializable value";
     case "truthy":

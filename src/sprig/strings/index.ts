@@ -102,7 +102,10 @@ export function sprigStrings(): FuncMap {
       argTypes: ["number", "string"],
     },
     initials: { fn: (s) => initials(s as string), argTypes: ["string"] },
-    join: { fn: (sep, list) => join(sep as string, list), argTypes: ["string", "any"] },
+    join: {
+      fn: (sep, list) => join(sep as string, list as unknown[]),
+      argTypes: ["string", "list"],
+    },
     lower: { fn: (s) => lower(s as string), argTypes: ["string"] },
     nindent: {
       fn: (n, s) => nindent(n as number | bigint, s as string),

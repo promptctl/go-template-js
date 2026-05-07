@@ -76,20 +76,19 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
       argTypes: ["collection", "index-key"],
     },
 
-    // `slice x i j` — array/slice/string slicing.
+    // [LAW:single-enforcer] `slice x i j` — array/slice/string slicing.
+    // First slot declares "sliceable" (string|array) so the gate
+    // rejects non-sliceable receivers once; index slots declare
+    // "number". Body trusts the kinds and only routes the slice op.
     slice: {
       fn: (collection: unknown, ...indices: unknown[]) => {
         const i = indices.length >= 1 ? Number(indices[0]) : 0;
         const j = indices.length >= 2 ? Number(indices[1]) : undefined;
-        if (typeof collection === "string") {
-          return collection.slice(i, j);
-        }
-        if (Array.isArray(collection)) {
-          return collection.slice(i, j);
-        }
-        throw new Error(`slice: cannot slice value of type ${describeType(collection)}`);
+        return typeof collection === "string"
+          ? collection.slice(i, j)
+          : (collection as unknown[]).slice(i, j);
       },
-      argTypes: ["any"],
+      argTypes: ["sliceable", "number"],
     },
 
     // [LAW:single-enforcer] Formatted printers declare "stringifiable"
@@ -113,20 +112,20 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
       returnType: "string",
     },
 
-    // Invokes a JS function value pulled out of the scope.
+    // [LAW:single-enforcer] `call` declares "callable" for the first
+    // slot — the gate rejects non-functions once with TypeMismatchError;
+    // the body trusts the kind. Trailing slot is "value": pass-through
+    // arguments to the callable, intent-documented as heterogeneous.
     call: {
-      fn: (fn: unknown, ...args: unknown[]) => {
-        if (typeof fn !== "function") {
-          throw new Error("call: first argument must be a function");
-        }
-        return (fn as (...a: unknown[]) => unknown)(...args);
-      },
-      argTypes: ["any"],
+      fn: (fn: unknown, ...args: unknown[]) =>
+        (fn as (...a: unknown[]) => unknown)(...args),
+      argTypes: ["callable", "value"],
     },
 
     // `not` is also lazy in spirit, but with a single argument it's
     // semantically equivalent to eager evaluation. Keep it eager.
-    not: { fn: (v: unknown) => !isTruthy(v), argTypes: ["any"] },
+    // Slot declares "truthy": isTruthy() runs against any value.
+    not: { fn: (v: unknown) => !isTruthy(v), argTypes: ["truthy"] },
   };
 }
 
@@ -136,14 +135,15 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
 // `and a b c …` returns the first falsy argument, or the last argument
 // if all are truthy. `or` is the dual. Registered via `markLazy` so the
 // dispatcher hands them thunks instead of values; their declared
-// `argTypes: ["any"]` makes the no-silent-flatten guard a no-op against
-// thunks.
+// `argTypes: ["truthy"]` makes the gate a no-op against thunks (the
+// matcher is permissive-by-intent) while documenting that each arg is
+// consulted for truthiness.
 // ---------------------------------------------------------------------------
 
 function lazyBuiltins(): FuncMap {
   return {
     and: markLazy({
-      argTypes: ["any"],
+      argTypes: ["truthy"],
       fn: (...thunks: unknown[]) => {
         let last: unknown = true;
         for (const t of thunks) {
@@ -154,7 +154,7 @@ function lazyBuiltins(): FuncMap {
       },
     }),
     or: markLazy({
-      argTypes: ["any"],
+      argTypes: ["truthy"],
       fn: (...thunks: unknown[]) => {
         let last: unknown = false;
         for (const t of thunks) {
