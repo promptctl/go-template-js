@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import { defaultBuiltins } from "../../src/evaluator/builtins.js";
 import { type ArgType, enforceArgTypes, type FuncMap } from "../../src/evaluator/evaluator.js";
 import {
+  sprigConversions,
   sprigDefaults,
   sprigDicts,
   sprigLists,
@@ -56,6 +57,7 @@ const allRegisteredFuncs = (): FuncMap => ({
   ...sprigDicts(),
   ...sprigRegex(),
   ...sprigTypes(),
+  ...sprigConversions(),
 });
 
 // Sane filler value for a slot that's NOT under test. Picks a value

@@ -144,6 +144,7 @@ Imported from `go-template-js` as category-scoped `FuncMap` factories:
 | Dicts | `sprigDicts()` | dict, get, set, unset, keys, values, pluck, pick, omit, hasKey, merge, mergeOverwrite |
 | Regex | `sprigRegex()` | regexMatch, regexFind, regexFindAll, regexReplaceAll, regexReplaceAllLiteral, regexSplit |
 | Types | `sprigTypes()` | kindOf, kindIs, typeOf, typeIs, typeIsLike, deepEqual, deepCopy |
+| Conversions | `sprigConversions()` | atoi, int, int64, float64, toString, toStrings, toDecimal, toRawJson |
 
 ## Composing funcs from multiple sources
 
@@ -212,7 +213,7 @@ The package exports exactly the following from `"go-template-js"` — anything e
 
 - Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`.
 - Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `ErrorKind`.
-- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`.
+- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`.
 
 Reaching into `dist/` subpaths or `src/` deep imports is unsupported.
 

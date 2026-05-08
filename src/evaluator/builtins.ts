@@ -117,8 +117,7 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
     // the body trusts the kind. Trailing slot is "value": pass-through
     // arguments to the callable, intent-documented as heterogeneous.
     call: {
-      fn: (fn: unknown, ...args: unknown[]) =>
-        (fn as (...a: unknown[]) => unknown)(...args),
+      fn: (fn: unknown, ...args: unknown[]) => (fn as (...a: unknown[]) => unknown)(...args),
       argTypes: ["callable", "value"],
     },
 
@@ -417,7 +416,10 @@ function applyWidth(spec: string, body: string): string {
   return flag.includes("-") ? body + pad : pad + body;
 }
 
-function formatV(value: unknown): string {
+// [LAW:one-source-of-truth] Exported so sprig's `toString`/`toStrings`
+// share this Go-`%v` formatter with printf's `%v` verb. Two places
+// computing "%v shape" would drift; exporting makes it impossible.
+export function formatV(value: unknown): string {
   if (value === null || value === undefined) return "<nil>";
   if (typeof value === "string") return value;
   if (typeof value === "bigint") return value.toString();

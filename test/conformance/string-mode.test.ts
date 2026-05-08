@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
+  sprigConversions,
   sprigDefaults,
   sprigDicts,
   sprigLists,
@@ -56,6 +57,7 @@ const allSprig = () => ({
   ...sprigDicts(),
   ...sprigRegex(),
   ...sprigTypes(),
+  ...sprigConversions(),
 });
 
 const fixtures = listFixtures();

@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import {
   createEngine,
   type FuncMap,
+  sprigConversions,
   sprigDefaults,
   sprigDicts,
   sprigLists,
@@ -92,6 +93,7 @@ const allSprig = (): FuncMap => ({
   ...sprigDicts(),
   ...sprigRegex(),
   ...sprigTypes(),
+  ...sprigConversions(),
 });
 
 const fixtures = listFixtures();

@@ -14,7 +14,7 @@
  *   → FuncNotFoundError, TypeMismatchError, MissingFieldError; the
  *   ErrorKind discriminator string union.
  * - Sprig category factories: sprigDefaults, sprigStrings, sprigMath,
- *   sprigLists, sprigDicts, sprigRegex, sprigTypes.
+ *   sprigLists, sprigDicts, sprigRegex, sprigTypes, sprigConversions.
  *
  * Hidden (intentionally): the parser/lexer/walker/stringifier modules,
  * concrete AST node interfaces, position helpers, internal symbols.
@@ -40,6 +40,7 @@ export {
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
+export { sprigConversions } from "./sprig/conversions/index.js";
 export { sprigDefaults } from "./sprig/defaults/index.js";
 export { sprigDicts } from "./sprig/dicts/index.js";
 export { sprigLists } from "./sprig/lists/index.js";
