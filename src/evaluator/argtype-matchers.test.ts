@@ -362,6 +362,116 @@ describe('argTypePattern: "alternating" (template-laws-3gt.3)', () => {
   });
 });
 
+describe("matchesArgType — liftable", () => {
+  // `liftable` is the mirror of `stringifiable` in the opposite
+  // direction: a slot accepts T or a string the engine lifts via
+  // `fromString` before the body sees the value. The body, by
+  // contract, only ever sees T. These tests exercise a non-string T
+  // (`Frag`) so the lift is observable — with `T = string` the
+  // identity `fromString` makes the rewrite invisible.
+  interface Frag {
+    readonly kind: "frag";
+    readonly text: string;
+  }
+  const fragEngine = (recordArg: (v: unknown) => void) =>
+    createEngine<Frag>({
+      fromString: (s) => ({ kind: "frag", text: s }),
+      funcs: {
+        f: {
+          fn: (v: unknown) => {
+            recordArg(v);
+            return { kind: "frag", text: "ok" } as Frag;
+          },
+          argTypes: ["liftable"],
+        },
+      },
+    });
+
+  it("lifts string args via fromString before the body sees them", () => {
+    let received: unknown;
+    const eng = fragEngine((v) => {
+      received = v;
+    });
+    eng.parse('{{ f "hi" }}').evaluate(null);
+    expect(received).toEqual({ kind: "frag", text: "hi" });
+  });
+
+  it("passes T values through unchanged", () => {
+    let received: unknown;
+    const eng = fragEngine((v) => {
+      received = v;
+    });
+    const t: Frag = { kind: "frag", text: "already-T" };
+    eng.parse("{{ f . }}").evaluate(t);
+    expect(received).toBe(t);
+  });
+
+  it("rejects null with TypeMismatchError", () => {
+    const eng = fragEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(null)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects numbers with TypeMismatchError", () => {
+    const eng = fragEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(42)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects booleans with TypeMismatchError", () => {
+    const eng = fragEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(true)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects bigint with TypeMismatchError", () => {
+    const eng = fragEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(1n)).toThrow(TypeMismatchError);
+  });
+
+  it("error names the func and slot index", () => {
+    const eng = fragEngine(() => undefined);
+    let caught: unknown;
+    try {
+      eng.parse("{{ f . }}").evaluate(42);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TypeMismatchError);
+    if (caught instanceof TypeMismatchError) {
+      expect(caught.funcName).toBe("f");
+      expect(caught.argIndex).toBe(1);
+    }
+  });
+
+  it("with T = string engine, identity fromString makes lift a no-op", () => {
+    // The default `engineWithKind` uses `fromString: (s) => s`. A
+    // string at a `liftable` slot is "lifted" through identity, so
+    // the body sees the same string. No-op but symmetric.
+    const eng = engineWithKind("f", { fn: (v: unknown) => String(v), argTypes: ["liftable"] });
+    expect(eng.parse('{{ f "x" }}').evaluate(null).join("")).toBe("x");
+  });
+
+  it("variadic trailing 'liftable' slot lifts every overflow string", () => {
+    const seen: unknown[] = [];
+    const eng = createEngine<Frag>({
+      fromString: (s) => ({ kind: "frag", text: s }),
+      funcs: {
+        cat: {
+          fn: (...vs: unknown[]) => {
+            seen.push(...vs);
+            return { kind: "frag", text: "ok" } as Frag;
+          },
+          argTypes: ["liftable"],
+        },
+      },
+    });
+    eng.parse('{{ cat "a" "b" "c" }}').evaluate(null);
+    expect(seen).toEqual([
+      { kind: "frag", text: "a" },
+      { kind: "frag", text: "b" },
+      { kind: "frag", text: "c" },
+    ]);
+  });
+});
+
 describe("matchesArgType — intent-named pass-through kinds", () => {
   // truthy / reflective / value share the "any" runtime behavior; the
   // matcher must accept anything for these kinds. The label exists so a

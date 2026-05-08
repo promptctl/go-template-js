@@ -154,7 +154,14 @@ describe("conformance — no-silent-flatten universal property", () => {
         declared === "serializable" ||
         declared === "comparable" ||
         declared === "collection" ||
-        declared === "sized"
+        declared === "sized" ||
+        // "liftable" is the string→T bridge: a typed fragment is
+        // exactly what the slot is designed to carry, and a bare
+        // string is lifted via the engine's `fromString` before the
+        // body sees it. There is no string-flatten direction to
+        // protect against here — the slot's whole job is to pass
+        // T through and lift strings up.
+        declared === "liftable"
       ) {
         return;
       }
@@ -378,6 +385,20 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: "function", value: FN, pass: false },
     { label: "bigint", value: 1n, pass: false },
     { label: "symbol", value: SYM, pass: false },
+  ],
+  liftable: [
+    { label: "string", value: "x", pass: true },
+    { label: "empty string", value: "", pass: true },
+    { label: "object", value: {}, pass: true },
+    { label: "array", value: [], pass: true },
+    { label: "TaggedFragment", value: TAGGED, pass: true },
+    { label: "Map", value: new Map(), pass: true },
+    { label: "number", value: 1, pass: false },
+    { label: "bool", value: true, pass: false },
+    { label: "bigint", value: 1n, pass: false },
+    { label: "symbol", value: SYM, pass: false },
+    { label: "null", value: null, pass: false },
+    { label: "undefined", value: undefined, pass: false },
   ],
 };
 

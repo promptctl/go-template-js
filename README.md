@@ -62,9 +62,14 @@ tpl.evaluate({ label: "warn", value: "ALERT" });
 
 Functions have optional `argTypes`. The engine uses them to enforce one architectural commitment: **a non-string `T` value will never silently flatten into a `string` parameter**. If you try to pipe a styled fragment into a function declared with `argTypes: ["string"]`, you get a `TypeMismatchError` naming the function, the argument index, and a suggestion to call your `unstyled` (or equivalent) flatten helper.
 
-### Stringification: the `toString` mirror of `fromString`
+### Lifting and stringification: the boundary bridges
 
-If your `T` is not `string`, the engine needs a way to flatten typed-T values back to plain text when they reach a `"stringifiable"` slot (`print`, `println`, `printf "%s"` and `"%q"`). Supply it via `toString`:
+`fromString` and `toString` are the engine's two boundary bridges between text and `T`. Each one has an `ArgType` that uses it:
+
+| Direction | Bridge | ArgType | Where it runs |
+| --- | --- | --- | --- |
+| `string` → `T` | `fromString` (required) | `"liftable"` | a string at a `"liftable"` slot is replaced with `fromString(s)` before the body sees it |
+| `T` → `string` | `toString` (optional) | `"stringifiable"` | a non-string at a `"stringifiable"` slot is flattened via `toString` (e.g. `print`, `printf "%s"`) |
 
 ```ts
 const engine = createEngine<Frag>({
@@ -73,7 +78,9 @@ const engine = createEngine<Frag>({
 });
 ```
 
-Without it, typed-T values reaching a `"stringifiable"` slot throw `TypeMismatchError` directing you to configure `toString`. The default `toString` passes strings through unchanged and flattens numeric/boolean/nil primitives, so `T = string` engines work out of the box.
+`fromString` is mandatory in `EngineConfig`: every engine knows how to lift, so `"liftable"` is always servable. `toString` is optional: without it, typed-`T` values reaching a `"stringifiable"` slot throw `TypeMismatchError` directing you to configure it. The default `toString` passes strings through unchanged and flattens numeric/boolean/nil primitives, so `T = string` engines work out of the box.
+
+Use `"liftable"` for any consumer-defined function whose slot should accept either a `T` value or a string literal. The body, by contract, only ever receives `T` — the gate owns the lift, so the body has no string-vs-`T` discrimination to do.
 
 ### `ArgType` reference
 
@@ -91,6 +98,7 @@ Every entry in `argTypes` is one of:
 | `"dict"` | plain object only (not `Map`, not class instance) | `get`, `keys`, `values`, `pluck`, `merge` |
 | `"sized"` | `string` ∪ array ∪ `Map` ∪ `Set` ∪ plain object | `len` |
 | `"stringifiable"` | `string`, or any value the engine's `toString` can flatten | `print`, `println`, `printf "%s"`, `printf "%q"` |
+| `"liftable"` | `T`, or `string` (lifted to `T` via the engine's `fromString` before the body runs) | consumer-defined funcs that accept either a `T` fragment or a bare text literal at a slot |
 | `"callable"` | `typeof === "function"` | `call` (first slot) |
 | `"collection"` | `string` ∪ array ∪ `Map` ∪ plain object | `index` (receiver slot) |
 | `"index-key"` | `string`, `number`, or `bigint` | `index` (key slots) |

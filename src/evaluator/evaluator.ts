@@ -107,6 +107,7 @@ export type ArgType =
   | "sized"
   | "comparable"
   | "stringifiable"
+  | "liftable"
   | "callable"
   | "collection"
   | "index-key"
@@ -565,6 +566,7 @@ export class Engine<T> {
       ctx.source,
       this.toString,
       fn.argTypePattern,
+      this.fromString as (s: string) => unknown,
     );
     // [LAW:single-enforcer] One cast at the dispatch site. `TemplateFunc.fn`
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
@@ -623,6 +625,7 @@ export class Engine<T> {
           ctx.source,
           this.toString,
           fn.argTypePattern,
+          this.fromString as (s: string) => unknown,
         );
         return (fn.fn as () => unknown)();
       }
@@ -761,11 +764,12 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 export function enforceArgTypes(
   funcName: string,
   argTypes: readonly ArgType[],
-  values: readonly unknown[],
+  values: unknown[],
   pos: Pos,
   src: string | undefined,
   toString: (value: unknown) => string = defaultToString,
   pattern?: "alternating",
+  fromString: (s: string) => unknown = defaultFromString,
 ): void {
   // [LAW:dataflow-not-control-flow] No short-circuit. The shape of work
   // is fixed: validate every positional value against its declared
@@ -793,6 +797,15 @@ export function enforceArgTypes(
         pos,
         { source: src },
       );
+    }
+    // [LAW:single-enforcer] The lift lives at the gate, never in func
+    // bodies — bodies of "liftable" slots see T, full stop. Mirrors the
+    // T→string direction owned by `engine.toString` (used by
+    // `"stringifiable"`); this is the string→T direction owned by
+    // `engine.fromString`. Probe-only matchers stay pure; this gate
+    // mutation is the one place a typed boundary actually rewrites.
+    if (declared === "liftable" && typeof value === "string") {
+      values[i] = fromString(value);
     }
     // [LAW:single-enforcer] The cross-slot ordering rule lives here,
     // alongside the per-slot type rule, so "what counts as a valid
@@ -967,12 +980,39 @@ function matchesArgType(
         return false;
       }
     }
+    case "liftable":
+      // Mirror of "stringifiable" in the opposite direction: a slot
+      // that accepts T or a string the engine can lift to T via
+      // `engine.fromString`. The matcher only validates membership;
+      // the actual lift happens once in `enforceArgTypes` so func
+      // bodies see T uniformly. Non-string non-T values fail the
+      // gate — the same shape rules as "T".
+      return (
+        typeof value === "string" ||
+        (value !== null &&
+          value !== undefined &&
+          typeof value !== "number" &&
+          typeof value !== "boolean" &&
+          typeof value !== "bigint" &&
+          typeof value !== "symbol")
+      );
     case "serializable":
       // Runtime-validate JSON encodability. `JSON.stringify` returns
       // `undefined` for functions/symbols and throws on circular refs;
       // either result fails the gate.
       return isJsonSerializable(value);
   }
+}
+
+// Default lifter, used only when `enforceArgTypes` is called outside
+// the engine's dispatch path (e.g. tests exercising the gate
+// directly). Real engine calls always thread `this.fromString` from
+// `EngineConfig`, which is mandatory in the public API. Identity
+// keeps the gate honest in the synthetic case: a string literally
+// flows through unchanged, so `T = string` engines never need to
+// know about `"liftable"` for the gate to behave correctly.
+function defaultFromString(s: string): unknown {
+  return s;
 }
 
 // Default flattener for engines that don't supply `toString`. Strings
@@ -1067,6 +1107,8 @@ function humanArgType(t: ArgType): string {
       return "comparable value (orderable primitive, nil, list, dict, Map, or Set)";
     case "stringifiable":
       return "stringifiable value (string or convertible via the engine's toString)";
+    case "liftable":
+      return "liftable value (T or string, the latter lifted via the engine's fromString)";
     case "callable":
       return "callable (function value)";
     case "collection":
