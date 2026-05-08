@@ -138,7 +138,7 @@ Imported from `go-template-js` as category-scoped `FuncMap` factories:
 | Category | Helper | Functions |
 | --- | --- | --- |
 | Defaults | `sprigDefaults()` | default, empty, coalesce, ternary, fromJson, toJson, toPrettyJson |
-| Strings | `sprigStrings()` | trim, trimAll, trimPrefix, trimSuffix, upper, lower, title, untitle, repeat, substr, trunc, contains, hasPrefix, hasSuffix, replace, split, splitList, join, quote, squote, cat, indent, nindent, wrap, wrapWith, abbrev, abbrevboth, initials |
+| Strings | `sprigStrings()` | trim, trimAll, trimPrefix, trimSuffix, upper, lower, title, untitle, repeat, substr, trunc, contains, hasPrefix, hasSuffix, replace, split, splitList, splitn, join, quote, squote, cat, indent, nindent, wrap, wrapWith, abbrev, abbrevboth, initials, nospace, snakecase, camelcase, kebabcase, swapcase, plural, regexQuoteMeta |
 | Math | `sprigMath()` | add, sub, mul, div, mod, min, max, floor, ceil, round, addf, subf, mulf, divf |
 | Lists | `sprigLists()` | list, first, last, rest, initial, len, reverse, uniq, without, has, compact, slice, concat, chunk, prepend, append |
 | Dicts | `sprigDicts()` | dict, get, set, unset, keys, values, pluck, pick, omit, hasKey, merge, mergeOverwrite |

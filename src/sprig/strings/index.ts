@@ -9,6 +9,7 @@
 import type { FuncMap } from "../../evaluator/evaluator.js";
 import { abbrev } from "./abbrev.js";
 import { abbrevboth } from "./abbrevboth.js";
+import { camelcase } from "./camelcase.js";
 import { cat } from "./cat.js";
 import { contains } from "./contains.js";
 import { hasPrefix } from "./hasPrefix.js";
@@ -16,15 +17,22 @@ import { hasSuffix } from "./hasSuffix.js";
 import { indent } from "./indent.js";
 import { initials } from "./initials.js";
 import { join } from "./join.js";
+import { kebabcase } from "./kebabcase.js";
 import { lower } from "./lower.js";
 import { nindent } from "./nindent.js";
+import { nospace } from "./nospace.js";
+import { plural } from "./plural.js";
 import { quote } from "./quote.js";
+import { regexQuoteMeta } from "./regexQuoteMeta.js";
 import { repeat } from "./repeat.js";
 import { replace } from "./replace.js";
+import { snakecase } from "./snakecase.js";
 import { split } from "./split.js";
 import { splitList } from "./splitList.js";
+import { splitn } from "./splitn.js";
 import { squote } from "./squote.js";
 import { substr } from "./substr.js";
+import { swapcase } from "./swapcase.js";
 import { title } from "./title.js";
 import { trim } from "./trim.js";
 import { trimAll } from "./trimAll.js";
@@ -39,6 +47,7 @@ import { wrapWith } from "./wrapWith.js";
 export {
   abbrev,
   abbrevboth,
+  camelcase,
   cat,
   contains,
   hasPrefix,
@@ -46,15 +55,22 @@ export {
   indent,
   initials,
   join,
+  kebabcase,
   lower,
   nindent,
+  nospace,
+  plural,
   quote,
+  regexQuoteMeta,
   repeat,
   replace,
+  snakecase,
   split,
   splitList,
+  splitn,
   squote,
   substr,
+  swapcase,
   title,
   trim,
   trimAll,
@@ -84,6 +100,7 @@ export function sprigStrings(): FuncMap {
       fn: (l, r, s) => abbrevboth(l as number | bigint, r as number | bigint, s as string),
       argTypes: ["number", "number", "string"],
     },
+    camelcase: { fn: (s) => camelcase(s as string), argTypes: ["string"], returnType: "string" },
     cat: { fn: (...a) => cat(...(a as string[])), argTypes: ["string"] },
     contains: {
       fn: (sub, s) => contains(sub as string, s as string),
@@ -106,12 +123,24 @@ export function sprigStrings(): FuncMap {
       fn: (sep, list) => join(sep as string, list as unknown[]),
       argTypes: ["string", "list"],
     },
+    kebabcase: { fn: (s) => kebabcase(s as string), argTypes: ["string"], returnType: "string" },
     lower: { fn: (s) => lower(s as string), argTypes: ["string"] },
     nindent: {
       fn: (n, s) => nindent(n as number | bigint, s as string),
       argTypes: ["number", "string"],
     },
+    nospace: { fn: (s) => nospace(s as string), argTypes: ["string"], returnType: "string" },
+    plural: {
+      fn: (one, many, n) => plural(one as string, many as string, n as number | bigint),
+      argTypes: ["string", "string", "number"],
+      returnType: "string",
+    },
     quote: { fn: (...a) => quote(...(a as string[])), argTypes: ["string"] },
+    regexQuoteMeta: {
+      fn: (s) => regexQuoteMeta(s as string),
+      argTypes: ["string"],
+      returnType: "string",
+    },
     repeat: {
       fn: (n, s) => repeat(n as number | bigint, s as string),
       argTypes: ["number", "string"],
@@ -120,16 +149,23 @@ export function sprigStrings(): FuncMap {
       fn: (o, n, s) => replace(o as string, n as string, s as string),
       argTypes: ["string", "string", "string"],
     },
+    snakecase: { fn: (s) => snakecase(s as string), argTypes: ["string"], returnType: "string" },
     split: { fn: (sep, s) => split(sep as string, s as string), argTypes: ["string", "string"] },
     splitList: {
       fn: (sep, s) => splitList(sep as string, s as string),
       argTypes: ["string", "string"],
+    },
+    splitn: {
+      fn: (sep, n, s) => splitn(sep as string, n as number | bigint, s as string),
+      argTypes: ["string", "number", "string"],
+      returnType: "dict",
     },
     squote: { fn: (...a) => squote(...(a as string[])), argTypes: ["string"] },
     substr: {
       fn: (i, j, s) => substr(i as number | bigint, j as number | bigint, s as string),
       argTypes: ["number", "number", "string"],
     },
+    swapcase: { fn: (s) => swapcase(s as string), argTypes: ["string"], returnType: "string" },
     title: { fn: (s) => title(s as string), argTypes: ["string"] },
     trim: { fn: (s) => trim(s as string), argTypes: ["string"] },
     trimAll: {
