@@ -1,0 +1,8 @@
+tilde-match=true
+tilde-fail=false
+caret-major=true
+caret-major-fail=false
+caret-zero=true
+caret-zero-fail=false
+caret-double-zero=true
+caret-double-zero-fail=false

@@ -25,7 +25,8 @@ export type ErrorKind =
   | "EvalError"
   | "FuncNotFoundError"
   | "TypeMismatchError"
-  | "MissingFieldError";
+  | "MissingFieldError"
+  | "FailError";
 
 export interface TemplateErrorContext {
   readonly source?: string | undefined;
@@ -153,6 +154,28 @@ export class MissingFieldError extends EvalError {
   constructor(path: readonly string[], pos: Pos, ctx: TemplateErrorContext = {}) {
     super(`field "${path.join(".")}" not found on receiver`, pos, ctx);
     this.path = path;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FailError — thrown by the sprig `fail` function.
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when a template calls `fail "message"`. Consumers can catch
+ * this specifically to distinguish intentional template failures from
+ * engine bugs. The message comes from the template author.
+ *
+ * [LAW:single-enforcer] One class, one place. The `fail` sprig function
+ * is the only producer; catch `FailError` to handle it distinctly from
+ * TypeMismatchError or other eval errors.
+ */
+export class FailError extends EvalError {
+  override readonly name = "FailError";
+  override readonly kind: ErrorKind = "FailError";
+
+  constructor(message: string, ctx: TemplateErrorContext = {}) {
+    super(message, { line: 0, column: 0, offset: 0 }, ctx);
   }
 }
 

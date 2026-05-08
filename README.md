@@ -153,6 +153,8 @@ Imported from `@promptctl/go-template-js` as category-scoped `FuncMap` factories
 | Regex | `sprigRegex()` | regexMatch, regexFind, regexFindAll, regexReplaceAll, regexReplaceAllLiteral, regexSplit |
 | Types | `sprigTypes()` | kindOf, kindIs, typeOf, typeIs, typeIsLike, deepEqual, deepCopy |
 | Conversions | `sprigConversions()` | atoi, int, int64, float64, toString, toStrings, toDecimal, toRawJson |
+| Semver | `sprigSemver()` | semver, semverCompare |
+| Flow | `sprigFlow()` | fail |
 
 ## Composing funcs from multiple sources
 
@@ -221,7 +223,7 @@ The package exports exactly the following from `"@promptctl/go-template-js"` —
 
 - Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`.
 - Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `ErrorKind`.
-- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`.
+- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`.
 
 Reaching into `dist/` subpaths or `src/` deep imports is unsupported.
 

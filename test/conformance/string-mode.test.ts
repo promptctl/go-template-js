@@ -16,9 +16,11 @@ import {
   sprigConversions,
   sprigDefaults,
   sprigDicts,
+  sprigFlow,
   sprigLists,
   sprigMath,
   sprigRegex,
+  sprigSemver,
   sprigStrings,
   sprigTypes,
 } from "../../src/index.js";
@@ -58,6 +60,8 @@ const allSprig = () => ({
   ...sprigRegex(),
   ...sprigTypes(),
   ...sprigConversions(),
+  ...sprigSemver(),
+  ...sprigFlow(),
 });
 
 const fixtures = listFixtures();
