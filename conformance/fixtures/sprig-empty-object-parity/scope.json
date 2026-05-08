@@ -1,0 +1,6 @@
+{
+  "empty": {},
+  "filled": { "a": 1 },
+  "zeroFields": { "tag": "", "text": "" },
+  "nested": { "inner": {} }
+}

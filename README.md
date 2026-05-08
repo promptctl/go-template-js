@@ -181,6 +181,7 @@ Notable parity statements (places where users sometimes expect divergence and th
 - `{{ "key" | get .dict }}` composes correctly: last-arg piping puts the key in the trailing slot, which is `get(d, key)`'s second parameter. The form `{{ .dict | get "key" }}` does *not* work in either engine — the dict ends up in the key slot.
 - `eq` / `ne` compare arrays, Maps, Sets, and plain objects by **structural deep-equal**, matching Go's `text/template` semantics. Reference-identity comparison is not a divergence — it was a bug fixed in epic `template-laws-3gt`.
 - Sprig dict ops (`get`, `keys`, `values`, `pluck`, `hasKey`, …) accept **plain objects only**, not `Map`. Pass `Object.fromEntries(map)` if you have a `Map` to feed in. Maps remain valid for field-access (`.get(key)`) and for `range`.
+- `empty` on a non-empty object returns **false**, even when every value is the zero value of its type (e.g. `{tag: "", text: ""}`). Matches Go sprig: `text/template.isTrue` treats structs as always truthy, and sprig's `empty` follows by returning `false` for any non-empty map or struct. `reflect.IsZero` is *not* what Go sprig consults here. The conformance fixture `sprig-empty-object-parity` pins this behavior byte-for-byte.
 
 ## Errors
 
