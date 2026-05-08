@@ -1,0 +1,6 @@
+leaf=[{{ dig "a" "b" "c" "MISS" . }}]
+top=[{{ dig "top" "MISS" . }}]
+miss_leaf=[{{ dig "a" "b" "z" "MISS" . }}]
+miss_mid=[{{ dig "a" "x" "c" "MISS" . }}]
+miss_top=[{{ dig "nope" "MISS" . }}]
+deep_int=[{{ dig "n" "i" 0 . }}]

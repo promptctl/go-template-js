@@ -148,7 +148,7 @@ Imported from `@promptctl/go-template-js` as category-scoped `FuncMap` factories
 | Defaults | `sprigDefaults()` | default, empty, coalesce, ternary, fromJson, toJson, toPrettyJson |
 | Strings | `sprigStrings()` | trim, trimAll, trimPrefix, trimSuffix, upper, lower, title, untitle, repeat, substr, trunc, contains, hasPrefix, hasSuffix, replace, split, splitList, splitn, join, quote, squote, cat, indent, nindent, wrap, wrapWith, abbrev, abbrevboth, initials, nospace, snakecase, camelcase, kebabcase, swapcase, plural, regexQuoteMeta |
 | Math | `sprigMath()` | add, sub, mul, div, mod, min, max, floor, ceil, round, addf, subf, mulf, divf, add1, add1f, maxf, minf, biggest, seq, until, untilStep |
-| Lists | `sprigLists()` | list, first, last, rest, initial, len, reverse, uniq, without, has, compact, slice, concat, chunk, prepend, append |
+| Lists | `sprigLists()` | list, first, last, rest, initial, len, reverse, uniq, without, has, compact, slice, concat, chunk, prepend, append, sortAlpha, push, tuple, dig, all, any |
 | Dicts | `sprigDicts()` | dict, get, set, unset, keys, values, pluck, pick, omit, hasKey, merge, mergeOverwrite |
 | Regex | `sprigRegex()` | regexMatch, regexFind, regexFindAll, regexReplaceAll, regexReplaceAllLiteral, regexSplit |
 | Types | `sprigTypes()` | kindOf, kindIs, typeOf, typeIs, typeIsLike, deepEqual, deepCopy |
