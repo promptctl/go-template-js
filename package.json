@@ -1,7 +1,29 @@
 {
-  "name": "go-template-js",
-  "version": "0.0.0",
+  "name": "@promptctl/go-template-js",
+  "version": "0.1.0",
   "description": "Go template syntax + sprig subset, generic over output type, in TypeScript.",
+  "keywords": [
+    "go-template",
+    "text/template",
+    "sprig",
+    "template",
+    "templating",
+    "typescript",
+    "generic"
+  ],
+  "homepage": "https://github.com/promptctl/go-template-js#readme",
+  "bugs": {
+    "url": "https://github.com/promptctl/go-template-js/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/promptctl/go-template-js.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Brandon Fryslie",
+    "email": "530235+brandon-fryslie@users.noreply.github.com"
+  },
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "engines": {
@@ -18,8 +40,12 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsdown",
     "test": "vitest run",
