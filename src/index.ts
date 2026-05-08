@@ -15,7 +15,7 @@
  *   ErrorKind discriminator string union.
  * - Sprig category factories: sprigDefaults, sprigStrings, sprigMath,
  *   sprigLists, sprigDicts, sprigRegex, sprigTypes, sprigConversions,
- *   sprigSemver, sprigFlow.
+ *   sprigSemver, sprigFlow, sprigRandom.
  * - Error classes: FailError (thrown by sprig `fail`).
  *
  * Hidden (intentionally): the parser/lexer/walker/stringifier modules,
@@ -49,6 +49,7 @@ export { sprigDicts } from "./sprig/dicts/index.js";
 export { sprigFlow } from "./sprig/flow/index.js";
 export { sprigLists } from "./sprig/lists/index.js";
 export { sprigMath } from "./sprig/math/index.js";
+export { sprigRandom } from "./sprig/random/index.js";
 export { sprigRegex } from "./sprig/regex/index.js";
 export { sprigSemver } from "./sprig/semver/index.js";
 export { sprigStrings } from "./sprig/strings/index.js";

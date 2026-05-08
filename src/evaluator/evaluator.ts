@@ -184,6 +184,15 @@ export interface EngineConfig<T> {
    * `"stringifiable"` slot encounters a T value — never silently.
    */
   readonly toString?: (value: T) => string;
+  /**
+   * PRNG source for `sprigRandom` functions. Defaults to `Math.random`.
+   * Supply a seeded generator for reproducible templates.
+   *
+   * [LAW:single-enforcer] One config field owns the randomness source;
+   * pass this to `sprigRandom(config.random)` when composing a full
+   * sprig engine so the seam is wired once, not per-function.
+   */
+  readonly random?: () => number;
   /** Optional registry of named functions usable in pipelines. */
   readonly funcs?: FuncMap;
 }
