@@ -9,13 +9,13 @@ Go template syntax + Sprig subset, generic over output type, in TypeScript.
 ## Install
 
 ```bash
-pnpm add go-template-js
+pnpm add @promptctl/go-template-js
 ```
 
 ## Quickstart (string output)
 
 ```ts
-import { createEngine } from "go-template-js";
+import { createEngine } from "@promptctl/go-template-js";
 
 const engine = createEngine<string>({ fromString: (s) => s });
 const tpl = engine.parse("Hello, {{ .name }}!");
@@ -36,7 +36,7 @@ greet({ name: "ada" }).join(""); // "hi ada"
 The engine is parameterised over its output fragment type `T`. Consumers pick a fragment shape (e.g. styled text, AST nodes, layout primitives) and the engine emits a `T[]` that integrates into their downstream pipeline:
 
 ```ts
-import { createEngine, type TemplateFunc } from "go-template-js";
+import { createEngine, type TemplateFunc } from "@promptctl/go-template-js";
 
 interface Frag { color: string; text: string }
 
@@ -141,7 +141,7 @@ All of Go template's runtime built-ins:
 
 ### Sprig subset
 
-Imported from `go-template-js` as category-scoped `FuncMap` factories:
+Imported from `@promptctl/go-template-js` as category-scoped `FuncMap` factories:
 
 | Category | Helper | Functions |
 | --- | --- | --- |
@@ -217,7 +217,7 @@ Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` p
 
 ### Stable public API surface
 
-The package exports exactly the following from `"go-template-js"` — anything else is internal and may change at any time:
+The package exports exactly the following from `"@promptctl/go-template-js"` — anything else is internal and may change at any time:
 
 - Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`.
 - Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `ErrorKind`.
