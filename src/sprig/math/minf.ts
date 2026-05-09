@@ -3,5 +3,5 @@
  * `min` (which Go sprig truncates to int64).
  */
 export function minf(...args: (number | bigint)[]): number {
-  return Math.min(...args.map((v) => Number(v)));
+  return args.map((v) => Number(v)).reduce((m, v) => Math.min(m, v), Infinity);
 }
