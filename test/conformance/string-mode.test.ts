@@ -17,6 +17,7 @@ import {
   sprigDefaults,
   sprigDicts,
   sprigFlow,
+  sprigHash,
   sprigLists,
   sprigMath,
   sprigRegex,
@@ -62,6 +63,7 @@ const allSprig = () => ({
   ...sprigConversions(),
   ...sprigSemver(),
   ...sprigFlow(),
+  ...sprigHash(),
 });
 
 const fixtures = listFixtures();
