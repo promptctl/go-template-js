@@ -19,7 +19,7 @@ export function resolveDate(t: unknown): Date {
   if (typeof t === "number") return new Date(t * 1000);
   if (typeof t === "string") {
     const parsed = new Date(t);
-    if (!isNaN(parsed.getTime())) return parsed;
+    if (!Number.isNaN(parsed.getTime())) return parsed;
     throw new Error(`sprig: cannot parse date value ${JSON.stringify(t)}`);
   }
   throw new Error(`sprig: unsupported date type: ${typeof t}`);

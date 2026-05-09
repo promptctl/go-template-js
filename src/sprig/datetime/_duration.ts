@@ -51,7 +51,7 @@ export function parseDurationNs(s: string): number {
   while (rest.length > 0) {
     const m = UNIT_RE.exec(rest);
     if (!m) return NaN;
-    const value = parseFloat(m[1]!);
+    const value = parseFloat(m[1] ?? "0");
     const unit = m[2] as Unit;
     total += value * NS_PER[unit];
     rest = rest.slice(m[0].length);
@@ -115,7 +115,10 @@ function fmtGeqSecond(abs: number): string {
   const nsFrac = abs - s * NS_PER.s;
 
   // Format seconds, optionally with nanosecond fraction.
-  const secStr = nsFrac === 0 ? `${s}s` : `${s}.${String(Math.round(nsFrac)).padStart(9, "0").replace(/0+$/, "")}s`;
+  const secStr =
+    nsFrac === 0
+      ? `${s}s`
+      : `${s}.${String(Math.round(nsFrac)).padStart(9, "0").replace(/0+$/, "")}s`;
 
   if (h > 0) return `${h}h${m}m${secStr}`;
   if (m > 0) return `${m}m${secStr}`;
