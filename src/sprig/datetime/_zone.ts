@@ -51,8 +51,16 @@ const WEEKDAY_NAMES = [
   "Saturday",
 ];
 
-/** Extract date parts in the requested IANA timezone. */
-export function getZoneParts(date: Date, tz: string): ZoneParts {
+/** Extract date parts in the requested IANA timezone. Falls back to "UTC" on invalid zone, mirroring Go sprig. */
+export function getZoneParts(date: Date, tzInput: string): ZoneParts {
+  // Mirror Go sprig: unknown tz → fall back to UTC.
+  let tz: string;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tzInput });
+    tz = tzInput;
+  } catch {
+    tz = "UTC";
+  }
   const fmt = new Intl.DateTimeFormat("en-US", { ...INTL_OPTS, timeZone: tz });
   const p = indexParts(fmt.formatToParts(date));
 

@@ -8,6 +8,7 @@ import { resolveDate } from "./_resolve.js";
 export function dateModify(duration: string, t: unknown): Date {
   const d = resolveDate(t);
   const ns = parseDurationNs(duration);
-  if (isNaN(ns)) throw new Error(`sprig dateModify: invalid duration ${JSON.stringify(duration)}`);
+  // Mirror Go sprig: return the original date unchanged on parse error.
+  if (isNaN(ns)) return d;
   return new Date(d.getTime() + ns / 1_000_000);
 }

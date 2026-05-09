@@ -24,7 +24,7 @@ describe("sprig.dateModify", () => {
     expect(result.getTime()).toBe(BASE.getTime());
   });
 
-  it("throws on invalid duration", () => {
-    expect(() => dateModify("bad", BASE)).toThrow();
+  it("returns original date on invalid duration (mirrors Go sprig)", () => {
+    expect(dateModify("bad", BASE).getTime()).toBe(BASE.getTime());
   });
 });
