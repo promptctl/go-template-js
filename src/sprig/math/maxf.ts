@@ -4,5 +4,9 @@
  * comparing. Distinct from `max`, which Go sprig truncates to int64.
  */
 export function maxf(...args: (number | bigint)[]): number {
+<<<<<<< HEAD
   return args.map((v) => Number(v)).reduce((m, v) => (v > m ? v : m), Number.NEGATIVE_INFINITY);
+=======
+  return args.map((v) => Number(v)).reduce((m, v) => Math.max(m, v), -Infinity);
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
 }

@@ -17,7 +17,12 @@ type Predicate = (v: SemVer) => boolean;
 // Tokenizes individual constraint items: optional op + version string.
 // Version portion allows partial versions (1, 1.2, 1.2.3) and alphanumeric
 // pre-release/metadata suffixes. Commas are separators (skipped by \d match).
+<<<<<<< HEAD
 const TOKEN_RE = /(!=|>=|<=|>|<|~=|~|\^|=)?\s*(v?\d[^\s,]*)/g;
+=======
+// Operators: =, !=, >, >=, <, <=, ~, ^ (longest-first for greedy matching).
+const TOKEN_RE = /(!=|>=|<=|>|<|~|\^|=)?\s*(v?\d[^\s,]*)/g;
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
 
 export function parseConstraintExpr(s: string): Predicate {
   const orGroups = s
@@ -33,10 +38,22 @@ function parseAndGroup(s: string): Predicate {
   TOKEN_RE.lastIndex = 0;
   const preds: Predicate[] = [];
   let m: RegExpExecArray | null;
+<<<<<<< HEAD
   while ((m = TOKEN_RE.exec(s)) !== null) {
     preds.push(buildSingle(m[1] ?? "", m[2]!));
   }
   if (preds.length === 0) throw new Error(`no constraint tokens in: ${JSON.stringify(s)}`);
+=======
+  let consumed = 0;
+  while ((m = TOKEN_RE.exec(s)) !== null) {
+    preds.push(buildSingle(m[1] ?? "", m[2]!));
+    consumed = m.index + m[0].length;
+  }
+  if (preds.length === 0) throw new Error(`no constraint tokens in: ${JSON.stringify(s)}`);
+  // Validate entire string was consumed (allowing trailing whitespace)
+  const remaining = s.slice(consumed).trim();
+  if (remaining.length > 0) throw new Error(`unexpected characters in constraint: ${JSON.stringify(remaining)}`);
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
   return (v) => preds.every((p) => p(v));
 }
 
@@ -76,7 +93,10 @@ function buildSingle(op: string, vstr: string): Predicate {
   switch (op) {
     case "":
     case "=":
+<<<<<<< HEAD
     case "~=":
+=======
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       return (v) => compareSemVer(v, cv) === 0;
     case "!=":
       return (v) => compareSemVer(v, cv) !== 0;
