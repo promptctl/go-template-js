@@ -15,11 +15,8 @@ describe("sprig.maxf", () => {
   it("accepts bigint via the number slot", () => {
     expect(maxf(1, 2n, 3)).toBe(3);
   });
-<<<<<<< HEAD
-=======
   it("propagates NaN to match Go math.Max behavior", () => {
     expect(maxf(1, NaN, 3)).toBeNaN();
     expect(maxf(NaN)).toBeNaN();
   });
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
 });

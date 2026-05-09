@@ -106,7 +106,7 @@ function parseGMTOffset(s: string): number {
   const m = s.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
   if (!m) return 0;
   const sign = m[1] === "+" ? 1 : -1;
-  const h = parseInt(m[2]!, 10);
+  const h = parseInt(m[2] ?? "0", 10);
   const min = parseInt(m[3] ?? "0", 10);
   return sign * (h * 60 + min);
 }

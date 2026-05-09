@@ -81,22 +81,26 @@ function consumeFixed(val: string, pos: number, n: number): [string, number] {
 
 function consumeDigits(val: string, pos: number, min: number, max: number): [number, number] {
   let end = pos;
-  while (end < val.length && end - pos < max && val[end]! >= "0" && val[end]! <= "9") end++;
+  while (
+    end < val.length &&
+    end - pos < max &&
+    val.charCodeAt(end) >= 48 &&
+    val.charCodeAt(end) <= 57
+  )
+    end++;
   if (end - pos < min) throw new Error(`sprig toDate: expected ${min}-${max} digits at pos ${pos}`);
   return [parseInt(val.slice(pos, end), 10), end];
 }
 
 function consumeMonthLong(val: string, pos: number): [number, number] {
-  for (let i = 0; i < MONTHS_LONG.length; i++) {
-    const m = MONTHS_LONG[i]!;
+  for (const [i, m] of MONTHS_LONG.entries()) {
     if (val.startsWith(m, pos)) return [i + 1, pos + m.length];
   }
   throw new Error(`sprig toDate: expected month name at pos ${pos}`);
 }
 
 function consumeMonthShort(val: string, pos: number): [number, number] {
-  for (let i = 0; i < MONTHS_SHORT.length; i++) {
-    const m = MONTHS_SHORT[i]!;
+  for (const [i, m] of MONTHS_SHORT.entries()) {
     if (val.startsWith(m, pos)) return [i + 1, pos + m.length];
   }
   throw new Error(`sprig toDate: expected short month name at pos ${pos}`);
@@ -164,7 +168,7 @@ function consumeZOrOffset(
 function consumeTzAbbr(val: string, pos: number): number {
   // TZ abbreviation is a run of uppercase letters.
   let end = pos;
-  while (end < val.length && val[end]! >= "A" && val[end]! <= "Z") end++;
+  while (end < val.length && val.charCodeAt(end) >= 65 && val.charCodeAt(end) <= 90) end++;
   if (end === pos) throw new Error(`sprig toDate: expected timezone abbreviation at pos ${pos}`);
   return end;
 }
@@ -281,19 +285,8 @@ function dispatchToken(
     }
     case "PM":
     case "pm": {
-<<<<<<< HEAD
-      const ampm = val.slice(vp, vp + 2);
-      const lower = ampm.toLowerCase();
-      if (lower !== "am" && lower !== "pm") {
-        throw new Error(
-          `sprig toDate: expected "AM" or "PM" at pos ${vp}, got ${JSON.stringify(ampm)}`,
-        );
-      }
-      s.isPM = lower === "pm";
-=======
       const ampm = val.slice(vp, vp + 2).toLowerCase();
       s.isPM = ampm === "pm";
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       s.hour12 = true;
       return [vp + 2, s];
     }
@@ -335,15 +328,9 @@ function dispatchToken(
       return [p2, s];
     }
     case ".000000000": {
-<<<<<<< HEAD
-      // consume dot + 9 digits
-      const p2 = vp + (val[vp] === "." ? 1 : 0);
-      const [ms, p3] = consumeFrac(val, p2, 9);
-=======
       // consume dot + 9 digits (dot is required)
       if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
       const [ms, p3] = consumeFrac(val, vp + 1, 9);
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       s.ms = ms;
       return [p3, s];
     }
@@ -352,20 +339,15 @@ function dispatchToken(
       if (val[vp] !== ".") return [vp, s];
       const end = vp + 1;
       let e2 = end;
-      while (e2 < val.length && val[e2]! >= "0" && val[e2]! <= "9") e2++;
+      while (e2 < val.length && val.charCodeAt(e2) >= 48 && val.charCodeAt(e2) <= 57) e2++;
       const frac = val.slice(end, e2).padEnd(9, "0");
       s.ms = Math.round(parseInt(frac, 10) / 1_000_000);
       return [e2, s];
     }
     case ".000000": {
-<<<<<<< HEAD
-      const p2 = vp + (val[vp] === "." ? 1 : 0);
-      const [ms, p3] = consumeFrac(val, p2, 6);
-=======
       // dot is required
       if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
       const [ms, p3] = consumeFrac(val, vp + 1, 6);
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       s.ms = ms;
       return [p3, s];
     }
@@ -373,20 +355,15 @@ function dispatchToken(
       if (val[vp] !== ".") return [vp, s];
       const end = vp + 1;
       let e2 = end;
-      while (e2 < val.length && val[e2]! >= "0" && val[e2]! <= "9") e2++;
+      while (e2 < val.length && val.charCodeAt(e2) >= 48 && val.charCodeAt(e2) <= 57) e2++;
       const frac = val.slice(end, e2).padEnd(9, "0");
       s.ms = Math.round(parseInt(frac, 10) / 1_000_000);
       return [e2, s];
     }
     case ".000": {
-<<<<<<< HEAD
-      const p2 = vp + (val[vp] === "." ? 1 : 0);
-      const [ms, p3] = consumeFrac(val, p2, 3);
-=======
       // dot is required
       if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
       const [ms, p3] = consumeFrac(val, vp + 1, 3);
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       s.ms = ms;
       return [p3, s];
     }
@@ -394,7 +371,7 @@ function dispatchToken(
       if (val[vp] !== ".") return [vp, s];
       const end = vp + 1;
       let e2 = end;
-      while (e2 < val.length && val[e2]! >= "0" && val[e2]! <= "9") e2++;
+      while (e2 < val.length && val.charCodeAt(e2) >= 48 && val.charCodeAt(e2) <= 57) e2++;
       const frac = val.slice(end, e2).padEnd(3, "0");
       s.ms = parseInt(frac, 10);
       return [e2, s];
@@ -405,16 +382,39 @@ function dispatchToken(
 
 // Token list in the same order as _format.ts (longest first).
 const TOKENS: string[] = [
-  ".000000000", ".999999999",
-  ".000000", ".999999",
-  ".000", ".999",
+  ".000000000",
+  ".999999999",
+  ".000000",
+  ".999999",
+  ".000",
+  ".999",
   "January",
-  "Monday", "Z07:00", "-07:00",
-  "Z0700", "-0700",
+  "Monday",
+  "Z07:00",
+  "-07:00",
+  "Z0700",
+  "-0700",
   "2006",
-  "Jan", "Mon", "MST", "-07", "Z07",
-  "15", "01", "02", "_2", "03", "04", "05", "06", "PM", "pm",
-  "1", "2", "3", "4", "5",
+  "Jan",
+  "Mon",
+  "MST",
+  "-07",
+  "Z07",
+  "15",
+  "01",
+  "02",
+  "_2",
+  "03",
+  "04",
+  "05",
+  "06",
+  "PM",
+  "pm",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
 ];
 
 // ---------------------------------------------------------------------------
@@ -445,7 +445,7 @@ export function parseGoLayout(layout: string, value: string): Date {
     }
     if (!matched) {
       // Literal character: must match in value.
-      const lc = layout[lp]!;
+      const lc = layout.charAt(lp);
       if (value[vp] !== lc) {
         throw new Error(
           `sprig toDate: expected ${JSON.stringify(lc)} at pos ${vp}, got ${JSON.stringify(value[vp])}`,
@@ -456,7 +456,6 @@ export function parseGoLayout(layout: string, value: string): Date {
     }
   }
 
-<<<<<<< HEAD
   // Verify the entire value string was consumed.
   if (vp !== value.length) {
     throw new Error(
@@ -464,8 +463,6 @@ export function parseGoLayout(layout: string, value: string): Date {
     );
   }
 
-=======
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
   // Adjust 12-hour clock.
   if (st.hour12) {
     const h12 = st.hour % 12;

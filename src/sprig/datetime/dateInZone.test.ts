@@ -6,9 +6,7 @@ const REF_DATE = new Date("2006-01-02T15:04:05Z");
 
 describe("sprig.dateInZone", () => {
   it("formats RFC3339 in UTC", () => {
-    expect(dateInZone("2006-01-02T15:04:05Z07:00", REF_DATE, "UTC")).toBe(
-      "2006-01-02T15:04:05Z",
-    );
+    expect(dateInZone("2006-01-02T15:04:05Z07:00", REF_DATE, "UTC")).toBe("2006-01-02T15:04:05Z");
   });
 
   it("htmlDate in UTC", () => {

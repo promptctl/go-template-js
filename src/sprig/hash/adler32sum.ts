@@ -15,5 +15,5 @@ export function adler32sum(s: string): string {
     a = (a + byte) % MOD_ADLER;
     b = (b + a) % MOD_ADLER;
   }
-  return String(((b * 65536) + a) >>> 0);
+  return String((b * 65536 + a) >>> 0);
 }

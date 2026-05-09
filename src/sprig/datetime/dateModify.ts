@@ -9,6 +9,6 @@ export function dateModify(duration: string, t: unknown): Date {
   const d = resolveDate(t);
   const ns = parseDurationNs(duration);
   // Mirror Go sprig: return the original date unchanged on parse error.
-  if (isNaN(ns)) return d;
+  if (Number.isNaN(ns)) return d;
   return new Date(d.getTime() + ns / 1_000_000);
 }

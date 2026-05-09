@@ -12,7 +12,7 @@
 
 import { parseSemVer, type SemVer } from "./parse.js";
 
-export { type SemVer };
+export type { SemVer };
 
 export function semver(s: string): SemVer {
   return parseSemVer(s);
