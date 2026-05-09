@@ -15,4 +15,8 @@ describe("sprig.minf", () => {
   it("accepts bigint via the number slot", () => {
     expect(minf(3, 2n, 1)).toBe(1);
   });
+  it("propagates NaN to match Go math.Min behavior", () => {
+    expect(minf(1, NaN, 3)).toBeNaN();
+    expect(minf(NaN)).toBeNaN();
+  });
 });
