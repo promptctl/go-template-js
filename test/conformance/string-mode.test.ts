@@ -14,11 +14,15 @@ import { describe, expect, it } from "vitest";
 import {
   createEngine,
   sprigConversions,
+  sprigDatetime,
   sprigDefaults,
   sprigDicts,
+  sprigFlow,
+  sprigHash,
   sprigLists,
   sprigMath,
   sprigRegex,
+  sprigSemver,
   sprigStrings,
   sprigTypes,
 } from "../../src/index.js";
@@ -58,6 +62,10 @@ const allSprig = () => ({
   ...sprigRegex(),
   ...sprigTypes(),
   ...sprigConversions(),
+  ...sprigSemver(),
+  ...sprigFlow(),
+  ...sprigHash(),
+  ...sprigDatetime(),
 });
 
 const fixtures = listFixtures();

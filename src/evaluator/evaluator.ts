@@ -28,7 +28,7 @@ import { type ParseResult, parse as parseSource } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins } from "./builtins.js";
-import { EvalError, FuncNotFoundError, MissingFieldError, TypeMismatchError } from "./errors.js";
+import { EvalError, FailError, FuncNotFoundError, MissingFieldError, TypeMismatchError } from "../errors.js";
 import { isLazy } from "./lazy.js";
 import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
@@ -184,6 +184,25 @@ export interface EngineConfig<T> {
    * `"stringifiable"` slot encounters a T value — never silently.
    */
   readonly toString?: (value: T) => string;
+  /**
+   * PRNG source for `sprigRandom` functions. Defaults to `Math.random`.
+   * Supply a seeded generator for reproducible templates.
+   *
+   * [LAW:single-enforcer] One config field owns the randomness source;
+   * pass this to `sprigRandom(config.random)` when composing a full
+   * sprig engine so the seam is wired once, not per-function.
+   */
+  readonly random?: () => number;
+  /**
+   * Clock source for `sprigDatetime` functions. Defaults to
+   * `() => new Date()`. Supply a frozen clock for deterministic test
+   * output.
+   *
+   * [LAW:single-enforcer] One config field owns the time source; pass
+   * this to `sprigDatetime(config.clock)` when composing a full sprig
+   * engine so the seam is wired once, not per-function.
+   */
+  readonly clock?: () => Date;
   /** Optional registry of named functions usable in pipelines. */
   readonly funcs?: FuncMap;
 }
@@ -589,6 +608,9 @@ export class Engine<T> {
           cmd.pos,
           { source: ctx.source },
         );
+      }
+      if (e instanceof FailError) {
+        throw new FailError(e.message, cmd.pos, { source: ctx.source });
       }
       throw e;
     }

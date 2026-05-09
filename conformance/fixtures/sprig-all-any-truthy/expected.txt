@@ -1,0 +1,7 @@
+all_true=[true]
+all_with_empty=[false]
+all_with_zero=[false]
+any_some=[true]
+any_none=[false]
+all_empty_args=[true]
+any_empty_args=[false]

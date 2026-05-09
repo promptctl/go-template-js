@@ -1,0 +1,6 @@
+{{- $v := semver "1.2.3" -}}
+Major={{ $v.Major }} Minor={{ $v.Minor }} Patch={{ $v.Patch }}
+{{- $p := semver "1.2.3-alpha.1" -}}
+Pre={{ $p.Prerelease }}
+{{- $orig := semver "v2.0.0" -}}
+Original={{ $orig.Original }}

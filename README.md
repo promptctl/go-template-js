@@ -147,12 +147,21 @@ Imported from `@promptctl/go-template-js` as category-scoped `FuncMap` factories
 | --- | --- | --- |
 | Defaults | `sprigDefaults()` | default, empty, coalesce, ternary, fromJson, toJson, toPrettyJson |
 | Strings | `sprigStrings()` | trim, trimAll, trimPrefix, trimSuffix, upper, lower, title, untitle, repeat, substr, trunc, contains, hasPrefix, hasSuffix, replace, split, splitList, splitn, join, quote, squote, cat, indent, nindent, wrap, wrapWith, abbrev, abbrevboth, initials, nospace, snakecase, camelcase, kebabcase, swapcase, plural, regexQuoteMeta |
-| Math | `sprigMath()` | add, sub, mul, div, mod, min, max, floor, ceil, round, addf, subf, mulf, divf |
-| Lists | `sprigLists()` | list, first, last, rest, initial, len, reverse, uniq, without, has, compact, slice, concat, chunk, prepend, append |
+| Math | `sprigMath()` | add, sub, mul, div, mod, min, max, floor, ceil, round, addf, subf, mulf, divf, add1, add1f, maxf, minf, biggest, seq, until, untilStep |
+| Lists | `sprigLists()` | list, first, last, rest, initial, len, reverse, uniq, without, has, compact, slice, concat, chunk, prepend, append, sortAlpha, push, tuple, dig, all, any |
 | Dicts | `sprigDicts()` | dict, get, set, unset, keys, values, pluck, pick, omit, hasKey, merge, mergeOverwrite |
 | Regex | `sprigRegex()` | regexMatch, regexFind, regexFindAll, regexReplaceAll, regexReplaceAllLiteral, regexSplit |
 | Types | `sprigTypes()` | kindOf, kindIs, typeOf, typeIs, typeIsLike, deepEqual, deepCopy |
 | Conversions | `sprigConversions()` | atoi, int, int64, float64, toString, toStrings, toDecimal, toRawJson |
+| Semver | `sprigSemver()` | semver, semverCompare |
+| Flow | `sprigFlow()` | fail |
+| Random | `sprigRandom(random?)` | randInt, randAlpha, randAlphaNum, randNumeric, randAscii, shuffle |
+| Hash / Encoding | `sprigHash()` | b64enc, b64dec, b32enc, b32dec, sha1sum, sha256sum, sha512sum, adler32sum, uuidv4 |
+| Date / Time | `sprigDatetime(clock?)` | now, date, dateInZone, dateModify, htmlDate, htmlDateInZone, duration, durationRound, toDate, ago, unixEpoch |
+
+**Runtime floor for `sprigHash()`:** This package requires Node ≥ 20.19.0 (per `engines.node`). `uuidv4` requires `globalThis.crypto.randomUUID`, guaranteed in that environment. SHA-* use [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) — audited, zero-dep, sync, pure JS.
+
+**`sprigDatetime(clock?)`:** All date/time functions accept Go's reference-time format strings (`Mon Jan 2 15:04:05 MST 2006`). Pass `clock: () => Date` to freeze "now" for deterministic templates. The `date` and `dateInZone` functions accept `Date`, number (Unix seconds), or string as the time value. Go template integer literals hit sprig's type-switch default branch (returning `"0s"` from `duration`) — prefer string literals or scope-injected values for portable templates.
 
 ## Composing funcs from multiple sources
 
@@ -220,8 +229,8 @@ Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` p
 The package exports exactly the following from `"@promptctl/go-template-js"` — anything else is internal and may change at any time:
 
 - Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`.
-- Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `ErrorKind`.
-- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`.
+- Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
+- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`, `sprigRandom`, `sprigHash`, `sprigDatetime`.
 
 Reaching into `dist/` subpaths or `src/` deep imports is unsupported.
 

@@ -1,0 +1,3 @@
+strings=[[apple banana cherry]]
+ints=[[1 22 3 4]]
+mixed=[[1 a true]]
