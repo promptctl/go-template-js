@@ -139,7 +139,7 @@ const TOKENS: [string, Replacer][] = [
   [".999999", (z) => { const s = fmtFrac(z.ms, 6, true); return s ? `.${s}` : ""; }],
   // 3-digit fractional seconds
   [".000", (z) => `.${pad3(z.ms)}`],
-  [".999", (z) => { const ms = z.ms; return ms === 0 ? "" : `.${String(ms).replace(/0+$/, "")}`; }],
+  [".999", (z) => { const s = pad3(z.ms).replace(/0+$/, ""); return s ? `.${s}` : ""; }],
   // 7-char
   ["January", (z) => MONTHS_LONG[z.month - 1] ?? "January"],
   // 6-char

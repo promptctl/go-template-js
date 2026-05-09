@@ -12,8 +12,9 @@
 
 // Matches: v?major[.minor[.patch]][-prerelease][+metadata]
 // Groups: 1=major, 2=minor, 3=patch, 4=prerelease, 5=metadata
+// SemVer 2.0.0: prerelease/metadata use [0-9A-Za-z-] with . separators.
 const VERSION_RE =
-  /^v?(\d+)(?:\.(\d+)(?:\.(\d+))?)?(?:-([\w][\w.-]*))?(?:\+([\w][\w.-]*))?$/;
+  /^v?(\d+)(?:\.(\d+)(?:\.(\d+))?)?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 
 // [LAW:types-are-the-program] SemVer mirrors the fields Go sprig exposes
 // from Masterminds/semver v3's Version struct. Template access `.Major`

@@ -330,9 +330,9 @@ function dispatchToken(
       return [p2, s];
     }
     case ".000000000": {
-      // consume dot + 9 digits
-      const p2 = vp + (val[vp] === "." ? 1 : 0);
-      const [ms, p3] = consumeFrac(val, p2, 9);
+      // consume dot + 9 digits (dot is required)
+      if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
+      const [ms, p3] = consumeFrac(val, vp + 1, 9);
       s.ms = ms;
       return [p3, s];
     }
@@ -347,8 +347,9 @@ function dispatchToken(
       return [e2, s];
     }
     case ".000000": {
-      const p2 = vp + (val[vp] === "." ? 1 : 0);
-      const [ms, p3] = consumeFrac(val, p2, 6);
+      // dot is required
+      if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
+      const [ms, p3] = consumeFrac(val, vp + 1, 6);
       s.ms = ms;
       return [p3, s];
     }
@@ -362,8 +363,9 @@ function dispatchToken(
       return [e2, s];
     }
     case ".000": {
-      const p2 = vp + (val[vp] === "." ? 1 : 0);
-      const [ms, p3] = consumeFrac(val, p2, 3);
+      // dot is required
+      if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
+      const [ms, p3] = consumeFrac(val, vp + 1, 3);
       s.ms = ms;
       return [p3, s];
     }
