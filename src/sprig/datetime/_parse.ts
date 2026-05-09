@@ -281,8 +281,14 @@ function dispatchToken(
     }
     case "PM":
     case "pm": {
-      const ampm = val.slice(vp, vp + 2).toLowerCase();
-      s.isPM = ampm === "pm";
+      const ampm = val.slice(vp, vp + 2);
+      const lower = ampm.toLowerCase();
+      if (lower !== "am" && lower !== "pm") {
+        throw new Error(
+          `sprig toDate: expected "AM" or "PM" at pos ${vp}, got ${JSON.stringify(ampm)}`,
+        );
+      }
+      s.isPM = lower === "pm";
       s.hour12 = true;
       return [vp + 2, s];
     }
@@ -425,6 +431,13 @@ export function parseGoLayout(layout: string, value: string): Date {
       lp++;
       vp++;
     }
+  }
+
+  // Verify the entire value string was consumed.
+  if (vp !== value.length) {
+    throw new Error(
+      `sprig toDate: extra characters at pos ${vp}: ${JSON.stringify(value.slice(vp))}`,
+    );
   }
 
   // Adjust 12-hour clock.

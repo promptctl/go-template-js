@@ -22,5 +22,10 @@ export function randString(n: number, charset: string, random: () => number): st
 
 /** Inclusive `min`, exclusive `max` — mirrors Go `rand.Intn(max-min)+min`. */
 export function randIntFromRange(min: number, max: number, random: () => number): number {
+  if (max <= min) {
+    throw new Error(
+      `randIntFromRange: max must be greater than min (max=${max}, min=${min})`,
+    );
+  }
   return Math.floor(random() * (max - min)) + min;
 }

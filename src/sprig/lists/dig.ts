@@ -44,10 +44,15 @@ export function dig(...args: unknown[]): unknown {
     }
   }
 
-  return digFromDict(dict as Record<string, unknown>, def, keys as string[]);
+  return digFromDict(dict as Record<string, unknown>, def, keys as string[], args.length);
 }
 
-function digFromDict(d: Record<string, unknown>, def: unknown, ks: readonly string[]): unknown {
+function digFromDict(
+  d: Record<string, unknown>,
+  def: unknown,
+  ks: readonly string[],
+  argCount: number,
+): unknown {
   const k = ks[0] as string;
   if (!Object.hasOwn(d, k)) return def;
   const step = d[k];
@@ -56,9 +61,10 @@ function digFromDict(d: Record<string, unknown>, def: unknown, ks: readonly stri
   // non-map intermediate. Mirror that — surface it as a typed error
   // rather than letting JS coerce silently.
   if (!isPlainDict(step)) {
-    throw bodyTypeMismatch("dig", -1, "dict at intermediate key", describeKind(step));
+    // Attribute to dict arg (last arg position).
+    throw bodyTypeMismatch("dig", argCount - 1, "dict at intermediate key", describeKind(step));
   }
-  return digFromDict(step as Record<string, unknown>, def, ks.slice(1));
+  return digFromDict(step as Record<string, unknown>, def, ks.slice(1), argCount);
 }
 
 function isPlainDict(v: unknown): v is Record<string, unknown> {

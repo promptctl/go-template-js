@@ -174,8 +174,8 @@ export class FailError extends EvalError {
   override readonly name = "FailError";
   override readonly kind: ErrorKind = "FailError";
 
-  constructor(message: string, ctx: TemplateErrorContext = {}) {
-    super(message, { line: 0, column: 0, offset: 0 }, ctx);
+  constructor(message: string, pos: Pos = { line: 0, column: 0, offset: 0 }, ctx: TemplateErrorContext = {}) {
+    super(message, pos, ctx);
   }
 }
 

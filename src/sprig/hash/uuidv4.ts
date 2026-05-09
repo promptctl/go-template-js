@@ -1,9 +1,8 @@
 /**
  * `uuidv4` — RFC 4122 v4 UUID via `globalThis.crypto.randomUUID()`.
  *
- * Available in Node >= 14.17, Bun, Deno, and all modern browsers.
- * Throws if the runtime lacks `crypto.randomUUID` — this should never
- * happen in the supported environment set (Node >= 20).
+ * Available in Node >= 20 (per package.json engines), Bun, Deno, and all
+ * modern browsers. Throws if the runtime lacks `crypto.randomUUID`.
  */
 export function uuidv4(): string {
   // [LAW:no-defensive-null-guards] We assert availability rather than silently

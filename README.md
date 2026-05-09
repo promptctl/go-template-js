@@ -159,7 +159,7 @@ Imported from `@promptctl/go-template-js` as category-scoped `FuncMap` factories
 | Hash / Encoding | `sprigHash()` | b64enc, b64dec, b32enc, b32dec, sha1sum, sha256sum, sha512sum, adler32sum, uuidv4 |
 | Date / Time | `sprigDatetime(clock?)` | now, date, dateInZone, dateModify, htmlDate, htmlDateInZone, duration, durationRound, toDate, ago, unixEpoch |
 
-**Runtime floor for `sprigHash()`:** `uuidv4` requires `globalThis.crypto.randomUUID`, available in Node ≥ 14.17, Bun, Deno, and all modern browsers. SHA-* use [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) — audited, zero-dep, sync, pure JS — and run in every JS runtime without native crypto bindings.
+**Runtime floor for `sprigHash()`:** This package requires Node ≥ 20.19.0 (per `engines.node`). `uuidv4` requires `globalThis.crypto.randomUUID`, guaranteed in that environment. SHA-* use [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) — audited, zero-dep, sync, pure JS.
 
 **`sprigDatetime(clock?)`:** All date/time functions accept Go's reference-time format strings (`Mon Jan 2 15:04:05 MST 2006`). Pass `clock: () => Date` to freeze "now" for deterministic templates. The `date` and `dateInZone` functions accept `Date`, number (Unix seconds), or string as the time value. Go template integer literals hit sprig's type-switch default branch (returning `"0s"` from `duration`) — prefer string literals or scope-injected values for portable templates.
 
@@ -229,8 +229,8 @@ Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` p
 The package exports exactly the following from `"@promptctl/go-template-js"` — anything else is internal and may change at any time:
 
 - Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`.
-- Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `ErrorKind`.
-- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`.
+- Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
+- Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`, `sprigRandom`, `sprigHash`, `sprigDatetime`.
 
 Reaching into `dist/` subpaths or `src/` deep imports is unsupported.
 
