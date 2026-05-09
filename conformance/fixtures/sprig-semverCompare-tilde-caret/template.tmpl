@@ -1,0 +1,8 @@
+tilde-match={{ semverCompare "~1.2.3" "1.2.5" }}
+tilde-fail={{ semverCompare "~1.2.3" "1.3.0" }}
+caret-major={{ semverCompare "^1.2.3" "1.9.9" }}
+caret-major-fail={{ semverCompare "^1.2.3" "2.0.0" }}
+caret-zero={{ semverCompare "^0.2.3" "0.2.9" }}
+caret-zero-fail={{ semverCompare "^0.2.3" "0.3.0" }}
+caret-double-zero={{ semverCompare "^0.0.3" "0.0.3" }}
+caret-double-zero-fail={{ semverCompare "^0.0.3" "0.0.4" }}

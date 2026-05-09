@@ -14,7 +14,9 @@
  *   → FuncNotFoundError, TypeMismatchError, MissingFieldError; the
  *   ErrorKind discriminator string union.
  * - Sprig category factories: sprigDefaults, sprigStrings, sprigMath,
- *   sprigLists, sprigDicts, sprigRegex, sprigTypes, sprigConversions.
+ *   sprigLists, sprigDicts, sprigRegex, sprigTypes, sprigConversions,
+ *   sprigSemver, sprigFlow, sprigRandom, sprigHash, sprigDatetime.
+ * - Error classes: FailError (thrown by sprig `fail`).
  *
  * Hidden (intentionally): the parser/lexer/walker/stringifier modules,
  * concrete AST node interfaces, position helpers, internal symbols.
@@ -25,6 +27,7 @@
 export {
   type ErrorKind,
   EvalError,
+  FailError,
   FuncNotFoundError,
   MissingFieldError,
   ParseError,
@@ -41,10 +44,15 @@ export {
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
 export { sprigConversions } from "./sprig/conversions/index.js";
+export { sprigDatetime } from "./sprig/datetime/index.js";
+export { sprigHash } from "./sprig/hash/index.js";
 export { sprigDefaults } from "./sprig/defaults/index.js";
 export { sprigDicts } from "./sprig/dicts/index.js";
+export { sprigFlow } from "./sprig/flow/index.js";
 export { sprigLists } from "./sprig/lists/index.js";
 export { sprigMath } from "./sprig/math/index.js";
+export { sprigRandom } from "./sprig/random/index.js";
 export { sprigRegex } from "./sprig/regex/index.js";
+export { sprigSemver } from "./sprig/semver/index.js";
 export { sprigStrings } from "./sprig/strings/index.js";
 export { sprigTypes } from "./sprig/types/index.js";
