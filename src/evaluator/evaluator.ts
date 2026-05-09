@@ -193,6 +193,16 @@ export interface EngineConfig<T> {
    * sprig engine so the seam is wired once, not per-function.
    */
   readonly random?: () => number;
+  /**
+   * Clock source for `sprigDatetime` functions. Defaults to
+   * `() => new Date()`. Supply a frozen clock for deterministic test
+   * output.
+   *
+   * [LAW:single-enforcer] One config field owns the time source; pass
+   * this to `sprigDatetime(config.clock)` when composing a full sprig
+   * engine so the seam is wired once, not per-function.
+   */
+  readonly clock?: () => Date;
   /** Optional registry of named functions usable in pipelines. */
   readonly funcs?: FuncMap;
 }

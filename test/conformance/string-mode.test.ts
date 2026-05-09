@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import {
   createEngine,
   sprigConversions,
+  sprigDatetime,
   sprigDefaults,
   sprigDicts,
   sprigFlow,
@@ -64,6 +65,7 @@ const allSprig = () => ({
   ...sprigSemver(),
   ...sprigFlow(),
   ...sprigHash(),
+  ...sprigDatetime(),
 });
 
 const fixtures = listFixtures();

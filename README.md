@@ -157,8 +157,11 @@ Imported from `@promptctl/go-template-js` as category-scoped `FuncMap` factories
 | Flow | `sprigFlow()` | fail |
 | Random | `sprigRandom(random?)` | randInt, randAlpha, randAlphaNum, randNumeric, randAscii, shuffle |
 | Hash / Encoding | `sprigHash()` | b64enc, b64dec, b32enc, b32dec, sha1sum, sha256sum, sha512sum, adler32sum, uuidv4 |
+| Date / Time | `sprigDatetime(clock?)` | now, date, dateInZone, dateModify, htmlDate, htmlDateInZone, duration, durationRound, toDate, ago, unixEpoch |
 
 **Runtime floor for `sprigHash()`:** `uuidv4` requires `globalThis.crypto.randomUUID`, available in Node ≥ 14.17, Bun, Deno, and all modern browsers. SHA-* use [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) — audited, zero-dep, sync, pure JS — and run in every JS runtime without native crypto bindings.
+
+**`sprigDatetime(clock?)`:** All date/time functions accept Go's reference-time format strings (`Mon Jan 2 15:04:05 MST 2006`). Pass `clock: () => Date` to freeze "now" for deterministic templates. The `date` and `dateInZone` functions accept `Date`, number (Unix seconds), or string as the time value. Go template integer literals hit sprig's type-switch default branch (returning `"0s"` from `duration`) — prefer string literals or scope-injected values for portable templates.
 
 ## Composing funcs from multiple sources
 
