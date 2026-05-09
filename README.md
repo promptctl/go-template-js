@@ -155,6 +155,10 @@ Imported from `@promptctl/go-template-js` as category-scoped `FuncMap` factories
 | Conversions | `sprigConversions()` | atoi, int, int64, float64, toString, toStrings, toDecimal, toRawJson |
 | Semver | `sprigSemver()` | semver, semverCompare |
 | Flow | `sprigFlow()` | fail |
+| Random | `sprigRandom(random?)` | randInt, randAlpha, randAlphaNum, randNumeric, randAscii, shuffle |
+| Hash / Encoding | `sprigHash()` | b64enc, b64dec, b32enc, b32dec, sha1sum, sha256sum, sha512sum, adler32sum, uuidv4 |
+
+**Runtime floor for `sprigHash()`:** `uuidv4` requires `globalThis.crypto.randomUUID`, available in Node ≥ 14.17, Bun, Deno, and all modern browsers. SHA-* use [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) — audited, zero-dep, sync, pure JS — and run in every JS runtime without native crypto bindings.
 
 ## Composing funcs from multiple sources
 
