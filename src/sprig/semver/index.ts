@@ -15,7 +15,7 @@ export function sprigSemver(): FuncMap {
     // [LAW:types-are-the-program] Returns a plain object whose keys mirror
     // Masterminds/semver v3's method names so Go template field access
     // (`.Major`, `.Prerelease`, etc.) works without an adapter.
-    semver: { fn: (s) => semver(s as string), argTypes: ["string"], returnType: "T" },
+    semver: { fn: (s) => semver(s as string), argTypes: ["string"] },
     semverCompare: {
       fn: (constraint, version) => semverCompare(constraint as string, version as string),
       argTypes: ["string", "string"],
