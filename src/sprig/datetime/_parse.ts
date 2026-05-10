@@ -281,6 +281,7 @@ function dispatchToken(
     }
     case "PM":
     case "pm": {
+<<<<<<< HEAD
       const ampm = val.slice(vp, vp + 2);
       const lower = ampm.toLowerCase();
       if (lower !== "am" && lower !== "pm") {
@@ -289,6 +290,10 @@ function dispatchToken(
         );
       }
       s.isPM = lower === "pm";
+=======
+      const ampm = val.slice(vp, vp + 2).toLowerCase();
+      s.isPM = ampm === "pm";
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       s.hour12 = true;
       return [vp + 2, s];
     }
@@ -330,9 +335,15 @@ function dispatchToken(
       return [p2, s];
     }
     case ".000000000": {
+<<<<<<< HEAD
       // consume dot + 9 digits
       const p2 = vp + (val[vp] === "." ? 1 : 0);
       const [ms, p3] = consumeFrac(val, p2, 9);
+=======
+      // consume dot + 9 digits (dot is required)
+      if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
+      const [ms, p3] = consumeFrac(val, vp + 1, 9);
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       s.ms = ms;
       return [p3, s];
     }
@@ -347,8 +358,14 @@ function dispatchToken(
       return [e2, s];
     }
     case ".000000": {
+<<<<<<< HEAD
       const p2 = vp + (val[vp] === "." ? 1 : 0);
       const [ms, p3] = consumeFrac(val, p2, 6);
+=======
+      // dot is required
+      if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
+      const [ms, p3] = consumeFrac(val, vp + 1, 6);
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       s.ms = ms;
       return [p3, s];
     }
@@ -362,8 +379,14 @@ function dispatchToken(
       return [e2, s];
     }
     case ".000": {
+<<<<<<< HEAD
       const p2 = vp + (val[vp] === "." ? 1 : 0);
       const [ms, p3] = consumeFrac(val, p2, 3);
+=======
+      // dot is required
+      if (val[vp] !== ".") throw new Error(`sprig toDate: expected . at pos ${vp}`);
+      const [ms, p3] = consumeFrac(val, vp + 1, 3);
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       s.ms = ms;
       return [p3, s];
     }
@@ -433,6 +456,7 @@ export function parseGoLayout(layout: string, value: string): Date {
     }
   }
 
+<<<<<<< HEAD
   // Verify the entire value string was consumed.
   if (vp !== value.length) {
     throw new Error(
@@ -440,6 +464,8 @@ export function parseGoLayout(layout: string, value: string): Date {
     );
   }
 
+=======
+>>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
   // Adjust 12-hour clock.
   if (st.hour12) {
     const h12 = st.hour % 12;
