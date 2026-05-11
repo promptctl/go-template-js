@@ -286,6 +286,8 @@ function dispatchToken(
     case "PM":
     case "pm": {
       const ampm = val.slice(vp, vp + 2).toLowerCase();
+      if (ampm !== "am" && ampm !== "pm")
+        throw new Error(`sprig toDate: expected AM/PM at pos ${vp}, got ${JSON.stringify(val.slice(vp, vp + 2))}`);
       s.isPM = ampm === "pm";
       s.hour12 = true;
       return [vp + 2, s];

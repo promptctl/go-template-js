@@ -15,6 +15,9 @@ export class RandIntRangeError extends Error {
 
 /** Clamp PRNG output to [0, 1) to defend against out-of-range injected sources. */
 export function clampRandom(value: number): number {
+  // [LAW:no-defensive-null-guards] Non-finite check is valid here: `random`
+  // is caller-supplied (trust boundary), and NaN/Infinity are out-of-range.
+  if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(value, 0.9999999999999999));
 }
 

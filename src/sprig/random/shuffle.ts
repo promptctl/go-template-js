@@ -1,4 +1,4 @@
-import { clampRandom } from "./_prng";
+import { clampRandom } from "./_prng.js";
 
 /**
  * `shuffle s` — returns a randomly permuted copy of `s`.
