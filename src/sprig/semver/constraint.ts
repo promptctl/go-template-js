@@ -34,6 +34,10 @@ function parseAndGroup(s: string): Predicate {
   const preds: Predicate[] = [];
   let consumed = 0;
   for (const m of s.matchAll(TOKEN_RE)) {
+    // Validate gap between previous consumed position and this match is only separators.
+    const gap = s.slice(consumed, m.index);
+    if (gap.length > 0 && !/^[,\s]*$/.test(gap))
+      throw new Error(`unexpected characters in constraint: ${JSON.stringify(gap)}`);
     preds.push(buildSingle(m[1] ?? "", m[2] ?? ""));
     consumed = (m.index ?? 0) + m[0].length;
   }
