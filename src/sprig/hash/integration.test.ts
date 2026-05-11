@@ -36,9 +36,7 @@ describe("sprig hash — integration", () => {
   });
 
   it("sha1sum via pipeline", () => {
-    expect(render('{{ "hello" | sha1sum }}')).toBe(
-      "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d",
-    );
+    expect(render('{{ "hello" | sha1sum }}')).toBe("aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
   });
 
   it("sha512sum via pipeline", () => {

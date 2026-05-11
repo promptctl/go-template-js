@@ -20,7 +20,9 @@ describe("sprig.randAlpha", () => {
     // PRNG always returns 0 → always picks charset[0] = 'a'
     expect(randAlpha(5, () => 0)).toBe("aaaaa");
     // PRNG always returns 0.9999... → picks last char 'Z'
-    expect(randAlpha(3, () => 0.9999)).toBe((ALPHA[Math.floor(0.9999 * ALPHA.length)] as string).repeat(3));
+    expect(randAlpha(3, () => 0.9999)).toBe(
+      (ALPHA[Math.floor(0.9999 * ALPHA.length)] as string).repeat(3),
+    );
   });
 
   it("accepts bigint n", () => {

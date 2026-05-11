@@ -9,9 +9,7 @@ describe("sprig.sha256sum", () => {
   });
 
   it("matches known SHA-256 digest for empty string", () => {
-    expect(sha256sum("")).toBe(
-      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    );
+    expect(sha256sum("")).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   });
 
   it("returns lowercase hex of exactly 64 characters", () => {

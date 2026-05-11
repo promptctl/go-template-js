@@ -43,21 +43,21 @@ describe("sprig datetime — integration", () => {
   });
 
   it("toDate + dateInZone with subexpression", () => {
-    expect(
-      render('{{ dateInZone "2006-01-02" (toDate "2006-01-02" "2024-03-15") "UTC" }}'),
-    ).toBe("2024-03-15");
+    expect(render('{{ dateInZone "2006-01-02" (toDate "2006-01-02" "2024-03-15") "UTC" }}')).toBe(
+      "2024-03-15",
+    );
   });
 
   it("htmlDateInZone via subexpression", () => {
-    expect(
-      render('{{ htmlDateInZone (toDate "2006-01-02" "2024-03-15") "UTC" }}'),
-    ).toBe("2024-03-15");
+    expect(render('{{ htmlDateInZone (toDate "2006-01-02" "2024-03-15") "UTC" }}')).toBe(
+      "2024-03-15",
+    );
   });
 
   it("dateModify adds 1h", () => {
-    expect(
-      render(`{{ dateInZone "15:04:05" (dateModify "1h" ${FROZEN_UNIX}) "UTC" }}`),
-    ).toBe("16:04:05");
+    expect(render(`{{ dateInZone "15:04:05" (dateModify "1h" ${FROZEN_UNIX}) "UTC" }}`)).toBe(
+      "16:04:05",
+    );
   });
 
   it("unixEpoch round-trips frozen timestamp", () => {

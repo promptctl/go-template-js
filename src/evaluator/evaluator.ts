@@ -17,6 +17,13 @@
  */
 
 import {
+  EvalError,
+  FailError,
+  FuncNotFoundError,
+  MissingFieldError,
+  TypeMismatchError,
+} from "../errors.js";
+import {
   type ActionNode,
   assertNever,
   type CommandNode,
@@ -28,7 +35,6 @@ import { type ParseResult, parse as parseSource } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins } from "./builtins.js";
-import { EvalError, FailError, FuncNotFoundError, MissingFieldError, TypeMismatchError } from "../errors.js";
 import { isLazy } from "./lazy.js";
 import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";

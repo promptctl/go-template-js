@@ -17,12 +17,8 @@ type Predicate = (v: SemVer) => boolean;
 // Tokenizes individual constraint items: optional op + version string.
 // Version portion allows partial versions (1, 1.2, 1.2.3) and alphanumeric
 // pre-release/metadata suffixes. Commas are separators (skipped by \d match).
-<<<<<<< HEAD
-const TOKEN_RE = /(!=|>=|<=|>|<|~=|~|\^|=)?\s*(v?\d[^\s,]*)/g;
-=======
 // Operators: =, !=, >, >=, <, <=, ~, ^ (longest-first for greedy matching).
 const TOKEN_RE = /(!=|>=|<=|>|<|~|\^|=)?\s*(v?\d[^\s,]*)/g;
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
 
 export function parseConstraintExpr(s: string): Predicate {
   const orGroups = s
@@ -35,25 +31,21 @@ export function parseConstraintExpr(s: string): Predicate {
 }
 
 function parseAndGroup(s: string): Predicate {
-  TOKEN_RE.lastIndex = 0;
   const preds: Predicate[] = [];
-  let m: RegExpExecArray | null;
-<<<<<<< HEAD
-  while ((m = TOKEN_RE.exec(s)) !== null) {
-    preds.push(buildSingle(m[1] ?? "", m[2]!));
-  }
-  if (preds.length === 0) throw new Error(`no constraint tokens in: ${JSON.stringify(s)}`);
-=======
   let consumed = 0;
-  while ((m = TOKEN_RE.exec(s)) !== null) {
-    preds.push(buildSingle(m[1] ?? "", m[2]!));
-    consumed = m.index + m[0].length;
+  for (const m of s.matchAll(TOKEN_RE)) {
+    // Validate gap between previous consumed position and this match is only separators.
+    const gap = s.slice(consumed, m.index);
+    if (gap.length > 0 && !/^[,\s]*$/.test(gap))
+      throw new Error(`unexpected characters in constraint: ${JSON.stringify(gap)}`);
+    preds.push(buildSingle(m[1] ?? "", m[2] ?? ""));
+    consumed = (m.index ?? 0) + m[0].length;
   }
   if (preds.length === 0) throw new Error(`no constraint tokens in: ${JSON.stringify(s)}`);
   // Validate entire string was consumed (allowing trailing whitespace)
   const remaining = s.slice(consumed).trim();
-  if (remaining.length > 0) throw new Error(`unexpected characters in constraint: ${JSON.stringify(remaining)}`);
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
+  if (remaining.length > 0)
+    throw new Error(`unexpected characters in constraint: ${JSON.stringify(remaining)}`);
   return (v) => preds.every((p) => p(v));
 }
 
@@ -66,7 +58,14 @@ function countComponents(vstr: string): number {
 
 function makeSemVer(major: number, minor: number, patch: number, pre: string): SemVer {
   const vstr = pre ? `${major}.${minor}.${patch}-${pre}` : `${major}.${minor}.${patch}`;
-  return { Major: major, Minor: minor, Patch: patch, Prerelease: pre, Metadata: "", Original: vstr };
+  return {
+    Major: major,
+    Minor: minor,
+    Patch: patch,
+    Prerelease: pre,
+    Metadata: "",
+    Original: vstr,
+  };
 }
 
 // Masterminds/semver v3 pre-release exclusion rule: a version with a
@@ -76,9 +75,7 @@ function preReleaseCheck(v: SemVer, constraint: SemVer): boolean {
   if (v.Prerelease === "") return true;
   if (constraint.Prerelease !== "") {
     return (
-      v.Major === constraint.Major &&
-      v.Minor === constraint.Minor &&
-      v.Patch === constraint.Patch
+      v.Major === constraint.Major && v.Minor === constraint.Minor && v.Patch === constraint.Patch
     );
   }
   return false;
@@ -93,10 +90,6 @@ function buildSingle(op: string, vstr: string): Predicate {
   switch (op) {
     case "":
     case "=":
-<<<<<<< HEAD
-    case "~=":
-=======
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
       return (v) => compareSemVer(v, cv) === 0;
     case "!=":
       return (v) => compareSemVer(v, cv) !== 0;
@@ -124,7 +117,8 @@ function buildTilde(cv: SemVer, minorDirty: boolean): Predicate {
   if (minorDirty) {
     const lower = makeSemVer(cv.Major, 0, 0, cv.Prerelease);
     const upper = makeSemVer(cv.Major + 1, 0, 0, "");
-    return (v) => preReleaseCheck(v, lower) && compareSemVer(v, lower) >= 0 && compareSemVer(v, upper) < 0;
+    return (v) =>
+      preReleaseCheck(v, lower) && compareSemVer(v, lower) >= 0 && compareSemVer(v, upper) < 0;
   }
   const upper = makeSemVer(cv.Major, cv.Minor + 1, 0, "");
   return (v) => preReleaseCheck(v, cv) && compareSemVer(v, cv) >= 0 && compareSemVer(v, upper) < 0;

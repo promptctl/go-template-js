@@ -42,15 +42,13 @@ describe("formatGoLayout", () => {
 
   it("2-digit year", () => expect(formatGoLayout("06", REF)).toBe("06"));
 
-  it("full month name", () =>
-    expect(formatGoLayout("January 2006", REF)).toBe("January 2006"));
+  it("full month name", () => expect(formatGoLayout("January 2006", REF)).toBe("January 2006"));
 
   it("short month name", () => expect(formatGoLayout("Jan 2006", REF)).toBe("Jan 2006"));
 
   it("full weekday", () => expect(formatGoLayout("Monday", REF)).toBe("Monday"));
 
-  it("Kitchen (12h)", () =>
-    expect(formatGoLayout("3:04PM", REF)).toBe("3:04PM"));
+  it("Kitchen (12h)", () => expect(formatGoLayout("3:04PM", REF)).toBe("3:04PM"));
 
   it("AM hour", () => {
     const am: ZoneParts = { ...REF, hour: 9, hour12: 9 };
@@ -67,17 +65,13 @@ describe("formatGoLayout", () => {
     expect(formatGoLayout("3:04pm", t)).toBe("12:04am");
   });
 
-  it("offset ±hhmm form", () =>
-    expect(formatGoLayout("-0700", REF)).toBe("-0700"));
+  it("offset ±hhmm form", () => expect(formatGoLayout("-0700", REF)).toBe("-0700"));
 
-  it("offset ±hh:mm form", () =>
-    expect(formatGoLayout("-07:00", REF)).toBe("-07:00"));
+  it("offset ±hh:mm form", () => expect(formatGoLayout("-07:00", REF)).toBe("-07:00"));
 
-  it("offset Z form (UTC)", () =>
-    expect(formatGoLayout("Z0700", UTC_REF)).toBe("Z"));
+  it("offset Z form (UTC)", () => expect(formatGoLayout("Z0700", UTC_REF)).toBe("Z"));
 
-  it("offset Z form (non-UTC)", () =>
-    expect(formatGoLayout("Z0700", REF)).toBe("-0700"));
+  it("offset Z form (non-UTC)", () => expect(formatGoLayout("Z0700", REF)).toBe("-0700"));
 
   it("space-padded single-digit day", () => {
     const t: ZoneParts = { ...REF, day: 2 };

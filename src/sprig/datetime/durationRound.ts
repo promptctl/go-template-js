@@ -18,7 +18,7 @@ const SECOND = 1_000_000_000;
 export function durationRound(d: unknown): string {
   const s = String(d);
   const ns = parseDurationNs(s);
-  if (isNaN(ns)) return "0s";
+  if (Number.isNaN(ns)) return "0s";
 
   const u = Math.abs(ns);
   if (u > YEAR) return `${Math.floor(u / YEAR)}y`;
