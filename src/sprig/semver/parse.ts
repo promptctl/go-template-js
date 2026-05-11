@@ -12,14 +12,9 @@
 
 // Matches: v?major[.minor[.patch]][-prerelease][+metadata]
 // Groups: 1=major, 2=minor, 3=patch, 4=prerelease, 5=metadata
-<<<<<<< HEAD
-const VERSION_RE =
-  /^v?(\d+)(?:\.(\d+)(?:\.(\d+))?)?(?:-([\w][\w.-]*))?(?:\+([\w][\w.-]*))?$/;
-=======
 // SemVer 2.0.0: prerelease/metadata use [0-9A-Za-z-] with . separators.
 const VERSION_RE =
   /^v?(\d+)(?:\.(\d+)(?:\.(\d+))?)?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
 
 // [LAW:types-are-the-program] SemVer mirrors the fields Go sprig exposes
 // from Masterminds/semver v3's Version struct. Template access `.Major`
@@ -38,7 +33,7 @@ export function parseSemVer(s: string): SemVer {
   const m = VERSION_RE.exec(input);
   if (!m) throw new Error(`invalid semver: ${JSON.stringify(s)}`);
   return {
-    Major: parseInt(m[1]!, 10),
+    Major: parseInt(m[1] ?? "0", 10),
     Minor: m[2] !== undefined ? parseInt(m[2], 10) : 0,
     Patch: m[3] !== undefined ? parseInt(m[3], 10) : 0,
     Prerelease: m[4] ?? "",
@@ -49,10 +44,7 @@ export function parseSemVer(s: string): SemVer {
 
 /** Returns negative if a < b, 0 if equal, positive if a > b. */
 export function compareSemVer(a: SemVer, b: SemVer): number {
-  const d =
-    a.Major - b.Major ||
-    a.Minor - b.Minor ||
-    a.Patch - b.Patch;
+  const d = a.Major - b.Major || a.Minor - b.Minor || a.Patch - b.Patch;
   if (d !== 0) return d;
   return comparePrerelease(a.Prerelease, b.Prerelease);
 }

@@ -114,6 +114,28 @@ describe("sprig.semverCompare — AND / OR groups", () => {
   });
 });
 
+describe("sprig.semverCompare — gap validation rejects junk", () => {
+  it("rejects junk between tokens", () => {
+    expect(() => semverCompare(">=1.0.0 foo <2.0.0", "1.5.0")).toThrow(/unexpected characters/);
+  });
+
+  it("rejects leading junk", () => {
+    expect(() => semverCompare("bar >=1.0.0", "1.5.0")).toThrow(/unexpected characters/);
+  });
+
+  it("accepts spaces between tokens", () => {
+    expect(semverCompare(">=1.0.0 <2.0.0", "1.5.0")).toBe(true);
+  });
+
+  it("accepts commas between tokens", () => {
+    expect(semverCompare(">=1.0.0,<2.0.0", "1.5.0")).toBe(true);
+  });
+
+  it("accepts mixed spaces and commas", () => {
+    expect(semverCompare(">=1.0.0, <2.0.0", "1.5.0")).toBe(true);
+  });
+});
+
 describe("sprig.semverCompare — pre-release exclusion", () => {
   it("pre-release excluded from non-pre-release constraint", () => {
     expect(semverCompare(">=1.0.0", "1.5.0-alpha")).toBe(false);

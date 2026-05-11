@@ -45,10 +45,10 @@ export {
 } from "./evaluator/evaluator.js";
 export { sprigConversions } from "./sprig/conversions/index.js";
 export { sprigDatetime } from "./sprig/datetime/index.js";
-export { sprigHash } from "./sprig/hash/index.js";
 export { sprigDefaults } from "./sprig/defaults/index.js";
 export { sprigDicts } from "./sprig/dicts/index.js";
 export { sprigFlow } from "./sprig/flow/index.js";
+export { sprigHash } from "./sprig/hash/index.js";
 export { sprigLists } from "./sprig/lists/index.js";
 export { sprigMath } from "./sprig/math/index.js";
 export { sprigRandom } from "./sprig/random/index.js";

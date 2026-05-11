@@ -14,7 +14,7 @@ import { formatDurationNs, secondsToNs } from "./_duration.js";
 export function duration(sec: unknown): string {
   if (typeof sec === "string") {
     const n = parseInt(sec, 10);
-    return isNaN(n) ? "0s" : formatDurationNs(secondsToNs(n));
+    return Number.isNaN(n) ? "0s" : formatDurationNs(secondsToNs(n));
   }
   if (typeof sec === "bigint") return formatDurationNs(secondsToNs(Number(sec)));
   if (typeof sec === "number") return formatDurationNs(secondsToNs(sec));

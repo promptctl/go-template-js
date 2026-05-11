@@ -6,8 +6,6 @@
  * caller supplies the source; these helpers consume it.
  */
 
-<<<<<<< HEAD
-=======
 export class RandIntRangeError extends Error {
   constructor(min: number, max: number) {
     super(`randIntFromRange: max must be greater than min (max=${max}, min=${min})`);
@@ -15,7 +13,14 @@ export class RandIntRangeError extends Error {
   }
 }
 
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
+/** Clamp PRNG output to [0, 1) to defend against out-of-range injected sources. */
+export function clampRandom(value: number): number {
+  // [LAW:no-defensive-null-guards] Non-finite check is valid here: `random`
+  // is caller-supplied (trust boundary), and NaN/Infinity are out-of-range.
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(value, 0.9999999999999999));
+}
+
 export const ALPHA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 export const ALPHANUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 export const NUMERIC = "0123456789";
@@ -23,31 +28,15 @@ export const NUMERIC = "0123456789";
 export const ASCII = Array.from({ length: 95 }, (_, i) => String.fromCharCode(i + 32)).join("");
 
 export function randString(n: number, charset: string, random: () => number): string {
-<<<<<<< HEAD
-  let result = "";
-  for (let i = 0; i < n; i++) {
-    result += charset[Math.floor(random() * charset.length)];
-  }
-  return result;
-=======
   const chars = [];
   for (let i = 0; i < n; i++) {
-    chars.push(charset[Math.floor(random() * charset.length)]!);
+    chars.push(charset.charAt(Math.floor(clampRandom(random()) * charset.length)));
   }
   return chars.join("");
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
 }
 
 /** Inclusive `min`, exclusive `max` — mirrors Go `rand.Intn(max-min)+min`. */
 export function randIntFromRange(min: number, max: number, random: () => number): number {
-<<<<<<< HEAD
-  if (max <= min) {
-    throw new Error(
-      `randIntFromRange: max must be greater than min (max=${max}, min=${min})`,
-    );
-  }
-=======
   if (max <= min) throw new RandIntRangeError(min, max);
->>>>>>> d650ee9 (fix(review): address 8 remaining PR review findings)
-  return Math.floor(random() * (max - min)) + min;
+  return Math.floor(clampRandom(random()) * (max - min)) + min;
 }
