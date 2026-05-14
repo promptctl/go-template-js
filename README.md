@@ -135,9 +135,9 @@ Supported:
 
 All of Go template's runtime built-ins:
 
-`and` `or` `not` · `eq` `ne` `lt` `le` `gt` `ge` · `len` `index` `slice` · `print` `println` `printf` · `call`
+`and` `or` `not` · `eq` `ne` `lt` `le` `gt` `ge` · `len` `index` `slice` · `print` `println` `printf` · `call` · `html`
 
-`and`/`or` short-circuit (the engine passes thunks for those). `printf` supports `%s`, `%d`, `%v`, `%q`, `%f` (precision-aware), `%t`, `%x`, plus width and `-` left-align flags.
+`and`/`or` short-circuit (the engine passes thunks for those). `printf` supports `%s`, `%d`, `%v`, `%q`, `%f` (precision-aware), `%t`, `%x`, plus width and `-` left-align flags. `html` flattens its arguments like `print` (via the engine's `toString`) and then escapes the six HTML-significant characters (`\0` → `�`, `"` → `&#34;`, `'` → `&#39;`, `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`) — matching Go's `text/template.HTMLEscaper` byte-for-byte.
 
 ### Sprig subset
 

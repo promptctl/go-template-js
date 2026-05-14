@@ -1,0 +1,5 @@
+{{ html "<script>" "alert('xss & \"pwn\")" "</script>" }}
+{{ html .raw }}
+{{ html .a .b .c }}
+{{ "<x>" | html }}
+{{ html }}/end
