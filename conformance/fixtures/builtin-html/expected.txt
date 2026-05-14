@@ -1,0 +1,5 @@
+&lt;script&gt;alert(&#39;xss &amp; &#34;pwn&#34;)&lt;/script&gt;
+Tom &amp; Jerry&#39;s &lt;html&gt; &#34;quote&#34; page
+x1 true
+&lt;x&gt;
+/end

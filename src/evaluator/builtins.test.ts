@@ -312,6 +312,70 @@ describe("builtins — print / println / printf", () => {
   });
 });
 
+describe("builtins — html escape", () => {
+  it("escapes the six HTML-significant characters and concatenates per fmt.Sprint", () => {
+    // All-strings: no spaces between adjacents (matches print/fmt.Sprint).
+    expect(render('{{ html "<b>" "&" "</b>" }}')).toBe("&lt;b&gt;&amp;&lt;/b&gt;");
+  });
+
+  it("escapes single and double quotes to shortest numeric entities", () => {
+    expect(render(`{{ html "'hi'" }}`)).toBe("&#39;hi&#39;");
+    expect(render('{{ html "\\"hi\\"" }}')).toBe("&#34;hi&#34;");
+  });
+
+  it("replaces NUL with the Unicode replacement character", () => {
+    expect(render('{{ html "a\\x00b" }}')).toBe("a�b");
+  });
+
+  it("passes ASCII text through unchanged", () => {
+    expect(render('{{ html "hello world" }}')).toBe("hello world");
+  });
+
+  it("flattens numeric / boolean / nil args via fmt.Sprint rules", () => {
+    // Space between adjacent non-strings (1, true); nil renders as `<nil>`
+    // and the `<` / `>` then get escaped — matches Go's text/template.
+    expect(render("{{ html 1 true }}")).toBe("1 true");
+    expect(render("{{ html . }}", null)).toBe("&lt;nil&gt;");
+  });
+
+  it("works in a pipeline: piped value flows into the trailing slot", () => {
+    expect(render('{{ "<x>" | html }}')).toBe("&lt;x&gt;");
+  });
+
+  it("returns empty string with zero args", () => {
+    expect(render("{{ html }}")).toBe("");
+  });
+
+  // [LAW:single-enforcer] `html` declares `"stringifiable"` — the same
+  // gate print/printf use — so typed-T values without a configured
+  // `toString` are rejected at the boundary, not silently flattened.
+  it("throws TypeMismatchError when no engine.toString is configured for typed-T", () => {
+    interface Frag {
+      readonly text: string;
+    }
+    const eng = createEngine<string>({ fromString: (s) => s });
+    expect(() => eng.parse("{{ html .frag }}").evaluate({ frag: { text: "x" } as Frag })).toThrow(
+      TypeMismatchError,
+    );
+  });
+
+  it("routes typed-T through consumer-supplied engine.toString and then escapes", () => {
+    interface Frag {
+      readonly text: string;
+    }
+    const eng = createEngine<string>({
+      fromString: (s) => s,
+      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+    });
+    expect(
+      eng
+        .parse("{{ html .frag }}")
+        .evaluate({ frag: { text: "<a>" } as Frag })
+        .join(""),
+    ).toBe("&lt;a&gt;");
+  });
+});
+
 describe("builtins — call", () => {
   it("invokes a function value drawn from the scope", () => {
     const scope = {

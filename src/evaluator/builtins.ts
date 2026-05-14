@@ -121,6 +121,18 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
       argTypes: ["callable", "value"],
     },
 
+    // [LAW:single-enforcer + LAW:one-source-of-truth] `html` mirrors Go's
+    // `text/template.HTMLEscaper`: flatten args via the print pipeline,
+    // then escape the six HTML-significant characters. Sharing the
+    // `"stringifiable"` gate + `goPrint` body with print/printf keeps
+    // the no-silent-flatten contract uniform across every builtin that
+    // produces a string from heterogeneous arg values.
+    html: {
+      fn: (...args: unknown[]) => htmlEscape(goPrint(args, toString)),
+      argTypes: ["stringifiable"],
+      returnType: "string",
+    },
+
     // `not` is also lazy in spirit, but with a single argument it's
     // semantically equivalent to eager evaluation. Keep it eager.
     // Slot declares "truthy": isTruthy() runs against any value.
@@ -307,6 +319,28 @@ function stringifyForPrint(value: unknown, toString: (v: unknown) => string): st
   if (value === null || value === undefined) return "<nil>";
   if (typeof value === "string") return value;
   return toString(value);
+}
+
+// ---------------------------------------------------------------------------
+// HTML escaping.
+//
+// Mirrors Go's `text/template.HTMLEscape` byte-for-byte: NUL becomes the
+// Unicode replacement character, the five HTML-significant characters
+// become their shortest numeric / named entities (Go picks `&#34;` over
+// `&quot;` and `&#39;` over `&apos;` for brevity — match that).
+// ---------------------------------------------------------------------------
+
+const HTML_ESCAPE_TABLE: Readonly<Record<string, string>> = {
+  "\0": "�",
+  '"': "&#34;",
+  "'": "&#39;",
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+};
+
+function htmlEscape(s: string): string {
+  return s.replace(/[\0"'&<>]/g, (c) => HTML_ESCAPE_TABLE[c] ?? c);
 }
 
 function sprintf(
