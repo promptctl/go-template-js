@@ -43,10 +43,19 @@ jobs:
         run: pnpm test
 
       # Conformance fixtures are byte-for-byte Go-reference outputs.
-      # Regenerate against `text/template` and assert no diff — catches
-      # fixture template edits that weren't regen'd, and engine drift in
-      # the Go reference itself.
+      # `pnpm conformance:regen` is supposed to be a no-op on a fresh
+      # tree; if it isn't, something drifted. Asserting tree-cleanliness
+      # is the strongest theorem — it catches modified expected.txt
+      # (template edits not regen'd), untracked expected.txt (new
+      # fixtures committed without regen'ing), and tracked drift in
+      # `conformance/gen/` (e.g. go.sum updates from `go run`). A scoped
+      # `git diff --exit-code` would miss the untracked case entirely.
       - name: Conformance fixture parity
         run: |
           pnpm conformance:regen
-          git diff --exit-code conformance/fixtures/
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::Conformance regen produced a dirty tree — fixtures or generator state drifted from Go reference."
+            git status --short
+            git diff
+            exit 1
+          fi
