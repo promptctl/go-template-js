@@ -5,13 +5,20 @@ on:
     branches: [master]
   pull_request:
 
+# Least-privilege: this workflow only reads code (checkout + setup tools)
+# and reports status. It never writes back to the repo or comments on PRs.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    # Pin the runner image so toolchain/OS upgrades to `ubuntu-latest`
+    # never silently shift conformance-regen output from under us.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +34,10 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '^1.21'
+          # Pin to a minor line: text/template is stable across patch
+          # releases, and patch updates carry security fixes worth taking.
+          # Bump deliberately when conformance generator behavior changes.
+          go-version: '1.25'
           cache-dependency-path: conformance/gen/go.sum
 
       - name: Install dependencies
