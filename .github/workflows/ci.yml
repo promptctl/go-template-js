@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Least-privilege: this workflow only reads code (checkout + setup tools)
+# and reports status. It never writes back to the repo or comments on PRs.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    # Pin the runner image so toolchain/OS upgrades to `ubuntu-latest`
+    # never silently shift conformance-regen output from under us.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          # Pin to a minor line: text/template is stable across patch
+          # releases, and patch updates carry security fixes worth taking.
+          # Bump deliberately when conformance generator behavior changes.
+          go-version: '1.25'
+          cache-dependency-path: conformance/gen/go.sum
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # Conformance fixtures are byte-for-byte Go-reference outputs.
+      # `pnpm conformance:regen` is supposed to be a no-op on a fresh
+      # tree; if it isn't, something drifted. Asserting tree-cleanliness
+      # is the strongest theorem — it catches modified expected.txt
+      # (template edits not regen'd), untracked expected.txt (new
+      # fixtures committed without regen'ing), and tracked drift in
+      # `conformance/gen/` (e.g. go.sum updates from `go run`). A scoped
+      # `git diff --exit-code` would miss the untracked case entirely.
+      - name: Conformance fixture parity
+        run: |
+          pnpm conformance:regen
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::Conformance regen produced a dirty tree — fixtures or generator state drifted from Go reference."
+            git status --short
+            git diff
+            exit 1
+          fi
