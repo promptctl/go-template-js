@@ -1167,8 +1167,7 @@ function matchesArgType(
       // Bigints in the merely-precision-losing range (e.g. 2n**100n)
       // are accepted; float never promised exact preservation.
       return (
-        typeof value === "number" ||
-        (typeof value === "bigint" && Number.isFinite(Number(value)))
+        typeof value === "number" || (typeof value === "bigint" && Number.isFinite(Number(value)))
       );
     case "bool":
       return typeof value === "boolean";
