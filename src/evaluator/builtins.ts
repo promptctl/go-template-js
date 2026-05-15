@@ -143,6 +143,18 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
       returnType: "string",
     },
 
+    // [LAW:single-enforcer + LAW:one-source-of-truth] `urlquery` mirrors
+    // Go's `text/template.URLQueryEscaper`: flatten via fmt.Sprint, then
+    // `url.QueryEscape`. Same shape as html/js — only the escape function
+    // differs. Built on the UTF-8 byte stream (not the JS code-unit
+    // stream) so multi-byte runes percent-encode to the same bytes Go
+    // emits.
+    urlquery: {
+      fn: (...args: unknown[]) => urlQueryEscape(goPrint(args, toString)),
+      argTypes: ["stringifiable"],
+      returnType: "string",
+    },
+
     // `not` is also lazy in spirit, but with a single argument it's
     // semantically equivalent to eager evaluation. Keep it eager.
     // Slot declares "truthy": isTruthy() runs against any value.
@@ -390,6 +402,42 @@ function jsEscape(s: string): string {
       continue;
     }
     out += ch;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// URL-query escaping.
+//
+// Mirrors Go's `net/url.QueryEscape` (which `text/template.URLQueryEscaper`
+// delegates to) byte-for-byte: the unreserved set [A-Za-z0-9-._~] passes
+// through, space becomes `+`, every other byte becomes `%XX` uppercase hex.
+// Operates on UTF-8 bytes — multi-byte runes encode to the same percent
+// sequences Go emits (e.g. "α" → "%CE%B1"). Diverges from JS's
+// `encodeURIComponent` which uses `%20` for space and leaves `!*'()` raw.
+// ---------------------------------------------------------------------------
+
+const URL_QUERY_ENCODER = new TextEncoder();
+
+function urlQueryEscape(s: string): string {
+  let out = "";
+  const bytes = URL_QUERY_ENCODER.encode(s);
+  for (const b of bytes) {
+    const unreserved =
+      (b >= 0x30 && b <= 0x39) || // 0-9
+      (b >= 0x41 && b <= 0x5a) || // A-Z
+      (b >= 0x61 && b <= 0x7a) || // a-z
+      b === 0x2d || // -
+      b === 0x2e || // .
+      b === 0x5f || // _
+      b === 0x7e; // ~
+    if (unreserved) {
+      out += String.fromCharCode(b);
+    } else if (b === 0x20) {
+      out += "+";
+    } else {
+      out += `%${b.toString(16).toUpperCase().padStart(2, "0")}`;
+    }
   }
   return out;
 }

@@ -445,6 +445,83 @@ describe("builtins — js escape", () => {
   });
 });
 
+describe("builtins — urlquery escape", () => {
+  it("percent-encodes reserved chars uppercase and converts space to '+'", () => {
+    expect(render('{{ urlquery "hello world" }}')).toBe("hello+world");
+    expect(render('{{ urlquery "a&b=c" }}')).toBe("a%26b%3Dc");
+    expect(render('{{ urlquery "foo/bar?x=1" }}')).toBe("foo%2Fbar%3Fx%3D1");
+  });
+
+  it("preserves Go's RFC 3986 unreserved set [A-Za-z0-9-._~]", () => {
+    // Diverges from encodeURIComponent: Go also keeps `~` (it does too)
+    // but escapes `!*'()` which encodeURIComponent leaves raw.
+    expect(render('{{ urlquery "unreserved-._~chars" }}')).toBe("unreserved-._~chars");
+    expect(render('{{ urlquery "abcXYZ123" }}')).toBe("abcXYZ123");
+    expect(render(`{{ urlquery "reserved!*'()" }}`)).toBe("reserved%21%2A%27%28%29");
+  });
+
+  it("escapes literal '+' to %2B (not pass-through)", () => {
+    // Critical divergence test: '+' is the space replacement, so a
+    // literal '+' must round-trip as %2B.
+    expect(render('{{ urlquery "+" }}')).toBe("%2B");
+  });
+
+  it("percent-encodes ASCII control chars and NUL", () => {
+    expect(render('{{ urlquery "a\\x00b" }}')).toBe("a%00b");
+    expect(render('{{ urlquery "a\\tb" }}')).toBe("a%09b");
+    expect(render('{{ urlquery "a\\nb" }}')).toBe("a%0Ab");
+  });
+
+  it("encodes non-ASCII as UTF-8 bytes (multi-byte percent sequences)", () => {
+    // "α" is U+03B1, UTF-8 0xCE 0xB1; "β" is U+03B2, UTF-8 0xCE 0xB2.
+    // Per-byte percent-encode is the Go behavior — NOT per-codepoint.
+    expect(render('{{ urlquery "αβ" }}')).toBe("%CE%B1%CE%B2");
+  });
+
+  it("flattens numeric / boolean args via fmt.Sprint rules (space → '+')", () => {
+    // Space between adjacent non-strings (1, true) gets encoded as '+'.
+    expect(render("{{ urlquery 1 true }}")).toBe("1+true");
+  });
+
+  it("works in a pipeline: piped value flows into the trailing slot", () => {
+    expect(render('{{ "<x>" | urlquery }}')).toBe("%3Cx%3E");
+  });
+
+  it("returns empty string with zero args", () => {
+    expect(render("{{ urlquery }}")).toBe("");
+  });
+
+  // [LAW:single-enforcer] `urlquery` declares `"stringifiable"` — same
+  // gate as print/printf/html/js — so typed-T values without a
+  // configured `toString` are rejected at the boundary, not silently
+  // flattened.
+  it("throws TypeMismatchError when no engine.toString is configured for typed-T", () => {
+    interface Frag {
+      readonly text: string;
+    }
+    const eng = createEngine<string>({ fromString: (s) => s });
+    expect(() =>
+      eng.parse("{{ urlquery .frag }}").evaluate({ frag: { text: "x" } as Frag }),
+    ).toThrow(TypeMismatchError);
+  });
+
+  it("routes typed-T through consumer-supplied engine.toString and then escapes", () => {
+    interface Frag {
+      readonly text: string;
+    }
+    const eng = createEngine<string>({
+      fromString: (s) => s,
+      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+    });
+    expect(
+      eng
+        .parse("{{ urlquery .frag }}")
+        .evaluate({ frag: { text: "a b" } as Frag })
+        .join(""),
+    ).toBe("a+b");
+  });
+});
+
 describe("builtins — call", () => {
   it("invokes a function value drawn from the scope", () => {
     const scope = {
