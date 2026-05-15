@@ -157,6 +157,29 @@ describe("parse — control flow", () => {
     const { root } = parse("{{ with .opt }}{{ . }}{{ end }}");
     expect(root.nodes[0]?.type).toBe("With");
   });
+
+  it("parses {{break}} as a leaf inside a range body", () => {
+    const { root } = parse("{{ range .items }}{{ break }}{{ end }}");
+    const r = root.nodes[0];
+    assertNode(r, "Range");
+    expect(r.list.nodes[0]).toMatchObject({ type: "Break" });
+  });
+
+  it("parses {{continue}} as a leaf inside a range body", () => {
+    const { root } = parse("{{ range .items }}{{ continue }}{{ end }}");
+    const r = root.nodes[0];
+    assertNode(r, "Range");
+    expect(r.list.nodes[0]).toMatchObject({ type: "Continue" });
+  });
+
+  it("preserves trim markers on {{- break -}}", () => {
+    const { root } = parse("{{ range .items }}{{- break -}}{{ end }}");
+    const r = root.nodes[0];
+    assertNode(r, "Range");
+    const b = r.list.nodes[0];
+    assertNode(b, "Break");
+    expect(b.trim).toEqual({ trimLeft: true, trimRight: true });
+  });
 });
 
 describe("parse — sub-templates", () => {
@@ -298,6 +321,8 @@ describe("parse — round-trip via stringify", () => {
     "Hello, {{ .name }}!",
     "{{ if .ok }}yes{{ else }}no{{ end }}",
     "{{ range $i := .items }}*{{ end }}",
+    "{{ range .items }}{{ break }}{{ end }}",
+    "{{ range .items }}{{ continue }}{{ end }}",
     '{{ template "footer" . }}',
     "{{ .x | upper | trim }}",
   ])("round-trips %s", (src) => {
@@ -326,5 +351,19 @@ describe("parse — error cases", () => {
 
   it("rejects redefinition of a template", () => {
     expect(() => parse('{{define "x"}}A{{end}}{{define "x"}}B{{end}}')).toThrow(/redefinition/);
+  });
+
+  it("rejects {{break}} outside any range", () => {
+    expect(() => parse("{{ break }}")).toThrow(/\{\{break\}\} outside of \{\{range\}\}/);
+  });
+
+  it("rejects {{continue}} outside any range", () => {
+    expect(() => parse("{{ continue }}")).toThrow(/\{\{continue\}\} outside of \{\{range\}\}/);
+  });
+
+  it("rejects {{break}} inside a define even if the define is nested in a range", () => {
+    expect(() => parse('{{ range . }}{{ define "x" }}{{ break }}{{ end }}{{ end }}')).toThrow(
+      /\{\{break\}\} outside of \{\{range\}\}/,
+    );
   });
 });

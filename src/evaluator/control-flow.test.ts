@@ -113,6 +113,88 @@ describe("control flow — range", () => {
     // prove no leak across iters, assert the per-iteration value.
     expect(render("{{ range . }}{{ $x := . }}{{ $x }}{{ end }}", ["a", "b"])).toBe("ab");
   });
+
+  describe("break / continue", () => {
+    it("{{break}} exits the innermost range, suppressing subsequent iterations", () => {
+      expect(
+        render('{{ range . }}{{ if eq . "b" }}{{ break }}{{ end }}[{{ . }}]{{ end }}', [
+          "a",
+          "b",
+          "c",
+        ]),
+      ).toBe("[a]");
+    });
+
+    it("{{continue}} skips the rest of the current iteration but keeps going", () => {
+      expect(
+        render('{{ range . }}{{ if eq . "b" }}{{ continue }}{{ end }}[{{ . }}]{{ end }}', [
+          "a",
+          "b",
+          "c",
+        ]),
+      ).toBe("[a][c]");
+    });
+
+    it("{{break}} suppresses the else clause (else fires only on empty input)", () => {
+      // Else runs only when entries.length === 0, which is true for the
+      // outer empty list. Break inside a populated range must NOT
+      // fall through into the else branch.
+      expect(render("{{ range . }}A{{ break }}B{{ else }}EMPTY{{ end }}", ["x", "y"])).toBe("A");
+    });
+
+    it("{{break}} targets the innermost range only", () => {
+      // Inner break leaves the inner range; outer range continues with
+      // its next element. Each outer iteration emits "[" + first inner
+      // element + "]".
+      expect(
+        render("{{ range . }}[{{ range . }}{{ . }}{{ break }}{{ end }}]{{ end }}", [
+          ["a", "b"],
+          ["c", "d"],
+        ]),
+      ).toBe("[a][c]");
+    });
+
+    it("{{continue}} targets the innermost range only", () => {
+      // Inner continue skips the digit but the inner range completes;
+      // each outer iteration produces a wrapped concatenation.
+      expect(
+        render(
+          '{{ range . }}[{{ range . }}{{ if eq . "x" }}{{ continue }}{{ end }}{{ . }}{{ end }}]{{ end }}',
+          [
+            ["a", "x", "b"],
+            ["c", "d"],
+          ],
+        ),
+      ).toBe("[ab][cd]");
+    });
+
+    it("parse error: {{break}} outside any range", () => {
+      expect(() => render("{{ break }}", null)).toThrow(/\{\{break\}\} outside of \{\{range\}\}/);
+    });
+
+    it("parse error: {{continue}} outside any range", () => {
+      expect(() => render("{{ continue }}", null)).toThrow(
+        /\{\{continue\}\} outside of \{\{range\}\}/,
+      );
+    });
+
+    it("parse error: {{break}} inside a {{define}} body, even when invoked from a range", () => {
+      // Lexical scoping: `define` opens an independent parse context;
+      // a break inside it can't see the surrounding range.
+      expect(() =>
+        render(
+          '{{ define "inner" }}{{ break }}{{ end }}{{ range . }}{{ template "inner" }}{{ end }}',
+          ["a"],
+        ),
+      ).toThrow(/\{\{break\}\} outside of \{\{range\}\}/);
+    });
+
+    it("parse error: {{continue}} inside a {{block}} body, even when block is nested in a range", () => {
+      expect(() =>
+        render('{{ range . }}{{ block "b" . }}{{ continue }}{{ end }}{{ end }}', ["a"]),
+      ).toThrow(/\{\{continue\}\} outside of \{\{range\}\}/);
+    });
+  });
 });
 
 describe("control flow — sub-templates (template / block / define)", () => {

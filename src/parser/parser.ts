@@ -17,9 +17,11 @@ import type {
   ActionNode,
   BlockNode,
   BoolNode,
+  BreakNode,
   ChainNode,
   CommandNode,
   CommentNode,
+  ContinueNode,
   DotNode,
   FieldNode,
   IdentifierNode,
@@ -68,6 +70,14 @@ class Parser {
   private readonly buf: Token[] = [];
   private readonly defines = new Map<string, ListNode>();
   private readonly source: string;
+  // [LAW:types-are-the-program] Lexical-only counter: how many enclosing
+  // `{{range}}` bodies surround the current parse position. `{{break}}`
+  // and `{{continue}}` are legal iff this is > 0. Mirrors Go's
+  // text/template/parse `Tree.rangeDepth`. Saved/restored around
+  // sub-template bodies (`{{define}}` / `{{block}}`) because those
+  // bodies are independent parse contexts in Go — a break lexically
+  // inside a range but inside a nested define is still an error.
+  private rangeDepth = 0;
 
   constructor(source: string) {
     this.source = source;
@@ -196,6 +206,12 @@ class Parser {
       case "With":
         this.next();
         return this.parseBranch("With", left.pos, trimLeft);
+      case "Break":
+        this.next();
+        return this.parseBreakOrContinue("Break", left.pos, trimLeft);
+      case "Continue":
+        this.next();
+        return this.parseBreakOrContinue("Continue", left.pos, trimLeft);
       case "Template":
         this.next();
         return this.parseTemplateInvocation(left.pos, trimLeft);
@@ -238,8 +254,15 @@ class Parser {
   ): IfNode | RangeNode | WithNode {
     const pipe = this.parsePipeline();
     this.expect("RightDelim", "`}}`");
+    // [LAW:types-are-the-program] Range is the *only* branch kind that
+    // legalises `{{break}}` / `{{continue}}` in its body. Encode that
+    // by bumping rangeDepth for exactly the Range body — the else
+    // clause is also part of the range so its body is reached only
+    // when the iterable is empty, matching Go's text/template.
+    if (kind === "Range") this.rangeDepth += 1;
     const list = this.parseList();
     const elsePart = this.parseElsePart();
+    if (kind === "Range") this.rangeDepth -= 1;
     const endRight = elsePart.endConsumed ? elsePart.endRight : this.consumeEnd();
     const trim: TrimMarkers = { trimLeft, trimRight: endRight };
 
@@ -254,6 +277,36 @@ class Parser {
       case "With":
         return { type: "With", pos: startPos, ...base } satisfies WithNode;
     }
+  }
+
+  // -------------------------------------------------------------------
+  // {{break}} / {{continue}} — range-body control flow.
+  //
+  // [LAW:types-are-the-program] Both are leaves with only a position +
+  // trim markers. The strongest theorem about them is that they carry
+  // no value, no body, no pipeline — encode that in the type so the
+  // body of every visitor is forced to treat them as leaves.
+  //
+  // [LAW:single-enforcer] The "must be inside a `{{range}}`" rule
+  // lives here at the gate. Once the AST is built, the evaluator
+  // trusts the lexical guarantee — no runtime guard re-checks.
+  // -------------------------------------------------------------------
+  private parseBreakOrContinue(
+    kind: "Break" | "Continue",
+    startPos: Pos,
+    trimLeft: boolean,
+  ): BreakNode | ContinueNode {
+    if (this.rangeDepth === 0) {
+      const keyword = kind === "Break" ? "break" : "continue";
+      throw new ParseError(`{{${keyword}}} outside of {{range}}`, startPos, {
+        source: this.source,
+      });
+    }
+    const right = this.expect("RightDelim", "`}}`");
+    const trim: TrimMarkers = { trimLeft, trimRight: right.trimRight === true };
+    return kind === "Break"
+      ? ({ type: "Break", pos: startPos, trim } satisfies BreakNode)
+      : ({ type: "Continue", pos: startPos, trim } satisfies ContinueNode);
   }
 
   /**
@@ -314,7 +367,15 @@ class Parser {
     const name = this.parseQuotedName();
     const pipe = this.peek().type === "RightDelim" ? undefined : this.parsePipeline();
     this.expect("RightDelim", "`}}`");
+    // [LAW:types-are-the-program] A `{{block}}` body is invoked via the
+    // sub-template machinery: a separate parse context in Go's
+    // text/template. Save and reset rangeDepth so a `{{break}}` inside
+    // a block body — even when the block is lexically nested in an
+    // outer range — is correctly rejected at parse time.
+    const savedDepth = this.rangeDepth;
+    this.rangeDepth = 0;
     const list = this.parseList();
+    this.rangeDepth = savedDepth;
     const endRight = this.consumeEnd();
     const trim: TrimMarkers = { trimLeft, trimRight: endRight };
     // Block both registers a default body under `name` AND invokes it.
@@ -331,7 +392,15 @@ class Parser {
   private parseDefine(_startPos: Pos, _trimLeft: boolean): void {
     const name = this.parseQuotedName();
     this.expect("RightDelim", "`}}`");
+    // [LAW:types-are-the-program] Defines are independent parse
+    // contexts in Go's text/template — `{{break}}` inside a `{{define}}`
+    // body is illegal even when the define is lexically nested inside
+    // a range. Save and reset rangeDepth so the depth tracked here
+    // reflects only ranges that lexically enclose this body.
+    const savedDepth = this.rangeDepth;
+    this.rangeDepth = 0;
     const list = this.parseList();
+    this.rangeDepth = savedDepth;
     this.consumeEnd();
     if (this.defines.has(name)) {
       throw new ParseError(`redefinition of template ${JSON.stringify(name)}`, list.pos, {

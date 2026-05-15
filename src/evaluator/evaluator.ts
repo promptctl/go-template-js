@@ -220,6 +220,19 @@ interface EvalContext<T> {
   readonly source: string | undefined;
 }
 
+// [LAW:types-are-the-program] Internal control-flow sentinels for
+// `{{break}}` / `{{continue}}`. They are NOT user-facing errors —
+// `TemplateError` deliberately is not their base — and they never
+// escape `evalRange`: the parser guarantees (via rangeDepth) that
+// every Break/Continue node is lexically inside a Range body, and
+// the range body is the only thrower-and-catcher of these. A
+// reference-identity check at the catch site is the strongest
+// possible discriminator: no string matching, no error-message
+// drift, no risk of swallowing user errors. See [LAW:single-enforcer]
+// — these constants are the one source of truth for the signal.
+const BREAK_SIGNAL = Object.freeze({ kind: "break" as const });
+const CONTINUE_SIGNAL = Object.freeze({ kind: "continue" as const });
+
 // [LAW:dataflow-not-control-flow] Pipeline-fed value, structurally
 // distinguished from absence. Replaces an earlier `unknown` parameter
 // where `undefined` was overloaded to mean both "no pipe" and "pipe of
@@ -376,6 +389,13 @@ export class Engine<T> {
       case "With":
         this.evalWith(node, scope, ctx);
         return;
+      case "Break":
+        // [LAW:single-enforcer] The signal is the *only* mechanism;
+        // the parser already guarantees we're lexically inside a
+        // range, and `evalRange` is the only catcher.
+        throw BREAK_SIGNAL;
+      case "Continue":
+        throw CONTINUE_SIGNAL;
       case "Template":
         this.evalTemplateInvoke(node, scope, ctx);
         return;
@@ -461,7 +481,20 @@ export class Engine<T> {
         declareVar(child, k, key);
         declareVar(child, v, item);
       }
-      this.evalList(node.list, child, ctx);
+      // [LAW:single-enforcer] The iteration boundary is the *only*
+      // place break/continue are observed. The signals propagate from
+      // arbitrarily-deep `evalNode` callers (inside `{{if}}`, nested
+      // `{{with}}`, etc.) and land here. Continue skips to the next
+      // iteration; Break exits the loop entirely. Reference-identity
+      // catch — no error-message string matching — so this never
+      // swallows user errors that happen to look similar.
+      try {
+        this.evalList(node.list, child, ctx);
+      } catch (e) {
+        if (e === CONTINUE_SIGNAL) continue;
+        if (e === BREAK_SIGNAL) return;
+        throw e;
+      }
     }
   }
 

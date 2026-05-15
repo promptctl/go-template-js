@@ -171,6 +171,33 @@ export interface RangeNode extends NodeBase<"Range">, BranchFields {}
 export interface WithNode extends NodeBase<"With">, BranchFields {}
 
 // ---------------------------------------------------------------------------
+// Range-body control-flow leaves — `{{break}}` and `{{continue}}`.
+//
+// [LAW:types-are-the-program] Break/continue carry no pipeline and no
+// body. They are leaves whose only purpose is the discriminator: the
+// evaluator's range loop switches on `type` to know which control-flow
+// transition to perform. Encoding them as leaves (instead of, say, an
+// ActionNode with a magic identifier) is the strongest theorem about
+// them — the type forbids "{{break .foo}}" by construction, so no body
+// has to guard against a stray pipeline.
+//
+// Their legality is *lexical*: only valid inside a `{{range}}` body
+// (not inside a `{{define}}`/`{{block}}` body, even if those are
+// lexically nested inside a range — those bodies are independent
+// parse contexts in Go's text/template, and we match that here).
+// The parser enforces this via a rangeDepth counter that is saved /
+// restored around sub-template bodies.
+// ---------------------------------------------------------------------------
+
+export interface BreakNode extends NodeBase<"Break"> {
+  readonly trim: TrimMarkers;
+}
+
+export interface ContinueNode extends NodeBase<"Continue"> {
+  readonly trim: TrimMarkers;
+}
+
+// ---------------------------------------------------------------------------
 // Sub-template nodes.
 // ---------------------------------------------------------------------------
 
@@ -213,6 +240,8 @@ export type Node =
   | IfNode
   | RangeNode
   | WithNode
+  | BreakNode
+  | ContinueNode
   | TemplateNode
   | BlockNode;
 

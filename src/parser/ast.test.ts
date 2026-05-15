@@ -50,6 +50,8 @@ describe("Node discriminator coverage", () => {
         case "If":
         case "Range":
         case "With":
+        case "Break":
+        case "Continue":
         case "Template":
         case "Block":
           return n.type;
