@@ -67,6 +67,10 @@ export function stringify(node: Node): string {
       return formatBranch("range", node);
     case "With":
       return formatBranch("with", node);
+    case "Break":
+      return wrapAction("break", node.trim);
+    case "Continue":
+      return wrapAction("continue", node.trim);
     case "Template":
       return formatTemplate(node);
     case "Block":

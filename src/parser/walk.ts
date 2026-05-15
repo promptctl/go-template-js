@@ -52,6 +52,8 @@ export function children(node: Node): readonly Node[] {
     case "Identifier":
     case "Field":
     case "Variable":
+    case "Break":
+    case "Continue":
       return [];
     case "List":
       return node.nodes;
@@ -118,6 +120,8 @@ function emptyTally(): Record<NodeType, number> {
     If: 0,
     Range: 0,
     With: 0,
+    Break: 0,
+    Continue: 0,
     Template: 0,
     Block: 0,
   };

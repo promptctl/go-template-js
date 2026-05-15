@@ -1,0 +1,1 @@
+{{ range $outer := . }}[{{ range $inner := $outer }}{{ if eq $inner "X" }}{{ break }}{{ end }}{{ $inner }}{{ end }}]{{ end }}

@@ -125,6 +125,7 @@ Supported:
 
 - All actions: `{{ pipeline }}`, `{{- ... -}}` trim markers, `{{/* comments */}}`.
 - All control flow: `if/else if/else/end`, `range/else/end` (with index/value forms `range $i, $v := …`), `with/else/end`.
+- Range-body control: `{{break}}` exits the innermost `{{range}}`; `{{continue}}` skips to its next iteration. Both are parse errors outside a lexically-enclosing `{{range}}` (including inside a `{{define}}` or `{{block}}` body, even if those are nested in a range — sub-template bodies are independent parse contexts, matching Go's `text/template`).
 - All sub-template forms: `define`, `template`, `block`.
 - Variable assignment: `$x := pipe` and `$x = pipe`.
 - All literals: strings (interpreted + raw backtick), runes, integers (decimal/hex/octal/binary), floats (with exponents and hex-float `p` exponents), booleans, `nil`.

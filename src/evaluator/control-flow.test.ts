@@ -113,6 +113,126 @@ describe("control flow — range", () => {
     // prove no leak across iters, assert the per-iteration value.
     expect(render("{{ range . }}{{ $x := . }}{{ $x }}{{ end }}", ["a", "b"])).toBe("ab");
   });
+
+  describe("break / continue", () => {
+    it("{{break}} exits the innermost range, suppressing subsequent iterations", () => {
+      expect(
+        render('{{ range . }}{{ if eq . "b" }}{{ break }}{{ end }}[{{ . }}]{{ end }}', [
+          "a",
+          "b",
+          "c",
+        ]),
+      ).toBe("[a]");
+    });
+
+    it("{{continue}} skips the rest of the current iteration but keeps going", () => {
+      expect(
+        render('{{ range . }}{{ if eq . "b" }}{{ continue }}{{ end }}[{{ . }}]{{ end }}', [
+          "a",
+          "b",
+          "c",
+        ]),
+      ).toBe("[a][c]");
+    });
+
+    it("{{break}} suppresses the else clause (else fires only on empty input)", () => {
+      // Else runs only when entries.length === 0, which is true for the
+      // outer empty list. Break inside a populated range must NOT
+      // fall through into the else branch.
+      expect(render("{{ range . }}A{{ break }}B{{ else }}EMPTY{{ end }}", ["x", "y"])).toBe("A");
+    });
+
+    it("{{break}} targets the innermost range only", () => {
+      // Inner break leaves the inner range; outer range continues with
+      // its next element. Each outer iteration emits "[" + first inner
+      // element + "]".
+      expect(
+        render("{{ range . }}[{{ range . }}{{ . }}{{ break }}{{ end }}]{{ end }}", [
+          ["a", "b"],
+          ["c", "d"],
+        ]),
+      ).toBe("[a][c]");
+    });
+
+    it("{{continue}} targets the innermost range only", () => {
+      // Inner continue skips the digit but the inner range completes;
+      // each outer iteration produces a wrapped concatenation.
+      expect(
+        render(
+          '{{ range . }}[{{ range . }}{{ if eq . "x" }}{{ continue }}{{ end }}{{ . }}{{ end }}]{{ end }}',
+          [
+            ["a", "x", "b"],
+            ["c", "d"],
+          ],
+        ),
+      ).toBe("[ab][cd]");
+    });
+
+    it("parse error: {{break}} outside any range", () => {
+      expect(() => render("{{ break }}", null)).toThrow(/\{\{break\}\} outside of \{\{range\}\}/);
+    });
+
+    it("parse error: {{continue}} outside any range", () => {
+      expect(() => render("{{ continue }}", null)).toThrow(
+        /\{\{continue\}\} outside of \{\{range\}\}/,
+      );
+    });
+
+    it("parse error: {{break}} inside a {{define}} body, even when invoked from a range", () => {
+      // Lexical scoping: `define` opens an independent parse context;
+      // a break inside it can't see the surrounding range.
+      expect(() =>
+        render(
+          '{{ define "inner" }}{{ break }}{{ end }}{{ range . }}{{ template "inner" }}{{ end }}',
+          ["a"],
+        ),
+      ).toThrow(/\{\{break\}\} outside of \{\{range\}\}/);
+    });
+
+    it("parse error: {{continue}} inside a {{block}} body, even when block is nested in a range", () => {
+      expect(() =>
+        render('{{ range . }}{{ block "b" . }}{{ continue }}{{ end }}{{ end }}', ["a"]),
+      ).toThrow(/\{\{continue\}\} outside of \{\{range\}\}/);
+    });
+
+    it("parse error: {{break}} in a range else clause with no outer range to catch it", () => {
+      // The else of a range cannot catch its own break (the else only
+      // runs on empty input — no iteration to terminate). With no
+      // outer range either, this is statically uncatchable.
+      expect(() => render("{{ range . }}body{{ else }}{{ break }}{{ end }}", [])).toThrow(
+        /\{\{break\}\} outside of \{\{range\}\}/,
+      );
+    });
+
+    it("{{break}} in an inner range's else terminates only the inner range", () => {
+      // Inner range over an empty list fires its else, which breaks.
+      // Matches Go's walkRange semantics exactly: the *outer* recover
+      // around walkRange catches walkBreak (covering both body and
+      // else), so the inner range terminates and the outer range
+      // continues. Verified byte-equal against Go via the
+      // controlflow-range-break-from-inner-else conformance fixture.
+      expect(
+        render(
+          "{{ range $i, $v := . }}A{{ range $v }}body{{ else }}{{ break }}{{ end }}B{{ end }}",
+          [[], []],
+        ),
+      ).toBe("ABAB");
+    });
+
+    it("{{continue}} in an inner range's else propagates to the outer range", () => {
+      // Continue in else is NOT caught by the inner range's outer
+      // recover (matches Go: walkContinue propagates past walkRange's
+      // outer recover). The outer range's per-iteration catch sees
+      // it and skips to the next outer iteration — so the outer
+      // iteration's trailing "B" never prints.
+      expect(
+        render(
+          "{{ range $i, $v := . }}A{{ range $v }}body{{ else }}{{ continue }}{{ end }}B{{ end }}",
+          [[], []],
+        ),
+      ).toBe("AA");
+    });
+  });
 });
 
 describe("control flow — sub-templates (template / block / define)", () => {

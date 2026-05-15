@@ -1,0 +1,1 @@
+{{ range $i, $v := . }}A{{ range $v }}body{{ else }}{{ break }}{{ end }}B{{ end }}

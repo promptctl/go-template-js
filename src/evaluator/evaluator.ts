@@ -220,6 +220,19 @@ interface EvalContext<T> {
   readonly source: string | undefined;
 }
 
+// [LAW:types-are-the-program] Internal control-flow sentinels for
+// `{{break}}` / `{{continue}}`. They are NOT user-facing errors —
+// `TemplateError` deliberately is not their base — and they never
+// escape `evalRange`: the parser guarantees (via rangeDepth) that
+// every Break/Continue node is lexically inside a Range body, and
+// the range body is the only thrower-and-catcher of these. A
+// reference-identity check at the catch site is the strongest
+// possible discriminator: no string matching, no error-message
+// drift, no risk of swallowing user errors. See [LAW:single-enforcer]
+// — these constants are the one source of truth for the signal.
+const BREAK_SIGNAL = Object.freeze({ kind: "break" as const });
+const CONTINUE_SIGNAL = Object.freeze({ kind: "continue" as const });
+
 // [LAW:dataflow-not-control-flow] Pipeline-fed value, structurally
 // distinguished from absence. Replaces an earlier `unknown` parameter
 // where `undefined` was overloaded to mean both "no pipe" and "pipe of
@@ -376,6 +389,13 @@ export class Engine<T> {
       case "With":
         this.evalWith(node, scope, ctx);
         return;
+      case "Break":
+        // [LAW:single-enforcer] The signal is the *only* mechanism;
+        // the parser already guarantees we're lexically inside a
+        // range, and `evalRange` is the only catcher.
+        throw BREAK_SIGNAL;
+      case "Continue":
+        throw CONTINUE_SIGNAL;
       case "Template":
         this.evalTemplateInvoke(node, scope, ctx);
         return;
@@ -446,22 +466,50 @@ export class Engine<T> {
     const decls = node.pipe.decls;
 
     const entries = enumerateForRange(value);
-    if (entries.length === 0) {
-      if (node.elseList) this.evalList(node.elseList, scope, ctx);
-      return;
-    }
-    for (const [key, item] of entries) {
-      const child = pushScope(scope, item);
-      if (decls.length === 1) {
-        const name = decls[0]?.idents[0] ?? "$";
-        declareVar(child, name, item);
-      } else if (decls.length >= 2) {
-        const k = decls[0]?.idents[0] ?? "$";
-        const v = decls[1]?.idents[0] ?? "$";
-        declareVar(child, k, key);
-        declareVar(child, v, item);
+    // [LAW:single-enforcer] Two catch boundaries, exactly mirroring
+    // Go's text/template `walkRange` (exec.go: two `defer recover`s
+    // around the function and around `oneIteration`):
+    //
+    //   - The *outer* try catches BREAK_SIGNAL only. It scopes both
+    //     the body-iteration loop *and* the `else` clause — so a
+    //     break inside a range's else (legal only when there is an
+    //     outer range, by the parser's `rangeDepth` rule) terminates
+    //     this range, not the outer one.
+    //
+    //   - The *inner* per-iteration try catches CONTINUE_SIGNAL only.
+    //     Continue inside the body advances to the next iteration;
+    //     continue inside the else propagates up, because the outer
+    //     try doesn't catch it (matches Go: walkContinue is not
+    //     caught by walkRange's outer recover).
+    //
+    // Reference-identity catches — no message-string matching, so
+    // unrelated user errors with similar shapes are never swallowed.
+    try {
+      if (entries.length === 0) {
+        if (node.elseList) this.evalList(node.elseList, scope, ctx);
+        return;
       }
-      this.evalList(node.list, child, ctx);
+      for (const [key, item] of entries) {
+        const child = pushScope(scope, item);
+        if (decls.length === 1) {
+          const name = decls[0]?.idents[0] ?? "$";
+          declareVar(child, name, item);
+        } else if (decls.length >= 2) {
+          const k = decls[0]?.idents[0] ?? "$";
+          const v = decls[1]?.idents[0] ?? "$";
+          declareVar(child, k, key);
+          declareVar(child, v, item);
+        }
+        try {
+          this.evalList(node.list, child, ctx);
+        } catch (e) {
+          if (e === CONTINUE_SIGNAL) continue;
+          throw e;
+        }
+      }
+    } catch (e) {
+      if (e === BREAK_SIGNAL) return;
+      throw e;
     }
   }
 
