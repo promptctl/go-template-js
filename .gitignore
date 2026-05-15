@@ -5,3 +5,4 @@ coverage
 *.tsbuildinfo
 *.log
 .vitest
+.claude/

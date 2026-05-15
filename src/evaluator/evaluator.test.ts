@@ -191,7 +191,7 @@ describe("evaluator — delims config", () => {
     expect(eng.parse("a <%/* hi */%> b").evaluate(null).join("")).toBe("a  b");
   });
 
-  it("rejects an unset object at construct time", () => {
+  it("rejects a non-object delims value at construct time", () => {
     expect(() =>
       createEngine<string>({
         fromString: (s) => s,
