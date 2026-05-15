@@ -20,31 +20,27 @@
 
 import { untilStep } from "./untilStep.js";
 
-// [LAW:single-enforcer] Slot kind ("number") validates types upstream;
-// the dispatch shape (which arity does what) is the body's
-// responsibility — Go puts it inside `seq`, so we do too.
-export function seq(...params: (number | bigint)[]): string {
-  const ints = params.map((v) => Math.trunc(Number(v)));
+export function seq(...params: number[]): string {
   let increment = 1;
-  switch (ints.length) {
+  switch (params.length) {
     case 0:
       return "";
     case 1: {
       const start = 1;
-      const end = ints[0] as number;
+      const end = params[0] as number;
       if (end < start) increment = -1;
       return untilStep(start, end + increment, increment).join(" ");
     }
     case 2: {
-      const start = ints[0] as number;
-      const end = ints[1] as number;
+      const start = params[0] as number;
+      const end = params[1] as number;
       const step = end < start ? -1 : 1;
       return untilStep(start, end + step, step).join(" ");
     }
     case 3: {
-      const start = ints[0] as number;
-      const step = ints[1] as number;
-      const end = ints[2] as number;
+      const start = params[0] as number;
+      const step = params[1] as number;
+      const end = params[2] as number;
       if (end < start) {
         increment = -1;
         if (step > 0) return "";

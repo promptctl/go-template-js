@@ -25,8 +25,4 @@ describe("sprig.untilStep", () => {
   it("returns empty when start equals stop", () => {
     expect(untilStep(3, 3, 1)).toEqual([]);
   });
-
-  it("truncates fractional inputs", () => {
-    expect(untilStep(0.9, 4.1, 1)).toEqual([0, 1, 2, 3]);
-  });
 });

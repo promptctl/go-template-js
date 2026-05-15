@@ -1,7 +1,4 @@
-/**
- * `minf a b c …` — variadic float-typed minimum. Float counterpart of
- * `min` (which Go sprig truncates to int64).
- */
-export function minf(...args: (number | bigint)[]): number {
-  return args.map((v) => Number(v)).reduce((m, v) => Math.min(m, v), Infinity);
+/** `minf a b c …` — variadic float-typed minimum. Float counterpart of `min` (int64-truncated). */
+export function minf(...args: number[]): number {
+  return args.reduce((m, v) => Math.min(m, v), Infinity);
 }
