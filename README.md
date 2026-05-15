@@ -135,9 +135,9 @@ Supported:
 
 All of Go template's runtime built-ins:
 
-`and` `or` `not` · `eq` `ne` `lt` `le` `gt` `ge` · `len` `index` `slice` · `print` `println` `printf` · `call` · `html` · `js`
+`and` `or` `not` · `eq` `ne` `lt` `le` `gt` `ge` · `len` `index` `slice` · `print` `println` `printf` · `call` · `html` · `js` · `urlquery`
 
-`and`/`or` short-circuit (the engine passes thunks for those). `printf` supports `%s`, `%d`, `%v`, `%q`, `%f` (precision-aware), `%t`, `%x`, plus width and `-` left-align flags. `html` flattens its arguments like `print` (via the engine's `toString`) and then escapes the six HTML-significant characters (`\0` → `�`, `"` → `&#34;`, `'` → `&#39;`, `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`) — matching Go's `text/template.HTMLEscaper` byte-for-byte. `js` shares the same flatten pipeline and emits JavaScript-literal-safe output: `\` → `\\`, `'` → `\'`, `"` → `\"`, `<` → `\u003C`, `>` → `\u003E`, `&` → `\u0026`, `=` → `\u003D`, ASCII control chars (< 0x20) and non-printable runes (incl. U+2028/U+2029) → `\u%04X` uppercase — matching Go's `text/template.JSEscaper`.
+`and`/`or` short-circuit (the engine passes thunks for those). `printf` supports `%s`, `%d`, `%v`, `%q`, `%f` (precision-aware), `%t`, `%x`, plus width and `-` left-align flags. `html` flattens its arguments like `print` (via the engine's `toString`) and then escapes the six HTML-significant characters (`\0` → `�`, `"` → `&#34;`, `'` → `&#39;`, `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`) — matching Go's `text/template.HTMLEscaper` byte-for-byte. `js` shares the same flatten pipeline and emits JavaScript-literal-safe output: `\` → `\\`, `'` → `\'`, `"` → `\"`, `<` → `\u003C`, `>` → `\u003E`, `&` → `\u0026`, `=` → `\u003D`, ASCII control chars (< 0x20) and non-printable runes (incl. U+2028/U+2029) → `\u%04X` uppercase — matching Go's `text/template.JSEscaper`. `urlquery` shares the same flatten pipeline and percent-encodes the UTF-8 byte stream per Go's `net/url.QueryEscape`: the unreserved set `[A-Za-z0-9-._~]` passes through, space becomes `+`, every other byte becomes `%XX` uppercase hex (so a literal `+` round-trips as `%2B`, and `α` encodes to `%CE%B1`).
 
 ### Sprig subset
 
