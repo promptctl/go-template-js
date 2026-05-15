@@ -126,6 +126,18 @@ describe("evaluator — missingKey policy", () => {
     // — it lives in `emitFromValue`, not in the missing-key gate.
     expect(renderString("[{{ . }}]", null)).toBe("[<no value>]");
   });
+
+  it("rejects an invalid missingKey value at construct time (boundary check)", () => {
+    // [LAW:types-are-the-program] TS forbids this at compile time; the
+    // boundary check enforces the same theorem at runtime so JS callers
+    // and `as`-cast TS callers fail loud instead of silently degrading.
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        missingKey: "erro" as MissingKeyOption,
+      }),
+    ).toThrow(/missingKey: expected/);
+  });
 });
 
 describe("evaluator — $ and $vars", () => {

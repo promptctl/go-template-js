@@ -336,7 +336,13 @@ export class Engine<T> {
     // engines.
     const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
     this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
-    this.missingKey = config.missingKey ?? "default";
+    // [LAW:no-defensive-null-guards] exception: trust boundary — the
+    // EngineConfig flows in from JS callers (no compile-time guard) and
+    // TS callers using `as` casts. A typo like `"erro"` would silently
+    // degrade to default semantics and disable the strict policy a
+    // caller asked for. Validate at construct time so the bad value
+    // fails loud at the only place it can be detected.
+    this.missingKey = validateMissingKey(config.missingKey);
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
@@ -1146,6 +1152,22 @@ function defaultFromString(s: string): unknown {
 // without consumer flattener" case the README contract is about, and
 // throws a TypeMismatchError. `evalCommand` wraps and re-emits with
 // the proper call-site pos (see [LAW:single-enforcer] above).
+// [LAW:types-are-the-program] The `MissingKeyOption` union is the
+// strongest theorem about the field — but TypeScript's compile-time
+// guarantee evaporates at the JS boundary. The runtime check below is
+// the boundary's enforcement of that same theorem, so a typo fails
+// loud at construct time instead of silently disabling the policy a
+// caller intended.
+const VALID_MISSING_KEYS: ReadonlySet<MissingKeyOption> = new Set(["default", "zero", "error"]);
+
+function validateMissingKey(value: MissingKeyOption | undefined): MissingKeyOption {
+  if (value === undefined) return "default";
+  if (VALID_MISSING_KEYS.has(value)) return value;
+  throw new Error(
+    `EngineConfig.missingKey: expected "default" | "zero" | "error", got ${JSON.stringify(value)}`,
+  );
+}
+
 function defaultToString(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return "<nil>";
