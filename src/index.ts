@@ -40,6 +40,7 @@ export {
   Engine,
   type EngineConfig,
   type FuncMap,
+  type MissingKeyOption,
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";

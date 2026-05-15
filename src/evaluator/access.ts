@@ -9,10 +9,15 @@
  * - Methods/functions are returned as-is for the caller to invoke when
  *   the AST shape demands a function call.
  *
- * Missing-key handling matches Go's `missingkey=error` default: a
- * genuinely absent field returns `MISSING`, which the caller surfaces as
- * a `MissingFieldError`. The receiver-is-nullish case at the top of
+ * Missing-key handling: a genuinely absent field returns the `MISSING`
+ * sentinel, which the caller (`Engine.resolveFieldChain`) interprets per
+ * the configured `missingKey` policy — `"default"`/`"zero"` produce
+ * `undefined` (Go-default `<no value>` when emitted), `"error"` throws
+ * `MissingFieldError`. The receiver-is-nullish case at the top of
  * `getField` is the trust-boundary exception documented inline below.
+ *
+ * [LAW:single-enforcer] This module returns the `MISSING` discriminator
+ * unconditionally; the policy decision lives at exactly one site.
  */
 
 /** Sentinel returned by `getField` when a field is genuinely absent. */
