@@ -106,6 +106,16 @@ import { isTruthy } from "./truthy.js";
 export type ArgType =
   | "string"
   | "number"
+  // [LAW:types-are-the-program] "int" and "float" are validate-AND-parse
+  // numeric carriers: the matcher accepts `number | bigint` (same shape
+  // as "number"); the gate then mutates `values[i]` to a `number` (int:
+  // truncated; float: coerced via `Number()`), so bodies see `number`
+  // and never re-coerce. Mirrors the "liftable" precedent: the slot is
+  // both the membership rule and the parse step. Added by epic
+  // template-variance-num-carrier-hfv.1; "number" survives until .4
+  // retires it after all consumers migrate (.2/.3).
+  | "int"
+  | "float"
   | "bool"
   | "T"
   | "ordered"
@@ -1026,6 +1036,17 @@ export function enforceArgTypes(
     if (declared === "liftable" && typeof value === "string") {
       values[i] = fromString(value);
     }
+    // [LAW:single-enforcer] Numeric carrier normalization lives at the
+    // gate so bodies receive `number`, never `number | bigint`. Mirrors
+    // the "liftable" lift above: matcher proves membership, gate
+    // mutates to the canonical carrier. Bodies of "int"/"float" slots
+    // can rely on `typeof value === "number"`. Added by epic
+    // template-variance-num-carrier-hfv.1; consumers migrate in .2/.3.
+    if (declared === "int") {
+      values[i] = Math.trunc(Number(value));
+    } else if (declared === "float") {
+      values[i] = Number(value);
+    }
     // [LAW:single-enforcer] The cross-slot ordering rule lives here,
     // alongside the per-slot type rule, so "what counts as a valid
     // comparison" has a single enforcer. Each "ordered" slot must
@@ -1107,6 +1128,14 @@ function matchesArgType(
     case "string":
       return typeof value === "string";
     case "number":
+    case "int":
+    case "float":
+      // [LAW:one-type-per-behavior] Same membership rule for all three
+      // numeric slot kinds; what differs is the gate-side normalization
+      // applied in `enforceArgTypes` (none for "number", trunc for
+      // "int", `Number()` for "float"). Bodies of "int"/"float" slots
+      // see `number`; bodies of "number" slots see `number | bigint`
+      // (transitional — "number" retires in .4).
       return typeof value === "number" || typeof value === "bigint";
     case "bool":
       return typeof value === "boolean";
@@ -1312,6 +1341,10 @@ function comparableKind(v: unknown): string {
 
 function humanArgType(t: ArgType): string {
   switch (t) {
+    case "int":
+      return "integer";
+    case "float":
+      return "float";
     case "T":
       return "T (consumer-defined fragment)";
     case "ordered":

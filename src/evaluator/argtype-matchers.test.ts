@@ -472,6 +472,151 @@ describe("matchesArgType — liftable", () => {
   });
 });
 
+describe("matchesArgType — int", () => {
+  // [LAW:single-enforcer] "int" is validate-AND-parse: the matcher
+  // accepts `number | bigint`, the gate then mutates `values[i]` to a
+  // truncated `number`. Bodies see `number`, full stop. These tests
+  // pin both halves so the .2/.3 consumer migrations can delete their
+  // `Math.trunc(Number(v))` coercions without losing coverage.
+  const intEngine = (recordArg: (v: unknown) => void) =>
+    createEngine<string>({
+      fromString: (s) => s,
+      funcs: {
+        f: {
+          fn: (v: unknown) => {
+            recordArg(v);
+            return "ok";
+          },
+          argTypes: ["int"],
+        },
+      },
+    });
+
+  it("normalizes bigint to number (body receives typeof 'number')", () => {
+    let received: unknown;
+    const eng = intEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(42n);
+    expect(typeof received).toBe("number");
+    expect(received).toBe(42);
+  });
+
+  it("passes number through unchanged", () => {
+    let received: unknown;
+    const eng = intEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(7);
+    expect(typeof received).toBe("number");
+    expect(received).toBe(7);
+  });
+
+  it("truncates fractional number inputs (Go int-conversion semantics)", () => {
+    let received: unknown;
+    const eng = intEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(3.7);
+    expect(received).toBe(3);
+  });
+
+  it("rejects strings", () => {
+    const eng = intEngine(() => undefined);
+    expect(() => eng.parse('{{ f "42" }}').evaluate(null)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects booleans", () => {
+    const eng = intEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(true)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects null", () => {
+    const eng = intEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(null)).toThrow(TypeMismatchError);
+  });
+
+  it("humanArgType label is 'integer' in error message", () => {
+    const eng = intEngine(() => undefined);
+    let caught: unknown;
+    try {
+      eng.parse("{{ f . }}").evaluate(true);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TypeMismatchError);
+    if (caught instanceof TypeMismatchError) {
+      expect(caught.message).toContain("integer");
+    }
+  });
+});
+
+describe("matchesArgType — float", () => {
+  // [LAW:single-enforcer] "float" mirrors "int" except the normalizer
+  // is `Number(v)` (no truncation). Bodies see a `number`.
+  const floatEngine = (recordArg: (v: unknown) => void) =>
+    createEngine<string>({
+      fromString: (s) => s,
+      funcs: {
+        f: {
+          fn: (v: unknown) => {
+            recordArg(v);
+            return "ok";
+          },
+          argTypes: ["float"],
+        },
+      },
+    });
+
+  it("normalizes bigint to number (body receives typeof 'number')", () => {
+    let received: unknown;
+    const eng = floatEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(5n);
+    expect(typeof received).toBe("number");
+    expect(received).toBe(5);
+  });
+
+  it("passes fractional number through unchanged (no truncation)", () => {
+    let received: unknown;
+    const eng = floatEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(3.7);
+    expect(received).toBe(3.7);
+  });
+
+  it("rejects strings", () => {
+    const eng = floatEngine(() => undefined);
+    expect(() => eng.parse('{{ f "3.14" }}').evaluate(null)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects booleans", () => {
+    const eng = floatEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(false)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects null", () => {
+    const eng = floatEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(null)).toThrow(TypeMismatchError);
+  });
+
+  it("humanArgType label is 'float' in error message", () => {
+    const eng = floatEngine(() => undefined);
+    let caught: unknown;
+    try {
+      eng.parse("{{ f . }}").evaluate(true);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TypeMismatchError);
+    if (caught instanceof TypeMismatchError) {
+      expect(caught.message).toContain("float");
+    }
+  });
+});
+
 describe("matchesArgType — intent-named pass-through kinds", () => {
   // truthy / reflective / value share the "any" runtime behavior; the
   // matcher must accept anything for these kinds. The label exists so a
