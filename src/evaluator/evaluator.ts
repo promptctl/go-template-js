@@ -189,6 +189,38 @@ export type FuncMap = Record<string, TemplateFunc>;
  */
 export type MissingKeyOption = "default" | "zero" | "error";
 
+// [LAW:one-source-of-truth] The valid-set lives next to the type it
+// validates. The `Engine` constructor's boundary check consumes this;
+// no other site decides what counts as a valid policy value.
+const VALID_MISSING_KEYS: ReadonlySet<MissingKeyOption> = new Set(["default", "zero", "error"]);
+
+// [LAW:types-are-the-program] The TS union forbids invalid values at
+// compile time; this is the JS-boundary mirror of the same theorem so
+// a typo from a JS caller (or an `as`-cast TS caller) fails loud at
+// construct time instead of silently disabling the policy.
+function validateMissingKey(value: MissingKeyOption | undefined): MissingKeyOption {
+  if (value === undefined) return "default";
+  if (VALID_MISSING_KEYS.has(value)) return value;
+  throw new Error(
+    `EngineConfig.missingKey: expected "default" | "zero" | "error", got ${describeMissingKey(value)}`,
+  );
+}
+
+// Safe formatter for the diagnostic — never throws on the value being
+// described. `JSON.stringify` would have thrown on bigint or cyclic
+// inputs, swapping the intended diagnostic for an unrelated TypeError;
+// the diagnostic must survive any value the caller might mis-pass.
+function describeMissingKey(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "bigint") return `${value}n`;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "symbol") return value.toString();
+  if (typeof value === "function") return "[Function]";
+  return `[${typeof value}]`;
+}
+
 export interface EngineConfig<T> {
   /** Convert a text literal (or string-returning function result) into T. */
   readonly fromString: (s: string) => T;
@@ -1152,22 +1184,6 @@ function defaultFromString(s: string): unknown {
 // without consumer flattener" case the README contract is about, and
 // throws a TypeMismatchError. `evalCommand` wraps and re-emits with
 // the proper call-site pos (see [LAW:single-enforcer] above).
-// [LAW:types-are-the-program] The `MissingKeyOption` union is the
-// strongest theorem about the field — but TypeScript's compile-time
-// guarantee evaporates at the JS boundary. The runtime check below is
-// the boundary's enforcement of that same theorem, so a typo fails
-// loud at construct time instead of silently disabling the policy a
-// caller intended.
-const VALID_MISSING_KEYS: ReadonlySet<MissingKeyOption> = new Set(["default", "zero", "error"]);
-
-function validateMissingKey(value: MissingKeyOption | undefined): MissingKeyOption {
-  if (value === undefined) return "default";
-  if (VALID_MISSING_KEYS.has(value)) return value;
-  throw new Error(
-    `EngineConfig.missingKey: expected "default" | "zero" | "error", got ${JSON.stringify(value)}`,
-  );
-}
-
 function defaultToString(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return "<nil>";
