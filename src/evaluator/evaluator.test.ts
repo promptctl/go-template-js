@@ -138,6 +138,26 @@ describe("evaluator — missingKey policy", () => {
       }),
     ).toThrow(/missingKey: expected/);
   });
+
+  it("boundary-check diagnostic survives non-serializable bad values", () => {
+    // The diagnostic itself must not throw — a bigint or cyclic value
+    // would crash `JSON.stringify` and swap the intended error for a
+    // serialization TypeError.
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        missingKey: 42n as unknown as MissingKeyOption,
+      }),
+    ).toThrow(/missingKey: expected.*got 42n/);
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        missingKey: cyclic as unknown as MissingKeyOption,
+      }),
+    ).toThrow(/missingKey: expected.*got \[object\]/);
+  });
 });
 
 describe("evaluator — $ and $vars", () => {
