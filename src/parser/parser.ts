@@ -254,19 +254,19 @@ class Parser {
   ): IfNode | RangeNode | WithNode {
     const pipe = this.parsePipeline();
     this.expect("RightDelim", "`}}`");
-    // [LAW:types-are-the-program] `rangeDepth` is the count of
-    // enclosing ranges whose *iteration body* can catch a break /
-    // continue from here. A range's body contributes 1; a range's
+    // [LAW:types-are-the-program] `rangeDepth` counts the enclosing
+    // ranges that can absorb a `{{break}}` / `{{continue}}` at the
+    // current parse position. A range's body contributes 1; a range's
     // else clause contributes 0 — the else only runs on empty input
-    // and does not iterate, so it cannot catch a signal aimed at its
-    // own range. (The signal would instead propagate to the next
-    // outer range, if any.) Decrementing *before* parsing the else
-    // encodes that invariant statically: a `{{break}}` in a range
-    // else with no outer range becomes a parse error, not a runtime
-    // crash. This is a tightening over Go's parser, which accepts
-    // the form and panics at execute time — moving the error
-    // earlier is allowed by the README's "divergences may tighten
-    // semantics" rule.
+    // and is structurally outside the iteration, so it cannot be the
+    // *target* of a break aimed at its own range. Another enclosing
+    // range is required for the signal to be catchable.
+    //
+    // Decrementing *before* parsing the else (not after parseElsePart)
+    // matches Go's text/template parser exactly — see
+    // text/template/parse/parse.go:540-547 — so a top-level
+    // `{{range}}{{else}}{{break}}{{end}}` errors at parse time with
+    // the same "{{break}} outside {{range}}" message Go emits.
     if (kind === "Range") this.rangeDepth += 1;
     const list = this.parseList();
     if (kind === "Range") this.rangeDepth -= 1;
