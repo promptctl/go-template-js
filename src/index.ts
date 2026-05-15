@@ -9,7 +9,7 @@
  *
  * Exposed:
  * - Engine API: createEngine, Engine, Template, EngineConfig, FuncMap,
- *   TemplateFunc, ArgType.
+ *   TemplateFunc, ArgType, MissingKeyOption.
  * - Error hierarchy: TemplateError → ParseError, EvalError; EvalError
  *   → FuncNotFoundError, TypeMismatchError, MissingFieldError; the
  *   ErrorKind discriminator string union.
@@ -40,6 +40,7 @@ export {
   Engine,
   type EngineConfig,
   type FuncMap,
+  type MissingKeyOption,
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";

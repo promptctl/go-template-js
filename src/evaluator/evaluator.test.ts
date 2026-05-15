@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { MissingFieldError } from "../errors.js";
 import { EvalError } from "./errors.js";
-import { createEngine, type Engine } from "./evaluator.js";
+import { createEngine, type Engine, type MissingKeyOption } from "./evaluator.js";
 
-const stringEngine = (): Engine<string> => createEngine<string>({ fromString: (s) => s });
+const stringEngine = (missingKey?: MissingKeyOption): Engine<string> =>
+  createEngine<string>({ fromString: (s) => s, ...(missingKey ? { missingKey } : {}) });
 
-const renderString = (src: string, scope: unknown): string =>
-  stringEngine().parse(src).evaluate(scope).join("");
+const renderString = (src: string, scope: unknown, missingKey?: MissingKeyOption): string =>
+  stringEngine(missingKey).parse(src).evaluate(scope).join("");
 
 describe("evaluator — text and dot", () => {
   it("emits text literals through fromString", () => {
@@ -47,10 +49,10 @@ describe("evaluator — field access", () => {
     expect(renderString("{{ .wrap.k.v }}", data)).toBe("nested");
   });
 
-  it("errors clearly on missing field", () => {
+  it("errors clearly on missing field under missingKey: 'error'", () => {
     let err: unknown;
     try {
-      renderString("{{ .missing }}", { x: 1 });
+      renderString("{{ .missing }}", { x: 1 }, "error");
     } catch (e) {
       err = e;
     }
@@ -60,18 +62,101 @@ describe("evaluator — field access", () => {
     }
   });
 
-  it("errors clearly on field access through nil", () => {
+  it("errors clearly on field access through nil under missingKey: 'error'", () => {
     let err: unknown;
     try {
-      renderString("{{ .missing.deeper }}", { x: 1 });
+      renderString("{{ .missing.deeper }}", { x: 1 }, "error");
     } catch (e) {
       err = e;
     }
     expect(err).toBeInstanceOf(EvalError);
   });
 
-  it("named-field access on an array is a missing-field error", () => {
-    expect(() => renderString("{{ .length }}", [1, 2, 3])).toThrow(EvalError);
+  it("named-field access on an array is a missing-field error under 'error' mode", () => {
+    expect(() => renderString("{{ .length }}", [1, 2, 3], "error")).toThrow(EvalError);
+  });
+});
+
+// [LAW:dataflow-not-control-flow] One gate, three productions. The
+// policy enum is the data; the gate body is fixed. These tests pin
+// the visible behavior for each value of the enum so the gate stays
+// honest about what each policy means.
+describe("evaluator — missingKey policy", () => {
+  it("default ('default'): missing field emits <no value> (Go text/template parity)", () => {
+    // Policy not set — default is "default".
+    expect(renderString("[{{ .missing }}]", { x: 1 })).toBe("[<no value>]");
+  });
+
+  it("default ('default'): chained access through a missing link emits <no value>", () => {
+    expect(renderString("[{{ .a.b.c }}]", { x: 1 })).toBe("[<no value>]");
+  });
+
+  it("default ('default'): missing key on a Map emits <no value>", () => {
+    const m = new Map<string, unknown>([["k", "present"]]);
+    expect(renderString("[{{ .absent }}]", m)).toBe("[<no value>]");
+  });
+
+  it("'zero' is API-equivalent to 'default' (JS lacks static value-type info)", () => {
+    expect(renderString("[{{ .missing }}]", { x: 1 }, "zero")).toBe("[<no value>]");
+    expect(renderString("[{{ .a.b.c }}]", { x: 1 }, "zero")).toBe("[<no value>]");
+  });
+
+  it("'error': missing field throws MissingFieldError carrying the failed path", () => {
+    let err: unknown;
+    try {
+      renderString("{{ .a.b.c }}", { a: { x: 1 } }, "error");
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MissingFieldError);
+    if (err instanceof MissingFieldError) {
+      expect(err.path).toEqual(["a", "b", "c"]);
+    }
+  });
+
+  it("'default': named-field access on an array silently emits <no value>", () => {
+    // The current (and Go's default) behavior: `len(arr)` is the only
+    // way to read an array's length; `.length` as a named field is
+    // simply missing. Under "default" mode the access is silent.
+    expect(renderString("[{{ .length }}]", [1, 2, 3])).toBe("[<no value>]");
+  });
+
+  it("'default' does not change pipe-fed value semantics", () => {
+    // The `<no value>` emit for an explicit nil pipeline is unchanged
+    // — it lives in `emitFromValue`, not in the missing-key gate.
+    expect(renderString("[{{ . }}]", null)).toBe("[<no value>]");
+  });
+
+  it("rejects an invalid missingKey value at construct time (boundary check)", () => {
+    // [LAW:types-are-the-program] TS forbids this at compile time; the
+    // boundary check enforces the same theorem at runtime so JS callers
+    // and `as`-cast TS callers fail loud instead of silently degrading.
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        missingKey: "erro" as unknown as MissingKeyOption,
+      }),
+    ).toThrow(/missingKey: expected/);
+  });
+
+  it("boundary-check diagnostic survives non-serializable bad values", () => {
+    // The diagnostic itself must not throw — a bigint or cyclic value
+    // would crash `JSON.stringify` and swap the intended error for a
+    // serialization TypeError.
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        missingKey: 42n as unknown as MissingKeyOption,
+      }),
+    ).toThrow(/missingKey: expected.*got 42n/);
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        missingKey: cyclic as unknown as MissingKeyOption,
+      }),
+    ).toThrow(/missingKey: expected.*got \[object\]/);
   });
 });
 
