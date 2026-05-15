@@ -217,3 +217,61 @@ describe("tokenize — positions", () => {
     expect(x?.pos.offset).toBe(8); // "a\nbb\n{{ " = 8 chars
   });
 });
+
+describe("tokenize — custom delimiters", () => {
+  const ASP = { left: "<%", right: "%>" } as const;
+
+  it("recognises a bare action with custom delims", () => {
+    const toks = tokenize("<% foo %>", ASP);
+    expect(types(toks)).toEqual(["LeftDelim", "Identifier", "RightDelim", "EOF"]);
+    expect(values(toks)).toEqual(["<%", "foo", "%>", ""]);
+  });
+
+  it("treats default {{ }} as plain text under custom delims", () => {
+    const toks = tokenize("hi {{ x }} <% y %>", ASP);
+    expect(types(toks)).toEqual(["Text", "LeftDelim", "Identifier", "RightDelim", "EOF"]);
+    expect(values(toks)).toEqual(["hi {{ x }} ", "<%", "y", "%>", ""]);
+  });
+
+  it("derives trim markers from the configured delims", () => {
+    const toks = tokenize("foo  \n  <%-  bar  -%>\n  baz", ASP);
+    expect(types(toks)).toEqual(["Text", "LeftDelim", "Identifier", "RightDelim", "Text", "EOF"]);
+    expect(values(toks)).toEqual(["foo", "<%-", "bar", "-%>", "baz", ""]);
+    expect(toks[1]?.trimLeft).toBe(true);
+    expect(toks[3]?.trimRight).toBe(true);
+  });
+
+  it("captures comments under custom delims", () => {
+    const toks = tokenize("<%/* hi */%>", ASP);
+    expect(types(toks)).toEqual(["Comment", "EOF"]);
+    expect(toks[0]?.value).toBe("hi");
+  });
+
+  it("rejects an unclosed comment with the configured right-delim in `expected`", () => {
+    const fn = () => tokenize("<%/* nope", ASP);
+    expect(fn).toThrow(/unclosed comment/);
+    try {
+      fn();
+    } catch (e) {
+      // The `expected` field carries the close form so error consumers
+      // see the *actual* configured delim, not a stale `*/}}`.
+      expect((e as { expected?: string }).expected).toBe("*/%>");
+    }
+  });
+
+  it("rejects an unclosed comment under custom-delim parse with right-delim in `expected`", () => {
+    const fn = () => tokenize("<%/* hi */", ASP);
+    expect(fn).toThrow(/close comment/);
+    try {
+      fn();
+    } catch (e) {
+      expect((e as { expected?: string }).expected).toBe("%>");
+    }
+  });
+
+  it("supports multi-character symmetric delims", () => {
+    const toks = tokenize("hi [[ name ]] there", { left: "[[", right: "]]" });
+    expect(types(toks)).toEqual(["Text", "LeftDelim", "Identifier", "RightDelim", "Text", "EOF"]);
+    expect(values(toks)).toEqual(["hi ", "[[", "name", "]]", " there", ""]);
+  });
+});

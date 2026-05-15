@@ -31,6 +31,7 @@ import {
   type Node,
   type PipeNode,
 } from "../parser/ast.js";
+import type { Delims } from "../parser/lexer.js";
 import { type ParseResult, parse as parseSource } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { MISSING, walkFieldChain } from "./access.js";
@@ -202,15 +203,17 @@ function validateMissingKey(value: MissingKeyOption | undefined): MissingKeyOpti
   if (value === undefined) return "default";
   if (VALID_MISSING_KEYS.has(value)) return value;
   throw new Error(
-    `EngineConfig.missingKey: expected "default" | "zero" | "error", got ${describeMissingKey(value)}`,
+    `EngineConfig.missingKey: expected "default" | "zero" | "error", got ${describeBoundaryValue(value)}`,
   );
 }
 
-// Safe formatter for the diagnostic — never throws on the value being
-// described. `JSON.stringify` would have thrown on bigint or cyclic
-// inputs, swapping the intended diagnostic for an unrelated TypeError;
-// the diagnostic must survive any value the caller might mis-pass.
-function describeMissingKey(value: unknown): string {
+// [LAW:one-type-per-behavior] Shared safe formatter for boundary
+// diagnostics — every validator that rejects an out-of-shape JS value
+// uses this to describe what was actually passed. `JSON.stringify`
+// would have thrown on bigint or cyclic inputs, swapping the intended
+// diagnostic for an unrelated TypeError; the diagnostic must survive
+// any value the caller might mis-pass.
+function describeBoundaryValue(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value);
   if (value === null) return "null";
   if (value === undefined) return "undefined";
@@ -219,6 +222,38 @@ function describeMissingKey(value: unknown): string {
   if (typeof value === "symbol") return value.toString();
   if (typeof value === "function") return "[Function]";
   return `[${typeof value}]`;
+}
+
+// [LAW:one-source-of-truth] `Delims` is canonical in `parser/lexer.ts`
+// (the lowest layer that consumes it). Re-exported here so consumers
+// reaching `EngineConfig` see the type in the same module without
+// needing to import from internal paths.
+export type { Delims };
+
+// [LAW:types-are-the-program] The TS interface is the canonical shape;
+// this is the JS-boundary mirror — a typo'd or partially-set object
+// from a JS caller (or an `as`-cast TS caller) fails loud at construct
+// time instead of producing pathological tokenization later. Returns
+// `undefined` for "no override" so the parser falls back to its own
+// default and we never need a separate "are delims set" boolean.
+function validateDelims(value: Delims | undefined): Delims | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null) {
+    throw new Error(
+      `EngineConfig.delims: expected { left, right } object, got ${describeBoundaryValue(value)}`,
+    );
+  }
+  if (typeof value.left !== "string" || value.left.length === 0) {
+    throw new Error(
+      `EngineConfig.delims.left: expected non-empty string, got ${describeBoundaryValue(value.left)}`,
+    );
+  }
+  if (typeof value.right !== "string" || value.right.length === 0) {
+    throw new Error(
+      `EngineConfig.delims.right: expected non-empty string, got ${describeBoundaryValue(value.right)}`,
+    );
+  }
+  return { left: value.left, right: value.right };
 }
 
 export interface EngineConfig<T> {
@@ -271,6 +306,19 @@ export interface EngineConfig<T> {
    * fixed gate, not a branch sprinkled across accessors.
    */
   readonly missingKey?: MissingKeyOption;
+  /**
+   * Optional override for the template action delimiters. Mirrors
+   * Go's `text/template.Template.Delims(left, right)`. Both sides
+   * are required if specified — neither may be empty.
+   *
+   * [LAW:single-enforcer] Validated once at construct time and
+   * threaded into the parser as immutable data; no re-validation
+   * along the call chain.
+   * [LAW:dataflow-not-control-flow] The delim pair is data flowing
+   * into the fixed lexer state machine — no new modes, no new
+   * branches, just different constant values seeded at construction.
+   */
+  readonly delims?: Delims;
   /** Optional registry of named functions usable in pipelines. */
   readonly funcs?: FuncMap;
 }
@@ -358,6 +406,11 @@ export class Engine<T> {
   // implementation under that default; aligning the JS default keeps
   // byte-parity for any fixture exercising missing keys.
   private readonly missingKey: MissingKeyOption;
+  // [LAW:single-enforcer] One field, threaded into the parser as
+  // immutable data. `undefined` means "use parser's defaults" — we
+  // never store a synthesized default here, so the engine can't
+  // accidentally diverge from whatever the parser considers default.
+  private readonly delims: Delims | undefined;
 
   constructor(config: EngineConfig<T>) {
     this.fromString = config.fromString;
@@ -375,6 +428,12 @@ export class Engine<T> {
     // caller asked for. Validate at construct time so the bad value
     // fails loud at the only place it can be detected.
     this.missingKey = validateMissingKey(config.missingKey);
+    // [LAW:no-defensive-null-guards] exception: trust boundary. Same
+    // rationale as `missingKey`: a typo'd or partially-set delims
+    // object from a JS caller would otherwise produce baffling
+    // tokenization at parse time. Fail loud at the only place the
+    // mistake can be detected.
+    this.delims = validateDelims(config.delims);
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
@@ -389,7 +448,7 @@ export class Engine<T> {
    * re-parsing.
    */
   parse(source: string): Template<T> {
-    const parsed = parseSource(source);
+    const parsed = parseSource(source, this.delims);
     return internalCreateTemplate(parsed.source, (scope) => this.evalParsed(parsed, scope));
   }
 
