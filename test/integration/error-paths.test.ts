@@ -17,6 +17,13 @@ import {
 const eng = (funcs: Record<string, TemplateFunc> = {}) =>
   createEngine<string>({ fromString: (s) => s, funcs });
 
+// Engine pinned to `missingKey: "error"` — the test suite below pins
+// `MissingFieldError`'s shape, which only fires under that policy. The
+// engine default ("default") matches Go's `text/template` and does not
+// throw on missing keys; that path is covered in evaluator.test.ts.
+const strictEng = (funcs: Record<string, TemplateFunc> = {}) =>
+  createEngine<string>({ fromString: (s) => s, missingKey: "error", funcs });
+
 describe("error paths via the public API", () => {
   it("ParseError on bad syntax", () => {
     expect(() => eng().parse("{{ if .x }}")).toThrow(ParseError);
@@ -53,10 +60,10 @@ describe("error paths via the public API", () => {
     }
   });
 
-  it("MissingFieldError exposes the failed path", () => {
+  it("MissingFieldError exposes the failed path (missingKey: 'error')", () => {
     let err: unknown;
     try {
-      eng()
+      strictEng()
         .parse("{{ .a.b.c }}")
         .evaluate({ a: { x: 1 } });
     } catch (e) {

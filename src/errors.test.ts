@@ -82,8 +82,12 @@ describe("FuncNotFoundError suggestions", () => {
 });
 
 describe("MissingFieldError details", () => {
-  it("exposes the failed path", () => {
-    const engine = createEngine<string>({ fromString: (s) => s });
+  it("exposes the failed path under missingKey: 'error'", () => {
+    // [LAW:behavior-not-structure] Pins error shape, not which policy
+    // is the engine default. Constructed in `error` mode so the
+    // assertion stays meaningful regardless of what the default
+    // missing-key policy is at any point in the project's lifetime.
+    const engine = createEngine<string>({ fromString: (s) => s, missingKey: "error" });
     let err: unknown;
     try {
       engine.parse("{{ .a.b.c }}").evaluate({ a: { x: 1 } });

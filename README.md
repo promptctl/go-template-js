@@ -188,13 +188,15 @@ The engine matches Go's `text/template` semantics aggressively. The remaining di
 - **Numeric typing.** Go has `int`, `float64`, and friends as distinct runtime types; JavaScript has one `number`. The numeric-verb type label reflects JS's view: integer JS numbers report as `int`, fractional as `float64`, `bigint` as `int64`. Non-numeric values into `%d`/`%f`/`%x` produce a Go-style `%!<verb>(<type>=<value>)` diagnostic — e.g. `printf "%d" "foo"` → `%!d(string=foo)`.
 - **Regex semantics.** `sprigRegex()` uses ECMAScript regex, not Go's RE2. Lookbehind syntax, Unicode property escapes, and certain catastrophic-backtracking patterns differ.
 - **String length.** Go strings are UTF-8 byte sequences; `len("é")` is `2` in Go. JS strings are UTF-16 code units; `len("é")` is `1` here. Choose grapheme libraries on the JS side if you need byte/grapheme counts.
-- **Field access.** Walks JS objects, Maps, and arrays using JS property semantics, not Go reflection. Named-field access on an array is a `MissingFieldError` (no `length` / `[N]` magic — use the `index` and `len` built-ins).
+- **Field access.** Walks JS objects, Maps, and arrays using JS property semantics, not Go reflection. Named-field access on an array is a missing field — silently `<no value>` under the default `missingKey: "default"` policy, or a `MissingFieldError` under `missingKey: "error"`. There is no `length` / `[N]` magic; use the `index` and `len` built-ins.
+- **`missingkey=zero`.** Accepted as a config value (`missingKey: "zero"`) for API parity with Go's `Option("missingkey=zero")`, but JavaScript erases value-types at runtime — there is no `reflect.New(elemType).Elem()` analogue, so `"zero"` produces the same observable behavior as `"default"` (silent `<no value>`). To force a typed-zero substitute at the use site, use sprig: `{{ .missing | default "" }}`.
 - **Type mismatches at function boundaries are runtime errors, not compile errors.** By design: the engine does not know your `T` shape statically, so it surfaces the architectural commitment when the bad flow happens. See `TypeMismatchError`.
 - **printf verbs** beyond `%s %d %v %q %f %t %x` are rendered as `%!<verb>(<type>=<value>)`. If you need more, register your own formatter via the `funcs` registry.
 
 Notable parity statements (places where users sometimes expect divergence and there isn't one):
 
 - A nil/undefined pipeline emits the literal `<no value>` string, matching Go's `text/template`.
+- **Missing field/map-key access** follows Go's `Option("missingkey=...")`. Defaults to `"default"` (silent `<no value>`); set `missingKey: "error"` in `EngineConfig` to throw `MissingFieldError` instead. The `"zero"` value is accepted; see the divergence note above.
 - Range over a Map / plain object iterates in **sorted-by-key order** in both engines (Go's `internal/fmtsort`; ours mirrors it).
 - Sprig `set` and `unset` mutate the receiver and return it — same as Go sprig.
 - `{{ "key" | get .dict }}` composes correctly: last-arg piping puts the key in the trailing slot, which is `get(d, key)`'s second parameter. The form `{{ .dict | get "key" }}` does *not* work in either engine — the dict ends up in the key slot.
@@ -229,7 +231,7 @@ Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` p
 
 The package exports exactly the following from `"@promptctl/go-template-js"` — anything else is internal and may change at any time:
 
-- Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`.
+- Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`, `MissingKeyOption`.
 - Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
 - Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`, `sprigRandom`, `sprigHash`, `sprigDatetime`.
 
