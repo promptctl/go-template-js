@@ -250,25 +250,36 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: "bool", value: true, pass: false },
     { label: "null", value: null, pass: false },
   ],
-  // "int" and "float" share the same membership rule as "number" — the
-  // matcher accepts number|bigint and the gate (not the matcher) is
-  // what makes them differ. The probe in this file only checks
-  // pass/fail of the gate's matcher step, so the fixtures are clones
-  // of "number". Gate-side normalization (bigint→number, trunc vs
-  // identity) is covered by `argtype-matchers.test.ts` where the body
-  // observes the post-mutation value.
+  // "int" matcher: finite number OR safe-integer-range bigint. NaN,
+  // ±Infinity, and bigints outside Number.MAX_SAFE_INTEGER are
+  // rejected — the body's "I receive an integer" assumption is the
+  // theorem the matcher proves.
   int: [
     { label: "number", value: 0, pass: true },
     { label: "negative", value: -1.5, pass: true },
     { label: "bigint", value: 1n, pass: true },
+    { label: "MAX_SAFE_INTEGER bigint", value: BigInt(Number.MAX_SAFE_INTEGER), pass: true },
+    { label: "NaN", value: NaN, pass: false },
+    { label: "Infinity", value: Infinity, pass: false },
+    { label: "-Infinity", value: -Infinity, pass: false },
+    { label: "unsafe-integer bigint", value: 2n ** 100n, pass: false },
     { label: "string", value: "1", pass: false },
     { label: "bool", value: true, pass: false },
     { label: "null", value: null, pass: false },
   ],
+  // "float" matcher: any number (NaN/Infinity legitimate IEEE 754) OR
+  // bigint whose Number() conversion is finite (rejects overflow-to-
+  // Infinity only). Precision-lossy bigints in the finite range are
+  // accepted — float doesn't promise exact preservation.
   float: [
     { label: "number", value: 0, pass: true },
     { label: "negative", value: -1.5, pass: true },
     { label: "bigint", value: 1n, pass: true },
+    { label: "NaN", value: NaN, pass: true },
+    { label: "Infinity", value: Infinity, pass: true },
+    { label: "-Infinity", value: -Infinity, pass: true },
+    { label: "lossy-but-finite bigint", value: 2n ** 100n, pass: true },
+    { label: "overflow-to-Infinity bigint", value: 2n ** 1024n, pass: false },
     { label: "string", value: "1", pass: false },
     { label: "bool", value: true, pass: false },
     { label: "null", value: null, pass: false },
