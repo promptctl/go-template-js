@@ -254,15 +254,23 @@ class Parser {
   ): IfNode | RangeNode | WithNode {
     const pipe = this.parsePipeline();
     this.expect("RightDelim", "`}}`");
-    // [LAW:types-are-the-program] Range is the *only* branch kind that
-    // legalises `{{break}}` / `{{continue}}` in its body. Encode that
-    // by bumping rangeDepth for exactly the Range body — the else
-    // clause is also part of the range so its body is reached only
-    // when the iterable is empty, matching Go's text/template.
+    // [LAW:types-are-the-program] `rangeDepth` is the count of
+    // enclosing ranges whose *iteration body* can catch a break /
+    // continue from here. A range's body contributes 1; a range's
+    // else clause contributes 0 — the else only runs on empty input
+    // and does not iterate, so it cannot catch a signal aimed at its
+    // own range. (The signal would instead propagate to the next
+    // outer range, if any.) Decrementing *before* parsing the else
+    // encodes that invariant statically: a `{{break}}` in a range
+    // else with no outer range becomes a parse error, not a runtime
+    // crash. This is a tightening over Go's parser, which accepts
+    // the form and panics at execute time — moving the error
+    // earlier is allowed by the README's "divergences may tighten
+    // semantics" rule.
     if (kind === "Range") this.rangeDepth += 1;
     const list = this.parseList();
-    const elsePart = this.parseElsePart();
     if (kind === "Range") this.rangeDepth -= 1;
+    const elsePart = this.parseElsePart();
     const endRight = elsePart.endConsumed ? elsePart.endRight : this.consumeEnd();
     const trim: TrimMarkers = { trimLeft, trimRight: endRight };
 

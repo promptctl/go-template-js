@@ -366,4 +366,29 @@ describe("parse — error cases", () => {
       /\{\{break\}\} outside of \{\{range\}\}/,
     );
   });
+
+  it("rejects {{break}} in a range else clause with no outer range to catch it", () => {
+    // A range's else clause does not iterate, so it cannot catch a
+    // break aimed at its own range. With no outer range either, the
+    // signal would have no catcher — reject at parse time instead of
+    // letting it crash at execute time.
+    expect(() => parse("{{ range . }}{{ else }}{{ break }}{{ end }}")).toThrow(
+      /\{\{break\}\} outside of \{\{range\}\}/,
+    );
+  });
+
+  it("accepts {{break}} in a range else clause when an outer range exists", () => {
+    // Parser-side rule mirrors Go: rangeDepth is decremented before
+    // parsing the else, so break/continue in an else needs another
+    // enclosing range to push rangeDepth back above zero. The break
+    // then terminates the *inner* range at runtime (matches Go's
+    // outer-recover-on-walkBreak); the outer range only sees the
+    // inner range return normally.
+    const { root } = parse("{{ range . }}{{ range . }}body{{ else }}{{ break }}{{ end }}{{ end }}");
+    const outer = root.nodes[0];
+    assertNode(outer, "Range");
+    const inner = outer.list.nodes[0];
+    assertNode(inner, "Range");
+    expect(inner.elseList?.nodes[0]).toMatchObject({ type: "Break" });
+  });
 });

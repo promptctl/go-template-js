@@ -466,35 +466,50 @@ export class Engine<T> {
     const decls = node.pipe.decls;
 
     const entries = enumerateForRange(value);
-    if (entries.length === 0) {
-      if (node.elseList) this.evalList(node.elseList, scope, ctx);
-      return;
-    }
-    for (const [key, item] of entries) {
-      const child = pushScope(scope, item);
-      if (decls.length === 1) {
-        const name = decls[0]?.idents[0] ?? "$";
-        declareVar(child, name, item);
-      } else if (decls.length >= 2) {
-        const k = decls[0]?.idents[0] ?? "$";
-        const v = decls[1]?.idents[0] ?? "$";
-        declareVar(child, k, key);
-        declareVar(child, v, item);
+    // [LAW:single-enforcer] Two catch boundaries, exactly mirroring
+    // Go's text/template `walkRange` (exec.go: two `defer recover`s
+    // around the function and around `oneIteration`):
+    //
+    //   - The *outer* try catches BREAK_SIGNAL only. It scopes both
+    //     the body-iteration loop *and* the `else` clause — so a
+    //     break inside a range's else (legal only when there is an
+    //     outer range, by the parser's `rangeDepth` rule) terminates
+    //     this range, not the outer one.
+    //
+    //   - The *inner* per-iteration try catches CONTINUE_SIGNAL only.
+    //     Continue inside the body advances to the next iteration;
+    //     continue inside the else propagates up, because the outer
+    //     try doesn't catch it (matches Go: walkContinue is not
+    //     caught by walkRange's outer recover).
+    //
+    // Reference-identity catches — no message-string matching, so
+    // unrelated user errors with similar shapes are never swallowed.
+    try {
+      if (entries.length === 0) {
+        if (node.elseList) this.evalList(node.elseList, scope, ctx);
+        return;
       }
-      // [LAW:single-enforcer] The iteration boundary is the *only*
-      // place break/continue are observed. The signals propagate from
-      // arbitrarily-deep `evalNode` callers (inside `{{if}}`, nested
-      // `{{with}}`, etc.) and land here. Continue skips to the next
-      // iteration; Break exits the loop entirely. Reference-identity
-      // catch — no error-message string matching — so this never
-      // swallows user errors that happen to look similar.
-      try {
-        this.evalList(node.list, child, ctx);
-      } catch (e) {
-        if (e === CONTINUE_SIGNAL) continue;
-        if (e === BREAK_SIGNAL) return;
-        throw e;
+      for (const [key, item] of entries) {
+        const child = pushScope(scope, item);
+        if (decls.length === 1) {
+          const name = decls[0]?.idents[0] ?? "$";
+          declareVar(child, name, item);
+        } else if (decls.length >= 2) {
+          const k = decls[0]?.idents[0] ?? "$";
+          const v = decls[1]?.idents[0] ?? "$";
+          declareVar(child, k, key);
+          declareVar(child, v, item);
+        }
+        try {
+          this.evalList(node.list, child, ctx);
+        } catch (e) {
+          if (e === CONTINUE_SIGNAL) continue;
+          throw e;
+        }
       }
+    } catch (e) {
+      if (e === BREAK_SIGNAL) return;
+      throw e;
     }
   }
 

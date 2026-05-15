@@ -194,6 +194,44 @@ describe("control flow — range", () => {
         render('{{ range . }}{{ block "b" . }}{{ continue }}{{ end }}{{ end }}', ["a"]),
       ).toThrow(/\{\{continue\}\} outside of \{\{range\}\}/);
     });
+
+    it("parse error: {{break}} in a range else clause with no outer range to catch it", () => {
+      // The else of a range cannot catch its own break (the else only
+      // runs on empty input — no iteration to terminate). With no
+      // outer range either, this is statically uncatchable.
+      expect(() => render("{{ range . }}body{{ else }}{{ break }}{{ end }}", [])).toThrow(
+        /\{\{break\}\} outside of \{\{range\}\}/,
+      );
+    });
+
+    it("{{break}} in an inner range's else terminates only the inner range", () => {
+      // Inner range over an empty list fires its else, which breaks.
+      // Matches Go's walkRange semantics exactly: the *outer* recover
+      // around walkRange catches walkBreak (covering both body and
+      // else), so the inner range terminates and the outer range
+      // continues. Verified byte-equal against Go via the
+      // controlflow-range-break-from-inner-else conformance fixture.
+      expect(
+        render(
+          "{{ range $i, $v := . }}A{{ range $v }}body{{ else }}{{ break }}{{ end }}B{{ end }}",
+          [[], []],
+        ),
+      ).toBe("ABAB");
+    });
+
+    it("{{continue}} in an inner range's else propagates to the outer range", () => {
+      // Continue in else is NOT caught by the inner range's outer
+      // recover (matches Go: walkContinue propagates past walkRange's
+      // outer recover). The outer range's per-iteration catch sees
+      // it and skips to the next outer iteration — so the outer
+      // iteration's trailing "B" never prints.
+      expect(
+        render(
+          "{{ range $i, $v := . }}A{{ range $v }}body{{ else }}{{ continue }}{{ end }}B{{ end }}",
+          [[], []],
+        ),
+      ).toBe("AA");
+    });
   });
 });
 
