@@ -15,6 +15,7 @@ conformance/
     └── <name>/
         ├── template.tmpl        Source template
         ├── scope.json           JSON-encoded scope value (optional; defaults to null)
+        ├── config.json          Per-fixture engine config (optional; e.g. delims override)
         └── expected.txt         Reference output (regenerated, do not edit by hand)
 ```
 
@@ -23,9 +24,13 @@ conformance/
 1. Create `fixtures/<descriptive-name>/template.tmpl` with the template source.
 2. If the template needs a scope, add `fixtures/<name>/scope.json` containing
    the scope value as JSON.
-3. Run `pnpm conformance:regen` to populate `expected.txt` from Go's reference
+3. If the template needs non-default engine configuration (currently:
+   custom action delimiters), add `fixtures/<name>/config.json`. The
+   schema is `{ "delims": ["<left>", "<right>"] }` — both engines read
+   the same file so neither can drift from the other.
+4. Run `pnpm conformance:regen` to populate `expected.txt` from Go's reference
    implementation.
-4. Add a TS test under `test/conformance/` that asserts the engine's output
+5. Add a TS test under `test/conformance/` that asserts the engine's output
    matches `expected.txt`.
 
 ## Regenerating reference outputs

@@ -83,6 +83,7 @@ func generate(dir string) error {
 
 	templatePath := filepath.Join(dir, "template.tmpl")
 	scopePath := filepath.Join(dir, "scope.json")
+	configPath := filepath.Join(dir, "config.json")
 	expectedPath := filepath.Join(dir, "expected.txt")
 
 	tplBytes, err := os.ReadFile(templatePath)
@@ -99,7 +100,25 @@ func generate(dir string) error {
 		return fmt.Errorf("read scope.json: %w", err)
 	}
 
+	// Optional per-fixture configuration. Mirrors the TS engine's
+	// EngineConfig fields that affect *parsing* (currently: delims).
+	// Absent file → defaults; the Go reference uses standard {{ }}.
+	cfg := fixtureConfig{}
+	if cfgBytes, err := os.ReadFile(configPath); err == nil {
+		if err := json.Unmarshal(cfgBytes, &cfg); err != nil {
+			return fmt.Errorf("parse config.json: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read config.json: %w", err)
+	}
+
 	tpl := template.New(filepath.Base(dir)).Funcs(sprig.FuncMap())
+	if cfg.Delims != nil {
+		if len(cfg.Delims) != 2 {
+			return fmt.Errorf("config.json: delims must be [left, right]")
+		}
+		tpl = tpl.Delims(cfg.Delims[0], cfg.Delims[1])
+	}
 	if _, err := tpl.Parse(string(tplBytes)); err != nil {
 		return fmt.Errorf("parse template: %w", err)
 	}
@@ -113,6 +132,14 @@ func generate(dir string) error {
 		return fmt.Errorf("execute template: %w", err)
 	}
 	return nil
+}
+
+// fixtureConfig mirrors the engine-level knobs that affect how the
+// reference template is parsed. Kept intentionally minimal: only fields
+// that the TS engine also exposes via EngineConfig belong here.
+type fixtureConfig struct {
+	// Delims, if set, must be a two-element [left, right] pair.
+	Delims []string `json:"delims,omitempty"`
 }
 
 func fail(err error) {

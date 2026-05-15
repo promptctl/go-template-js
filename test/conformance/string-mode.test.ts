@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
+  type Delims,
   sprigConversions,
   sprigDatetime,
   sprigDefaults,
@@ -41,7 +42,22 @@ function listFixtures(): string[] {
   );
 }
 
-function readFixture(name: string): { template: string; scope: unknown; expected: string } {
+interface Fixture {
+  template: string;
+  scope: unknown;
+  expected: string;
+  delims: Delims | undefined;
+}
+
+// [LAW:single-enforcer] Mirrors `conformance/gen/main.go`'s fixtureConfig.
+// The same on-disk JSON shape configures both engines, so the conformance
+// guarantee is "same inputs → same outputs" with no harness-side
+// divergence in how the inputs are interpreted.
+interface FixtureConfig {
+  delims?: [string, string];
+}
+
+function readFixture(name: string): Fixture {
   const dir = join(FIXTURES_DIR, name);
   const template = readFileSync(join(dir, "template.tmpl"), "utf8");
   const expected = readFileSync(join(dir, "expected.txt"), "utf8");
@@ -50,7 +66,15 @@ function readFixture(name: string): { template: string; scope: unknown; expected
   if (existsSync(scopePath)) {
     scope = JSON.parse(readFileSync(scopePath, "utf8"));
   }
-  return { template, scope, expected };
+  let delims: Delims | undefined;
+  const configPath = join(dir, "config.json");
+  if (existsSync(configPath)) {
+    const cfg = JSON.parse(readFileSync(configPath, "utf8")) as FixtureConfig;
+    if (cfg.delims) {
+      delims = { left: cfg.delims[0], right: cfg.delims[1] };
+    }
+  }
+  return { template, scope, expected, delims };
 }
 
 const allSprig = () => ({
@@ -83,8 +107,12 @@ describe("conformance — string-mode (T = string)", () => {
   // configuration problem.
   for (const name of fixtures) {
     it(name, () => {
-      const { template, scope, expected } = readFixture(name);
-      const engine = createEngine<string>({ fromString: (s) => s, funcs: allSprig() });
+      const { template, scope, expected, delims } = readFixture(name);
+      const engine = createEngine<string>({
+        fromString: (s) => s,
+        funcs: allSprig(),
+        ...(delims ? { delims } : {}),
+      });
       const output = engine.parse(template).evaluate(scope).join("");
       if (output !== expected) {
         // Show first divergence offset to aid debugging.

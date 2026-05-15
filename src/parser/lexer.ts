@@ -83,8 +83,24 @@ const KEYWORDS = new Map<string, TokenType>([
   ["nil", "Nil"],
 ]);
 
-const LEFT_DELIM = "{{";
-const RIGHT_DELIM = "}}";
+/**
+ * Action delimiters. Default is Go's `{{` / `}}`. Trim-marker forms are
+ * derived mechanically: `<left>-` opens with-trim and `-<right>` closes
+ * with-trim, matching Go's `text/template`.
+ *
+ * [LAW:types-are-the-program] Both sides are required if specified —
+ * neither may be empty. This is a stronger theorem than Go's API
+ * (which lets one side default while the other is set) and forbids
+ * the half-configured state that would otherwise have to be defended
+ * against at every internal use site.
+ */
+export interface Delims {
+  readonly left: string;
+  readonly right: string;
+}
+
+export const DEFAULT_DELIMS: Delims = { left: "{{", right: "}}" };
+
 const COMMENT_OPEN = "/*";
 const COMMENT_CLOSE = "*/";
 
@@ -96,14 +112,22 @@ type Mode = "text" | "action" | "done";
 
 export class Lexer {
   private readonly src: string;
+  // [LAW:dataflow-not-control-flow] Delims are data, not modes. Lifting
+  // them from module-level constants to instance fields adds no
+  // branches — the existing state machine reads its delimiter strings
+  // from these fields instead of from compile-time constants.
+  private readonly leftDelim: string;
+  private readonly rightDelim: string;
   private offset = 0;
   private line = 1;
   private column = 1;
   private mode: Mode = "text";
   private pending: Token | undefined;
 
-  constructor(src: string) {
+  constructor(src: string, delims: Delims = DEFAULT_DELIMS) {
     this.src = src;
+    this.leftDelim = delims.left;
+    this.rightDelim = delims.right;
   }
 
   /** Position of the next byte to consume. */
@@ -163,15 +187,15 @@ export class Lexer {
     }
     const startPos = this.pos();
 
-    // Find next `{{` or EOF.
+    // Find next `<leftDelim>` or EOF.
     let end = this.offset;
-    while (end < this.src.length && !this.src.startsWith(LEFT_DELIM, end)) {
+    while (end < this.src.length && !this.src.startsWith(this.leftDelim, end)) {
       end += 1;
     }
 
     // Detect trim marker on the upcoming delim.
     const sawDelim = end < this.src.length;
-    const trimLeft = sawDelim && this.src[end + LEFT_DELIM.length] === "-";
+    const trimLeft = sawDelim && this.src[end + this.leftDelim.length] === "-";
 
     // If `{{-`, strip trailing ASCII whitespace from the captured text.
     let textEnd = end;
@@ -197,16 +221,16 @@ export class Lexer {
 
   private emitLeftDelim(trimLeft: boolean): Token {
     const start = this.pos();
-    this.advanceBy(LEFT_DELIM.length);
+    this.advanceBy(this.leftDelim.length);
     if (trimLeft) {
       // skip the `-`
       this.advanceBy(1);
-      // skip the whitespace right after `{{-` per Go's spec
+      // skip the whitespace right after `<left>-` per Go's spec
       while (isSpace(this.src[this.offset] ?? "")) this.advanceBy(1);
     }
     this.mode = "action";
 
-    // Comment handling: if the next chars are `/*`, consume until `*/}}`
+    // Comment handling: if the next chars are `/*`, consume until `*/<right>`
     // and emit a Comment token instead of a LeftDelim.
     if (this.src.startsWith(COMMENT_OPEN, this.offset)) {
       return this.readComment(start, trimLeft);
@@ -214,7 +238,7 @@ export class Lexer {
 
     return this.makeToken(
       "LeftDelim",
-      trimLeft ? "{{-" : "{{",
+      trimLeft ? `${this.leftDelim}-` : this.leftDelim,
       start,
       trimLeft ? { trimLeft: true } : {},
     );
@@ -226,7 +250,7 @@ export class Lexer {
     const closeIdx = this.src.indexOf(COMMENT_CLOSE, this.offset);
     if (closeIdx === -1) {
       throw this.err("unclosed comment", startDelim, {
-        expected: "*/}}",
+        expected: `*/${this.rightDelim}`,
         found: "end of input",
       });
     }
@@ -235,22 +259,23 @@ export class Lexer {
     const body = this.src.slice(bodyStart, closeIdx).trim();
     this.advanceBy(COMMENT_CLOSE.length);
 
-    // Optional whitespace between `*/` and the closing `}}` / `-}}`.
-    // Go's spec says `-}}` requires *adjacent* whitespace; we accept
-    // either `*/ -}}`, `*/-}}`, `*/ }}`, or `*/}}` for forgiveness.
+    // Optional whitespace between `*/` and the closing `<right>` / `-<right>`.
+    // Go's spec says `-<right>` requires *adjacent* whitespace; we accept
+    // either `*/ -<right>`, `*/-<right>`, `*/ <right>`, or `*/<right>` for
+    // forgiveness.
     while (isSpace(this.src[this.offset] ?? "")) this.advanceBy(1);
     let trimRight = false;
     if (this.src[this.offset] === "-") {
       trimRight = true;
       this.advanceBy(1);
     }
-    if (!this.src.startsWith(RIGHT_DELIM, this.offset)) {
-      throw this.err("expected `}}` to close comment", this.pos(), {
-        expected: "}}",
+    if (!this.src.startsWith(this.rightDelim, this.offset)) {
+      throw this.err(`expected \`${this.rightDelim}\` to close comment`, this.pos(), {
+        expected: this.rightDelim,
         found: this.src[this.offset] ?? "end of input",
       });
     }
-    this.advanceBy(RIGHT_DELIM.length);
+    this.advanceBy(this.rightDelim.length);
     // After comment body close, drop trailing whitespace from upcoming
     // text if `-}}` was used. Implement by skipping forward in text now.
     if (trimRight) {
@@ -273,25 +298,26 @@ export class Lexer {
   private readAction(): Token {
     this.skipActionSpaces();
 
-    // Right delim?
-    if (this.src.startsWith(RIGHT_DELIM, this.offset)) {
+    // Right delim? Check `-<right>` *first* — otherwise a delim like
+    // `}}` would match the bare form before the trim-form is considered.
+    if (this.src.startsWith(`-${this.rightDelim}`, this.offset)) {
       const start = this.pos();
-      this.advanceBy(RIGHT_DELIM.length);
-      this.mode = "text";
-      return this.makeToken("RightDelim", "}}", start);
-    }
-    if (this.src.startsWith("-}}", this.offset)) {
-      const start = this.pos();
-      this.advanceBy(3);
+      this.advanceBy(1 + this.rightDelim.length);
       this.mode = "text";
       // strip leading whitespace from upcoming text
       while (isSpace(this.src[this.offset] ?? "")) this.advanceBy(1);
-      return this.makeToken("RightDelim", "-}}", start, { trimRight: true });
+      return this.makeToken("RightDelim", `-${this.rightDelim}`, start, { trimRight: true });
+    }
+    if (this.src.startsWith(this.rightDelim, this.offset)) {
+      const start = this.pos();
+      this.advanceBy(this.rightDelim.length);
+      this.mode = "text";
+      return this.makeToken("RightDelim", this.rightDelim, start);
     }
 
     if (this.offset >= this.src.length) {
       throw this.err("unclosed action", this.pos(), {
-        expected: "}}",
+        expected: this.rightDelim,
         found: "end of input",
       });
     }
@@ -628,8 +654,8 @@ function isIdentPart(c: string): boolean {
 // Convenience: tokenize an entire source.
 // ---------------------------------------------------------------------------
 
-export function tokenize(src: string): readonly Token[] {
-  const lex = new Lexer(src);
+export function tokenize(src: string, delims?: Delims): readonly Token[] {
+  const lex = delims ? new Lexer(src, delims) : new Lexer(src);
   const out: Token[] = [];
   while (true) {
     const t = lex.next();
