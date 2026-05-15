@@ -72,6 +72,8 @@ function fillerFor(slot: ArgType): unknown {
     case "string":
       return "x";
     case "number":
+    case "int":
+    case "float":
       return 0;
     case "bool":
       return false;
@@ -241,6 +243,29 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: "array", value: [], pass: false },
   ],
   number: [
+    { label: "number", value: 0, pass: true },
+    { label: "negative", value: -1.5, pass: true },
+    { label: "bigint", value: 1n, pass: true },
+    { label: "string", value: "1", pass: false },
+    { label: "bool", value: true, pass: false },
+    { label: "null", value: null, pass: false },
+  ],
+  // "int" and "float" share the same membership rule as "number" — the
+  // matcher accepts number|bigint and the gate (not the matcher) is
+  // what makes them differ. The probe in this file only checks
+  // pass/fail of the gate's matcher step, so the fixtures are clones
+  // of "number". Gate-side normalization (bigint→number, trunc vs
+  // identity) is covered by `argtype-matchers.test.ts` where the body
+  // observes the post-mutation value.
+  int: [
+    { label: "number", value: 0, pass: true },
+    { label: "negative", value: -1.5, pass: true },
+    { label: "bigint", value: 1n, pass: true },
+    { label: "string", value: "1", pass: false },
+    { label: "bool", value: true, pass: false },
+    { label: "null", value: null, pass: false },
+  ],
+  float: [
     { label: "number", value: 0, pass: true },
     { label: "negative", value: -1.5, pass: true },
     { label: "bigint", value: 1n, pass: true },
