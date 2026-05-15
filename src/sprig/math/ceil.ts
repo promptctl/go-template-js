@@ -1,3 +1,3 @@
-export function ceil(a: number | bigint): number {
-  return Math.ceil(Number(a));
+export function ceil(a: number): number {
+  return Math.ceil(a);
 }

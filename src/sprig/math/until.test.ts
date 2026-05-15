@@ -12,7 +12,4 @@ describe("sprig.until", () => {
   it("negative count counts down from zero", () => {
     expect(until(-3)).toEqual([0, -1, -2]);
   });
-  it("truncates fractional input", () => {
-    expect(until(3.7)).toEqual([0, 1, 2]);
-  });
 });

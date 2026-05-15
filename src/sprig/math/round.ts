@@ -1,7 +1,5 @@
 /** `round a [precision=0]` — round half-away-from-zero, matching Go sprig. */
-export function round(a: number | bigint, precision: number | bigint = 0): number {
-  const n = Number(a);
-  const p = Math.trunc(Number(precision));
-  const factor = 10 ** p;
-  return (Math.sign(n) * Math.round(Math.abs(n) * factor)) / factor;
+export function round(a: number, precision: number = 0): number {
+  const factor = 10 ** precision;
+  return (Math.sign(a) * Math.round(Math.abs(a) * factor)) / factor;
 }

@@ -1,3 +1,3 @@
-export function divf(a: number | bigint, b: number | bigint): number {
-  return Number(a) / Number(b);
+export function divf(a: number, b: number): number {
+  return a / b;
 }
