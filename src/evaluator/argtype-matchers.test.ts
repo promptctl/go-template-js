@@ -549,6 +549,42 @@ describe("matchesArgType — int", () => {
       expect(caught.message).toContain("integer");
     }
   });
+
+  // [LAW:types-are-the-program] These cases pin the *tightened* int
+  // contract: NaN and Infinity have no integer interpretation, and a
+  // bigint outside `Number.MAX_SAFE_INTEGER` loses precision under
+  // `Number()` and would corrupt the carrier the body trusts.
+  it("rejects NaN (no integer interpretation)", () => {
+    const eng = intEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(NaN)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects positive Infinity", () => {
+    const eng = intEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(Infinity)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects negative Infinity", () => {
+    const eng = intEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(-Infinity)).toThrow(TypeMismatchError);
+  });
+
+  it("rejects bigints outside Number.MAX_SAFE_INTEGER (precision-lossy)", () => {
+    const eng = intEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(2n ** 100n)).toThrow(TypeMismatchError);
+    expect(() => eng.parse("{{ f . }}").evaluate(-(2n ** 100n))).toThrow(TypeMismatchError);
+  });
+
+  it("accepts safe-integer boundary bigints", () => {
+    let received: unknown;
+    const eng = intEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(BigInt(Number.MAX_SAFE_INTEGER));
+    expect(received).toBe(Number.MAX_SAFE_INTEGER);
+    eng.parse("{{ f . }}").evaluate(BigInt(Number.MIN_SAFE_INTEGER));
+    expect(received).toBe(Number.MIN_SAFE_INTEGER);
+  });
 });
 
 describe("matchesArgType — float", () => {
@@ -614,6 +650,58 @@ describe("matchesArgType — float", () => {
     if (caught instanceof TypeMismatchError) {
       expect(caught.message).toContain("float");
     }
+  });
+
+  // [LAW:types-are-the-program] NaN and ±Infinity are valid IEEE 754
+  // float values (Go's float64 has them too); the matcher accepts and
+  // the gate passes them through unchanged.
+  it("accepts NaN (body observes NaN)", () => {
+    let received: unknown;
+    const eng = floatEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(NaN);
+    expect(typeof received).toBe("number");
+    expect(Number.isNaN(received)).toBe(true);
+  });
+
+  it("accepts positive Infinity", () => {
+    let received: unknown;
+    const eng = floatEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(Infinity);
+    expect(received).toBe(Infinity);
+  });
+
+  it("accepts negative Infinity", () => {
+    let received: unknown;
+    const eng = floatEngine((v) => {
+      received = v;
+    });
+    eng.parse("{{ f . }}").evaluate(-Infinity);
+    expect(received).toBe(-Infinity);
+  });
+
+  it("accepts precision-lossy-but-finite bigints (float is approximate by design)", () => {
+    let received: unknown;
+    const eng = floatEngine((v) => {
+      received = v;
+    });
+    // 2n**100n is well outside MAX_SAFE_INTEGER but Number() yields a
+    // finite double (~1.27e30). float accepts; precision loss is the
+    // documented behavior of the carrier.
+    const huge = 2n ** 100n;
+    eng.parse("{{ f . }}").evaluate(huge);
+    expect(typeof received).toBe("number");
+    expect(Number.isFinite(received)).toBe(true);
+  });
+
+  it("rejects bigints that overflow Number to Infinity", () => {
+    const eng = floatEngine(() => undefined);
+    // 2n**1024n exceeds Number.MAX_VALUE; Number() yields Infinity.
+    // That's magnitude failure, not precision loss — reject at the gate.
+    expect(() => eng.parse("{{ f . }}").evaluate(2n ** 1024n)).toThrow(TypeMismatchError);
   });
 });
 
