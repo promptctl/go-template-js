@@ -107,13 +107,25 @@ export type ArgType =
   | "string"
   | "number"
   // [LAW:types-are-the-program] "int" and "float" are validate-AND-parse
-  // numeric carriers: the matcher accepts `number | bigint` (same shape
-  // as "number"); the gate then mutates `values[i]` to a `number` (int:
-  // truncated; float: coerced via `Number()`), so bodies see `number`
-  // and never re-coerce. Mirrors the "liftable" precedent: the slot is
-  // both the membership rule and the parse step. Added by epic
-  // template-variance-num-carrier-hfv.1; "number" survives until .4
-  // retires it after all consumers migrate (.2/.3).
+  // numeric carriers. The matcher's membership predicate IS the body's
+  // contract — neither slot accepts "anything `typeof number|bigint`":
+  //   - "int" admits only carriers that survive normalization as a
+  //     finite integer-valued `number`: finite numbers, and bigints
+  //     whose `Number()` conversion is safe-integer-representable.
+  //     NaN, Infinity, and precision-losing bigints are rejected at
+  //     the gate so the body's "I receive an integer" assumption is
+  //     a theorem, not a defense.
+  //   - "float" admits any number (NaN/Infinity are legitimate IEEE
+  //     754 floats; Go's float64 has them too) and bigints whose
+  //     `Number()` is finite. The only rejected bigint is one whose
+  //     conversion overflows to Infinity.
+  // After membership is proven the gate mutates `values[i]` to a
+  // `number` carrier ("int": `Math.trunc(Number(v))`; "float":
+  // `Number(v)`). Mirrors the "liftable" precedent: the slot is both
+  // the membership rule and the parse step.
+  // Added by epic template-variance-num-carrier-hfv.1; tightened by
+  // .1.1. "number" survives as a transitional kind until .4 retires it
+  // after all consumers migrate (.2/.3).
   | "int"
   | "float"
   | "bool"
@@ -1128,15 +1140,35 @@ function matchesArgType(
     case "string":
       return typeof value === "string";
     case "number":
-    case "int":
-    case "float":
-      // [LAW:one-type-per-behavior] Same membership rule for all three
-      // numeric slot kinds; what differs is the gate-side normalization
-      // applied in `enforceArgTypes` (none for "number", trunc for
-      // "int", `Number()` for "float"). Bodies of "int"/"float" slots
-      // see `number`; bodies of "number" slots see `number | bigint`
-      // (transitional — "number" retires in .4).
+      // Transitional kind: same loose membership as the legacy slot, no
+      // gate-side normalization. Bodies of "number" slots still see
+      // `number | bigint` and re-coerce. Retires in epic
+      // template-variance-num-carrier-hfv.4 after consumers migrate.
       return typeof value === "number" || typeof value === "bigint";
+    case "int":
+      // [LAW:types-are-the-program] Strongest true theorem for an "int"
+      // slot: the value is a finite integer-valued carrier. The matcher
+      // is what makes this a theorem the body can assume, not a comment
+      // it has to defend with re-checks. NaN and Infinity have no
+      // integer interpretation (`Math.trunc(NaN) === NaN`); bigints
+      // outside `Number.MAX_SAFE_INTEGER` lose precision under
+      // `Number()` and would silently propagate corrupted values.
+      return (
+        (typeof value === "number" && Number.isFinite(value)) ||
+        (typeof value === "bigint" && Number.isSafeInteger(Number(value)))
+      );
+    case "float":
+      // [LAW:types-are-the-program] "float" mirrors IEEE 754: NaN and
+      // ±Infinity are legitimate float values (Go's float64 has them
+      // too), so the matcher accepts them — they survive gate
+      // normalization unchanged. The only rejected bigint shape is one
+      // whose `Number()` conversion overflows to Infinity, because
+      // that's a magnitude failure, not a float-precision tradeoff.
+      // Bigints in the merely-precision-losing range (e.g. 2n**100n)
+      // are accepted; float never promised exact preservation.
+      return (
+        typeof value === "number" || (typeof value === "bigint" && Number.isFinite(Number(value)))
+      );
     case "bool":
       return typeof value === "boolean";
     case "ordered":
@@ -1342,9 +1374,9 @@ function comparableKind(v: unknown): string {
 function humanArgType(t: ArgType): string {
   switch (t) {
     case "int":
-      return "integer";
+      return "integer (finite number or safe-integer bigint)";
     case "float":
-      return "float";
+      return "float (number, including NaN/Infinity, or finite-convertible bigint)";
     case "T":
       return "T (consumer-defined fragment)";
     case "ordered":
