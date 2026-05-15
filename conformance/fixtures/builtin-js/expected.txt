@@ -1,0 +1,6 @@
+\u003Cscript\u003Ealert(\'xss \u0026 \"pwn\")\u003C/script\u003E
+Tom \u0026 Jerry\'s \u003Chtml\u003E \"quote\" page \u003D end
+a\u0000b\u2028c\u2029d
+x1 true
+\u003Cx\u003E
+/end

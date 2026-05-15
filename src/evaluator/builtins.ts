@@ -133,6 +133,16 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
       returnType: "string",
     },
 
+    // [LAW:single-enforcer + LAW:one-source-of-truth] `js` mirrors Go's
+    // `text/template.JSEscaper`: same flatten-then-escape shape as `html`,
+    // differing only in the escape table. The shared `"stringifiable"`
+    // gate keeps the no-silent-flatten contract uniform.
+    js: {
+      fn: (...args: unknown[]) => jsEscape(goPrint(args, toString)),
+      argTypes: ["stringifiable"],
+      returnType: "string",
+    },
+
     // `not` is also lazy in spirit, but with a single argument it's
     // semantically equivalent to eager evaluation. Keep it eager.
     // Slot declares "truthy": isTruthy() runs against any value.
@@ -341,6 +351,47 @@ const HTML_ESCAPE_TABLE: Readonly<Record<string, string>> = {
 
 function htmlEscape(s: string): string {
   return s.replace(/[\0"'&<>]/g, (c) => HTML_ESCAPE_TABLE[c] ?? c);
+}
+
+// ---------------------------------------------------------------------------
+// JS escaping.
+//
+// Mirrors Go's `text/template.JSEscape` rune-for-rune. The fixed set
+// `\ ' " < > & =` map to specific replacements; ASCII control chars
+// (< 0x20) emit `\u00XX`; non-ASCII (>= 0x80) that aren't `unicode.IsPrint`
+// also emit `\u%04X`. Everything else passes through. Go's `unicode.IsPrint`
+// for non-ASCII is L/M/N/P/S — anything in C or Z (including U+00A0,
+// U+2028, U+2029, zero-width formats, private use) is non-printable.
+// ---------------------------------------------------------------------------
+
+const JS_FIXED_ESCAPES: Readonly<Record<string, string>> = {
+  "\\": "\\\\",
+  "'": "\\'",
+  '"': '\\"',
+  "<": "\\u003C",
+  ">": "\\u003E",
+  "&": "\\u0026",
+  "=": "\\u003D",
+};
+
+const JS_NON_ASCII_PRINTABLE = /^[\p{L}\p{M}\p{N}\p{P}\p{S}]$/u;
+
+function jsEscape(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    const fixed = JS_FIXED_ESCAPES[ch];
+    if (fixed !== undefined) {
+      out += fixed;
+      continue;
+    }
+    const cp = ch.codePointAt(0) as number;
+    if (cp < 0x20 || (cp >= 0x80 && !JS_NON_ASCII_PRINTABLE.test(ch))) {
+      out += `\\u${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
 }
 
 function sprintf(

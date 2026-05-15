@@ -135,9 +135,9 @@ Supported:
 
 All of Go template's runtime built-ins:
 
-`and` `or` `not` · `eq` `ne` `lt` `le` `gt` `ge` · `len` `index` `slice` · `print` `println` `printf` · `call` · `html`
+`and` `or` `not` · `eq` `ne` `lt` `le` `gt` `ge` · `len` `index` `slice` · `print` `println` `printf` · `call` · `html` · `js`
 
-`and`/`or` short-circuit (the engine passes thunks for those). `printf` supports `%s`, `%d`, `%v`, `%q`, `%f` (precision-aware), `%t`, `%x`, plus width and `-` left-align flags. `html` flattens its arguments like `print` (via the engine's `toString`) and then escapes the six HTML-significant characters (`\0` → `�`, `"` → `&#34;`, `'` → `&#39;`, `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`) — matching Go's `text/template.HTMLEscaper` byte-for-byte.
+`and`/`or` short-circuit (the engine passes thunks for those). `printf` supports `%s`, `%d`, `%v`, `%q`, `%f` (precision-aware), `%t`, `%x`, plus width and `-` left-align flags. `html` flattens its arguments like `print` (via the engine's `toString`) and then escapes the six HTML-significant characters (`\0` → `�`, `"` → `&#34;`, `'` → `&#39;`, `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`) — matching Go's `text/template.HTMLEscaper` byte-for-byte. `js` shares the same flatten pipeline and emits JavaScript-literal-safe output: `\` → `\\`, `'` → `\'`, `"` → `\"`, `<` → `\u003C`, `>` → `\u003E`, `&` → `\u0026`, `=` → `\u003D`, ASCII control chars (< 0x20) and non-printable runes (incl. U+2028/U+2029) → `\u%04X` uppercase — matching Go's `text/template.JSEscaper`.
 
 ### Sprig subset
 

@@ -376,6 +376,75 @@ describe("builtins — html escape", () => {
   });
 });
 
+describe("builtins — js escape", () => {
+  it("escapes \\ ' \" with backslash sequences and < > & = as \\u00XX uppercase hex", () => {
+    expect(render('{{ js "<b>" "&" "</b>" }}')).toBe("\\u003Cb\\u003E\\u0026\\u003C/b\\u003E");
+    expect(render(`{{ js "'hi'" }}`)).toBe("\\'hi\\'");
+    expect(render('{{ js "\\"hi\\"" }}')).toBe('\\"hi\\"');
+    expect(render('{{ js "a\\\\b" }}')).toBe("a\\\\b");
+    expect(render('{{ js "x=y" }}')).toBe("x\\u003Dy");
+  });
+
+  it("escapes ASCII control chars (NUL, tab, newline) to \\u00XX uppercase", () => {
+    expect(render('{{ js "a\\x00b" }}')).toBe("a\\u0000b");
+    expect(render('{{ js "a\\tb" }}')).toBe("a\\u0009b");
+    expect(render('{{ js "a\\nb" }}')).toBe("a\\u000Ab");
+  });
+
+  it("escapes U+2028 / U+2029 line+paragraph separators (JS literal safety)", () => {
+    expect(render('{{ js "a\\u2028b" }}')).toBe("a\\u2028b");
+    expect(render('{{ js "a\\u2029b" }}')).toBe("a\\u2029b");
+  });
+
+  it("passes ASCII text and printable non-ASCII through unchanged", () => {
+    expect(render('{{ js "hello world" }}')).toBe("hello world");
+    expect(render('{{ js "αβ" }}')).toBe("αβ");
+    expect(render('{{ js "!?@#" }}')).toBe("!?@#"); // none of these are in the table
+  });
+
+  it("flattens numeric / boolean args via fmt.Sprint rules", () => {
+    // Space between adjacent non-strings (1, true) — matches print / html.
+    expect(render("{{ js 1 true }}")).toBe("1 true");
+  });
+
+  it("works in a pipeline: piped value flows into the trailing slot", () => {
+    expect(render('{{ "<x>" | js }}')).toBe("\\u003Cx\\u003E");
+  });
+
+  it("returns empty string with zero args", () => {
+    expect(render("{{ js }}")).toBe("");
+  });
+
+  // [LAW:single-enforcer] `js` declares `"stringifiable"` — the same gate
+  // print/printf/html use — so typed-T values without a configured
+  // `toString` are rejected at the boundary, not silently flattened.
+  it("throws TypeMismatchError when no engine.toString is configured for typed-T", () => {
+    interface Frag {
+      readonly text: string;
+    }
+    const eng = createEngine<string>({ fromString: (s) => s });
+    expect(() => eng.parse("{{ js .frag }}").evaluate({ frag: { text: "x" } as Frag })).toThrow(
+      TypeMismatchError,
+    );
+  });
+
+  it("routes typed-T through consumer-supplied engine.toString and then escapes", () => {
+    interface Frag {
+      readonly text: string;
+    }
+    const eng = createEngine<string>({
+      fromString: (s) => s,
+      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+    });
+    expect(
+      eng
+        .parse("{{ js .frag }}")
+        .evaluate({ frag: { text: "<a>" } as Frag })
+        .join(""),
+    ).toBe("\\u003Ca\\u003E");
+  });
+});
+
 describe("builtins — call", () => {
   it("invokes a function value drawn from the scope", () => {
     const scope = {
