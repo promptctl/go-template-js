@@ -40,7 +40,7 @@ import type {
   WithNode,
 } from "./ast.js";
 import { ParseError } from "./errors.js";
-import { Lexer, type Token, type TokenType } from "./lexer.js";
+import { type Delims, Lexer, type Token, type TokenType } from "./lexer.js";
 import type { Pos } from "./pos.js";
 
 // ---------------------------------------------------------------------------
@@ -56,8 +56,8 @@ export interface ParseResult {
   readonly source: string;
 }
 
-export function parse(source: string): ParseResult {
-  const parser = new Parser(source);
+export function parse(source: string, delims?: Delims): ParseResult {
+  const parser = new Parser(source, delims);
   return parser.parseTemplate();
 }
 
@@ -79,9 +79,9 @@ class Parser {
   // inside a range but inside a nested define is still an error.
   private rangeDepth = 0;
 
-  constructor(source: string) {
+  constructor(source: string, delims?: Delims) {
     this.source = source;
-    this.lex = new Lexer(source);
+    this.lex = delims ? new Lexer(source, delims) : new Lexer(source);
   }
 
   // -------------------------------------------------------------------

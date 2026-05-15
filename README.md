@@ -197,6 +197,7 @@ Notable parity statements (places where users sometimes expect divergence and th
 
 - A nil/undefined pipeline emits the literal `<no value>` string, matching Go's `text/template`.
 - **Missing field/map-key access** follows Go's `Option("missingkey=...")`. Defaults to `"default"` (silent `<no value>`); set `missingKey: "error"` in `EngineConfig` to throw `MissingFieldError` instead. The `"zero"` value is accepted; see the divergence note above.
+- **Custom delimiters** are supported via `EngineConfig.delims`, mirroring Go's `Template.Delims(left, right)`. Pass `{ left: "<%", right: "%>" }` to make the engine recognise `<% ... %>` actions instead of `{{ ... }}`. Trim markers follow Go: with `<%`/`%>` they become `<%-` and `-%>`. Both sides are required if you set the field — neither may be empty. Default `{{` / `}}` are used when the field is omitted.
 - Range over a Map / plain object iterates in **sorted-by-key order** in both engines (Go's `internal/fmtsort`; ours mirrors it).
 - Sprig `set` and `unset` mutate the receiver and return it — same as Go sprig.
 - `{{ "key" | get .dict }}` composes correctly: last-arg piping puts the key in the trailing slot, which is `get(d, key)`'s second parameter. The form `{{ .dict | get "key" }}` does *not* work in either engine — the dict ends up in the key slot.
@@ -231,7 +232,7 @@ Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` p
 
 The package exports exactly the following from `"@promptctl/go-template-js"` — anything else is internal and may change at any time:
 
-- Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`, `MissingKeyOption`.
+- Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`, `MissingKeyOption`, `Delims`.
 - Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
 - Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`, `sprigRandom`, `sprigHash`, `sprigDatetime`.
 
