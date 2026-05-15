@@ -134,7 +134,7 @@ describe("evaluator — missingKey policy", () => {
     expect(() =>
       createEngine<string>({
         fromString: (s) => s,
-        missingKey: "erro" as MissingKeyOption,
+        missingKey: "erro" as unknown as MissingKeyOption,
       }),
     ).toThrow(/missingKey: expected/);
   });
