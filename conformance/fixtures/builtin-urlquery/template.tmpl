@@ -1,0 +1,8 @@
+{{ urlquery "<script>" "alert('xss & \"pwn\")" "</script>" }}
+{{ urlquery .raw }}
+{{ urlquery .unreserved }}
+{{ urlquery .nonAscii }}
+{{ urlquery .ctrl }}
+{{ urlquery .a .b .c }}
+{{ "x=y&z" | urlquery }}
+{{ urlquery }}/end
