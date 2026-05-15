@@ -1,0 +1,5 @@
+<%- if .show -%>
+hello, <% .name %>!
+<%- /* legacy {{ }} appear here as plain text */ -%>
+literal <<%- "%>" %>>, default {{ stays }} verbatim.
+<%- end %>

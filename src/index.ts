@@ -37,6 +37,7 @@ export {
 export {
   type ArgType,
   createEngine,
+  type Delims,
   Engine,
   type EngineConfig,
   type FuncMap,

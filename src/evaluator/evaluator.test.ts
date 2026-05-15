@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MissingFieldError } from "../errors.js";
 import { EvalError } from "./errors.js";
-import { createEngine, type Engine, type MissingKeyOption } from "./evaluator.js";
+import { createEngine, type Delims, type Engine, type MissingKeyOption } from "./evaluator.js";
 
 const stringEngine = (missingKey?: MissingKeyOption): Engine<string> =>
   createEngine<string>({ fromString: (s) => s, ...(missingKey ? { missingKey } : {}) });
@@ -157,6 +157,83 @@ describe("evaluator — missingKey policy", () => {
         missingKey: cyclic as unknown as MissingKeyOption,
       }),
     ).toThrow(/missingKey: expected.*got \[object\]/);
+  });
+});
+
+describe("evaluator — delims config", () => {
+  const customEngine = (delims: Delims): Engine<string> =>
+    createEngine<string>({ fromString: (s) => s, delims });
+
+  it("defaults to {{ }} when delims is unset", () => {
+    expect(renderString("hi {{ .name }}", { name: "ada" })).toBe("hi ada");
+  });
+
+  it("threads custom delims into the lexer", () => {
+    const eng = customEngine({ left: "<%", right: "%>" });
+    expect(eng.parse("hi <% .name %>").evaluate({ name: "ada" }).join("")).toBe("hi ada");
+  });
+
+  it("treats default {{ }} as plain text when custom delims are configured", () => {
+    const eng = customEngine({ left: "<%", right: "%>" });
+    // [LAW:dataflow-not-control-flow] The lexer's search for the left
+    // delim is the only gate that recognises action boundaries — with
+    // custom delims, `{{` and `}}` are just characters in the text run.
+    expect(eng.parse("a {{ b }} c <% .x %>").evaluate({ x: "X" }).join("")).toBe("a {{ b }} c X");
+  });
+
+  it("derives trim markers from configured delims (<%- and -%>)", () => {
+    const eng = customEngine({ left: "<%", right: "%>" });
+    expect(eng.parse("foo  \n  <%-  .x  -%>\n  bar").evaluate({ x: "X" }).join("")).toBe("fooXbar");
+  });
+
+  it("supports comments under custom delims", () => {
+    const eng = customEngine({ left: "<%", right: "%>" });
+    expect(eng.parse("a <%/* hi */%> b").evaluate(null).join("")).toBe("a  b");
+  });
+
+  it("rejects a non-object delims value at construct time", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        delims: "{{}}" as unknown as Delims,
+      }),
+    ).toThrow(/delims: expected.*got "{{}}"/);
+  });
+
+  it("rejects an empty-string left delim at construct time", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        delims: { left: "", right: "}}" } as Delims,
+      }),
+    ).toThrow(/delims\.left: expected non-empty/);
+  });
+
+  it("rejects an empty-string right delim at construct time", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        delims: { left: "{{", right: "" } as Delims,
+      }),
+    ).toThrow(/delims\.right: expected non-empty/);
+  });
+
+  it("rejects a non-string delim side at construct time", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        delims: { left: 1 as unknown as string, right: "}}" } as Delims,
+      }),
+    ).toThrow(/delims\.left: expected non-empty string, got 1/);
+  });
+
+  it("boundary diagnostic survives non-serializable bad values", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        delims: 42n as unknown as Delims,
+      }),
+    ).toThrow(/delims: expected.*got 42n/);
   });
 });
 
