@@ -49,6 +49,8 @@ export type TokenType =
   | "End"
   | "Range"
   | "With"
+  | "Break"
+  | "Continue"
   | "Define"
   | "Template"
   | "Block"
@@ -71,6 +73,8 @@ const KEYWORDS = new Map<string, TokenType>([
   ["end", "End"],
   ["range", "Range"],
   ["with", "With"],
+  ["break", "Break"],
+  ["continue", "Continue"],
   ["define", "Define"],
   ["template", "Template"],
   ["block", "Block"],

@@ -105,6 +105,8 @@ describe("walk", () => {
       If: 0,
       Range: 0,
       With: 0,
+      Break: 0,
+      Continue: 0,
       Template: 0,
       Block: 0,
     };
