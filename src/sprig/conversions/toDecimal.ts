@@ -14,14 +14,19 @@
 // [LAW:one-source-of-truth] Behavior is "parse base-8" full stop.
 // Anyone who wants base-detect uses `int` instead; that's where the
 // auto-detect rule lives (`parseBase0`).
-// Magnitude overflow → 0. Go's `strconv.ParseInt(..., 8, 64)` errors
-// on overflow and sprig discards the error, so octal strings that
-// would land outside JS's safe-integer range collapse to 0 — both the
-// finite-but-precision-losing case (e.g. an octal string between 2^53
-// and 2^63) and the fully-runaway Infinity case. The predicate is the
-// same one the "int" ArgType matcher uses for bigint inputs at the
-// gate: `Number.isSafeInteger`. Sharing it here keeps the
-// registration's `returnType: "int"` honest at every return site.
+//
+// The `Number.isSafeInteger` guard is this converter's
+// *output-precision policy* (same shape as `atoi.ts` — see that file
+// for the full rationale). Two distinct boundaries collapse into
+// one predicate:
+//   - Octal strings whose decimal value lands in
+//     [MAX_SAFE_INTEGER+1, int64-max] are valid under Go's
+//     `strconv.ParseInt(..., 8, 64)` but round under JS doubles.
+//     Returning them silently would hand the caller a different
+//     integer than the string named — collapsed to 0 instead.
+//   - Octal strings long enough to overflow `Number.parseInt` to JS
+//     Infinity (which Go *would* also reject) fall out of the same
+//     predicate as a free side effect.
 export function toDecimal(s: string): number {
   if (!/^[+-]?[0-7]+$/.test(s)) return 0;
   const sign = s[0] === "-" ? -1 : 1;
