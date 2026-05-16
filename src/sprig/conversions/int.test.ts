@@ -45,15 +45,18 @@ describe("sprig.int", () => {
     expect(int([])).toBe(0);
   });
 
-  // [LAW:types-are-the-program] Pins the registration's
-  // `returnType: "int"` theorem at every entry path. The body's
-  // overflow predicate is `Number.isSafeInteger`, matching the "int"
-  // ArgType matcher's bigint-input check at the gate (evaluator.ts);
-  // these regressions cover all three discriminants (number, bigint,
-  // string) so a future relaxation back to `Number.isFinite` — which
-  // would let precision-losing values through — fails loudly.
-  it("collapses values outside JS safe-integer range to 0 (number path)", () => {
-    expect(int(2 ** 60)).toBe(0); // finite but unsafe
+  // [LAW:types-are-the-program] Pins int's *output-precision policy*
+  // at every entry path: returned numbers are safe-integer-
+  // representable so they round-trip without loss. The policy is
+  // stricter than Go-sprig's int64 boundary and stricter than the
+  // gate's "int" matcher for number-discriminant inputs (the matcher
+  // trusts callers passing a number; this converter trusts no input
+  // shape, so it owns precision at the output edge). Three blocks —
+  // one per discriminant — so a future relaxation on any branch (e.g.
+  // back to `Number.isFinite`, or to an int64-only overflow check)
+  // fails loudly.
+  it("collapses unsafe values to 0 (number path)", () => {
+    expect(int(2 ** 60)).toBe(0); // finite but above MAX_SAFE_INTEGER
     expect(int(-(2 ** 60))).toBe(0);
     expect(int(Number.POSITIVE_INFINITY)).toBe(0);
     expect(int(Number.NEGATIVE_INFINITY)).toBe(0);
@@ -62,7 +65,7 @@ describe("sprig.int", () => {
     expect(int(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
   });
 
-  it("collapses values outside JS safe-integer range to 0 (bigint path)", () => {
+  it("collapses unsafe values to 0 (bigint path)", () => {
     expect(int(2n ** 1024n)).toBe(0); // overflows Number() to Infinity
     expect(int(2n ** 60n)).toBe(0); // finite-but-unsafe under Number()
     expect(int(-(2n ** 60n))).toBe(0);
@@ -70,7 +73,14 @@ describe("sprig.int", () => {
     expect(int(BigInt(Number.MAX_SAFE_INTEGER))).toBe(Number.MAX_SAFE_INTEGER);
   });
 
-  it("collapses values outside JS safe-integer range to 0 (string path)", () => {
+  it("collapses unsafe values to 0 (string path)", () => {
+    // Pin the JS safe-integer boundary, distinct from Go int64:
+    // "9007199254740992" (= 2^53) is well within int64 but just past
+    // MAX_SAFE_INTEGER. A future relaxation to an int64-only overflow
+    // check would let this through and silently round downstream
+    // arithmetic.
+    expect(int("9007199254740992")).toBe(0);
+    expect(int("-9007199254740992")).toBe(0);
     expect(int("9223372036854775808")).toBe(0); // > int64 max
     expect(int("-9223372036854775809")).toBe(0); // < int64 min
     expect(int("9".repeat(400))).toBe(0); // runaway → Infinity
