@@ -9,7 +9,7 @@ export function randInt(min: number, max: number, random: () => number): number 
     if (e instanceof RandIntRangeError) {
       throw bodyTypeMismatch(
         "randInt",
-        1,
+        2,
         "max > min",
         `constraint violated (max=${max}, min=${min})`,
       );
