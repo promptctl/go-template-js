@@ -59,8 +59,8 @@ describe("pipelines — multi-command", () => {
     // for `2 | sub 10` Go's last-arg piping computes sub(10, 2) = 8.
     const funcs: FuncMap = {
       sub: {
-        fn: (a: unknown, b: unknown) => Number(a) - Number(b),
-        argTypes: ["number", "number"],
+        fn: (a: unknown, b: unknown) => (a as number) - (b as number),
+        argTypes: ["int", "int"],
       },
     };
     expect(renderString("{{ 2 | sub 10 }}", null, funcs)).toBe("8");
@@ -175,9 +175,9 @@ describe("type guard — no silent flatten", () => {
     expect(eng.parse("{{ . | identity }}").evaluate(styled)).toEqual([styled]);
   });
 
-  it("number-typed slot rejects strings", () => {
+  it("int-typed slot rejects strings", () => {
     const funcs: FuncMap = {
-      double: { fn: (n: unknown) => Number(n) * 2, argTypes: ["number"] },
+      double: { fn: (n: unknown) => (n as number) * 2, argTypes: ["int"] },
     };
     expect(() => renderString('{{ "5" | double }}', null, funcs)).toThrow(TypeMismatchError);
   });
