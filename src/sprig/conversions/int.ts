@@ -10,15 +10,21 @@ import { parseBase0 } from "./parseBase0.js";
 // [LAW:dataflow-not-control-flow] Variability lives in *values*; the
 // shape of the dispatch (one branch per JS kind) mirrors the JS type
 // system's discriminator, not an external mode flag.
-// [LAW:types-are-the-program] Every return path collapses anything
-// outside JS's safe-integer range (NaN, ±Infinity, *and* finite-but-
-// precision-losing values like 2^60 or `Number(2n**1024n)`) to 0 so
-// the registration's `returnType: "int"` is a true theorem at every
-// return site. The predicate is `Number.isSafeInteger`, which is the
-// same one the "int" ArgType matcher uses for bigint inputs at the
-// gate — one definition of "int" shared between input and output,
-// not two. Aligns with Go-sprig's overflow-becomes-zero behavior
-// (`strconv.ParseInt(..., 0, 64)` errors on overflow; sprig discards).
+//
+// `Number.isSafeInteger` is this converter's *output-precision
+// policy*, not the gate's input predicate. The `"int"` ArgType
+// matcher is looser for `number`-discriminant inputs at the gate —
+// it accepts any finite number, including unsafe ones like 2^60,
+// because callers passing a number are trusted to mean it. This
+// converter accepts heterogeneous input (`"value"` slot — number,
+// bigint, string, boolean, anything) and produces a number, so it
+// owns precision at the output edge: a returned value is guaranteed
+// to round-trip without loss. Sources of unsafe results — finite
+// `Math.trunc(2**60)`, `Number(2n**1024n)` → Infinity,
+// `Number.parseInt` of a long-enough digit string — all collapse to
+// 0 under one predicate. Stricter than Go-sprig's int64 boundary,
+// stricter than the gate's number-branch predicate, but stricter
+// in the precision-safe direction.
 export function int(v: unknown): number {
   if (typeof v === "number") {
     const n = Math.trunc(v);
