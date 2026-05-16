@@ -87,10 +87,12 @@ export function sprigStrings(): FuncMap {
   // [LAW:single-enforcer] argTypes is the contract describing what each
   // func accepts; enforceArgTypes runs at the boundary, so the `as`
   // casts below are provably-safe — the runtime types match the
-  // declared argTypes. Numeric slots use "int" so the gate normalizes
-  // `number | bigint` → finite `number` once; bodies receive plain
-  // `number` and drop the body-side `Number(v)` coercions that used to
-  // re-do the gate's work. See template-variance-num-carrier-hfv.3.
+  // declared argTypes. Numeric slots use "int": the gate accepts
+  // finite `number` and safe-integer `bigint` (|n| ≤ 2^53), normalizes
+  // both to a finite `number`, and rejects out-of-range bigints / NaN
+  // / ±Infinity at the boundary. Bodies receive plain `number` and
+  // drop the body-side `Number(v)` coercions that used to re-do the
+  // gate's work. See template-variance-num-carrier-hfv.3.
   return {
     abbrev: {
       fn: (w, s) => abbrev(w as number, s as string),
