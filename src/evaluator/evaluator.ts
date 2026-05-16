@@ -51,6 +51,19 @@ import { isTruthy } from "./truthy.js";
  * - "string" — must be a JS string. Non-string values raise
  *   TypeMismatchError. This is the **architectural commitment**: T
  *   never silently flattens into a string parameter.
+ * - "int"    — validate-AND-parse integer carrier. Accepts any finite
+ *   `number` and any `bigint` whose `Number()` is safe-integer-
+ *   representable; rejects `NaN`, `±Infinity`, and precision-losing
+ *   bigints. The gate normalizes `values[i]` to `Math.trunc(Number(v))`
+ *   so bodies see `number`. Used by `add`, `sub`, `mul`, `mod`, `max`,
+ *   `min`, the built-in `slice`'s index slots, `chunk`, `splitn`,
+ *   `repeat`. Added by epic template-variance-num-carrier-hfv.
+ * - "float"  — validate-AND-parse float carrier. Accepts any `number`
+ *   (including `NaN`/`±Infinity` — legitimate IEEE-754 floats) and any
+ *   `bigint` whose `Number()` is finite (overflow-to-Infinity rejected
+ *   as a magnitude failure). The gate normalizes to `Number(v)` so
+ *   bodies see `number`. Used by `addf`, `subf`, `mulf`, `divf`,
+ *   `maxf`, `minf`. Added by epic template-variance-num-carrier-hfv.
  * - "bool"   — must be `typeof "boolean"`.
  * - "T"      — opaque caller-defined T; treated as "anything that is
  *   not a string". The guard does no further checking.
