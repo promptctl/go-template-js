@@ -48,59 +48,41 @@ export {
 };
 
 export function sprigMath(): FuncMap {
-  // [LAW:single-enforcer] enforceArgTypes guarantees runtime values
-  // match the declared "number" type (number or bigint). The bodies'
-  // remaining `Number(v)` calls are bigint→number conversions, not
-  // boundary coercions — they do real arithmetic work.
+  // [LAW:single-enforcer] enforceArgTypes normalizes "int"/"float" slots
+  // to plain `number` before dispatch — "int" arrives truncated toward zero
+  // (Go int64 semantics); "float" arrives coerced (IEEE-754 semantics).
+  // Bodies receive `number`, never `bigint`.
   return {
-    add: { fn: (...a) => add(...(a as (number | bigint)[])), argTypes: ["number"] },
-    sub: {
-      fn: (a, b) => sub(a as number | bigint, b as number | bigint),
-      argTypes: ["number", "number"],
-    },
-    mul: { fn: (...a) => mul(...(a as (number | bigint)[])), argTypes: ["number"] },
-    div: {
-      fn: (a, b) => div(a as number | bigint, b as number | bigint),
-      argTypes: ["number", "number"],
-    },
-    mod: {
-      fn: (a, b) => mod(a as number | bigint, b as number | bigint),
-      argTypes: ["number", "number"],
-    },
-    min: { fn: (...a) => min(...(a as (number | bigint)[])), argTypes: ["number"] },
-    max: { fn: (...a) => max(...(a as (number | bigint)[])), argTypes: ["number"] },
-    floor: { fn: (a) => floor(a as number | bigint), argTypes: ["number"] },
-    ceil: { fn: (a) => ceil(a as number | bigint), argTypes: ["number"] },
-    round: {
-      fn: (a, p) => round(a as number | bigint, p as number | bigint),
-      argTypes: ["number", "number"],
-    },
-    addf: { fn: (...a) => addf(...(a as (number | bigint)[])), argTypes: ["number"] },
-    subf: {
-      fn: (a, b) => subf(a as number | bigint, b as number | bigint),
-      argTypes: ["number", "number"],
-    },
-    mulf: { fn: (...a) => mulf(...(a as (number | bigint)[])), argTypes: ["number"] },
-    divf: {
-      fn: (a, b) => divf(a as number | bigint, b as number | bigint),
-      argTypes: ["number", "number"],
-    },
-    add1: { fn: (n) => add1(n as number | bigint), argTypes: ["number"] },
-    add1f: { fn: (n) => add1f(n as number | bigint), argTypes: ["number"] },
-    maxf: { fn: (...a) => maxf(...(a as (number | bigint)[])), argTypes: ["number"] },
-    minf: { fn: (...a) => minf(...(a as (number | bigint)[])), argTypes: ["number"] },
+    add: { fn: (...a) => add(...(a as number[])), argTypes: ["int"] },
+    sub: { fn: (a, b) => sub(a as number, b as number), argTypes: ["int", "int"] },
+    mul: { fn: (...a) => mul(...(a as number[])), argTypes: ["int"] },
+    div: { fn: (a, b) => div(a as number, b as number), argTypes: ["int", "int"] },
+    mod: { fn: (a, b) => mod(a as number, b as number), argTypes: ["int", "int"] },
+    min: { fn: (...a) => min(...(a as number[])), argTypes: ["int"] },
+    max: { fn: (...a) => max(...(a as number[])), argTypes: ["int"] },
+    floor: { fn: (a) => floor(a as number), argTypes: ["float"] },
+    ceil: { fn: (a) => ceil(a as number), argTypes: ["float"] },
+    round: { fn: (a, p) => round(a as number, p as number), argTypes: ["float", "int"] },
+    addf: { fn: (...a) => addf(...(a as number[])), argTypes: ["float"] },
+    subf: { fn: (a, b) => subf(a as number, b as number), argTypes: ["float", "float"] },
+    mulf: { fn: (...a) => mulf(...(a as number[])), argTypes: ["float"] },
+    divf: { fn: (a, b) => divf(a as number, b as number), argTypes: ["float", "float"] },
+    add1: { fn: (n) => add1(n as number), argTypes: ["int"] },
+    add1f: { fn: (n) => add1f(n as number), argTypes: ["float"] },
+    maxf: { fn: (...a) => maxf(...(a as number[])), argTypes: ["float"] },
+    minf: { fn: (...a) => minf(...(a as number[])), argTypes: ["float"] },
     // `biggest` is Go sprig's deprecated alias for `max`. Registered
     // directly against the same function so divergence is impossible.
-    biggest: { fn: (...a) => max(...(a as (number | bigint)[])), argTypes: ["number"] },
+    biggest: { fn: (...a) => max(...(a as number[])), argTypes: ["int"] },
     seq: {
-      fn: (...a) => seq(...(a as (number | bigint)[])),
-      argTypes: ["number"],
+      fn: (...a) => seq(...(a as number[])),
+      argTypes: ["int"],
       returnType: "string",
     },
-    until: { fn: (n) => until(n as number | bigint), argTypes: ["number"], returnType: "list" },
+    until: { fn: (n) => until(n as number), argTypes: ["int"], returnType: "list" },
     untilStep: {
-      fn: (a, b, c) => untilStep(a as number | bigint, b as number | bigint, c as number | bigint),
-      argTypes: ["number", "number", "number"],
+      fn: (a, b, c) => untilStep(a as number, b as number, c as number),
+      argTypes: ["int", "int", "int"],
       returnType: "list",
     },
   };

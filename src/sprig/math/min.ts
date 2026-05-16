@@ -1,6 +1,4 @@
-/** `min a b c …` — variadic minimum; each argument is truncated toward zero (Go int64 semantics) before comparison. */
-export function min(...args: (number | bigint)[]): number {
-  return args
-    .map((v) => Math.trunc(Number(v)))
-    .reduce((m, v) => (v < m ? v : m), Number.POSITIVE_INFINITY);
+/** `min a b c …` — variadic minimum (Go int64 semantics; args arrive truncated). */
+export function min(...args: number[]): number {
+  return args.reduce((m, v) => (v < m ? v : m), Number.POSITIVE_INFINITY);
 }

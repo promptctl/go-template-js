@@ -7,7 +7,6 @@
 
 import { untilStep } from "./untilStep.js";
 
-export function until(count: number | bigint): number[] {
-  const n = Math.trunc(Number(count));
-  return untilStep(0, n, n < 0 ? -1 : 1);
+export function until(count: number): number[] {
+  return untilStep(0, count, count < 0 ? -1 : 1);
 }

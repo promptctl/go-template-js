@@ -10,7 +10,4 @@ describe("sprig.add1f", () => {
   it("does not truncate fractional input", () => {
     expect(add1f(1.9)).toBeCloseTo(2.9);
   });
-  it("accepts bigint via the number slot", () => {
-    expect(add1f(7n)).toBe(8);
-  });
 });
