@@ -1,6 +1,6 @@
 {
   "name": "@promptctl/go-template-js",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Go template syntax + sprig subset, generic over output type, in TypeScript.",
   "keywords": [
     "go-template",
