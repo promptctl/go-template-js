@@ -44,4 +44,9 @@ describe("sprig random — integration", () => {
     expect(result).toHaveLength(8);
     expect(result).toMatch(/^[\x20-\x7E]+$/);
   });
+
+  it("'int' slot normalizes bigint scope values for random ops", () => {
+    expect(render("{{ randAlpha .n }}", { n: 4n })).toBe("aaaa");
+    expect(render("{{ randInt .lo .hi }}", { lo: 0n, hi: 10n })).toBe("0");
+  });
 });

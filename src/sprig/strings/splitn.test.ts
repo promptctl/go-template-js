@@ -26,8 +26,4 @@ describe("sprig.splitn", () => {
     const out = splitn(":", 2, "key:value");
     expect(Object.keys(out)).toEqual(["_0", "_1"]);
   });
-
-  it("accepts bigint n via the `int` slot", () => {
-    expect(splitn(",", 2n, "a,b,c")).toEqual({ _0: "a", _1: "b,c" });
-  });
 });

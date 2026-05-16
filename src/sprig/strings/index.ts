@@ -87,18 +87,18 @@ export function sprigStrings(): FuncMap {
   // [LAW:single-enforcer] argTypes is the contract describing what each
   // func accepts; enforceArgTypes runs at the boundary, so the `as`
   // casts below are provably-safe — the runtime types match the
-  // declared argTypes. Function bodies coerce primitives with
-  // `String(.)` only after asserting the value is not a typed-T
-  // object; see `join` for the nested-element case the boundary gate
-  // can't describe.
+  // declared argTypes. Numeric slots use "int" so the gate normalizes
+  // `number | bigint` → finite `number` once; bodies receive plain
+  // `number` and drop the body-side `Number(v)` coercions that used to
+  // re-do the gate's work. See template-variance-num-carrier-hfv.3.
   return {
     abbrev: {
-      fn: (w, s) => abbrev(w as number | bigint, s as string),
-      argTypes: ["number", "string"],
+      fn: (w, s) => abbrev(w as number, s as string),
+      argTypes: ["int", "string"],
     },
     abbrevboth: {
-      fn: (l, r, s) => abbrevboth(l as number | bigint, r as number | bigint, s as string),
-      argTypes: ["number", "number", "string"],
+      fn: (l, r, s) => abbrevboth(l as number, r as number, s as string),
+      argTypes: ["int", "int", "string"],
     },
     camelcase: { fn: (s) => camelcase(s as string), argTypes: ["string"], returnType: "string" },
     cat: { fn: (...a) => cat(...(a as string[])), argTypes: ["string"] },
@@ -115,8 +115,8 @@ export function sprigStrings(): FuncMap {
       argTypes: ["string", "string"],
     },
     indent: {
-      fn: (n, s) => indent(n as number | bigint, s as string),
-      argTypes: ["number", "string"],
+      fn: (n, s) => indent(n as number, s as string),
+      argTypes: ["int", "string"],
     },
     initials: { fn: (s) => initials(s as string), argTypes: ["string"] },
     join: {
@@ -126,13 +126,13 @@ export function sprigStrings(): FuncMap {
     kebabcase: { fn: (s) => kebabcase(s as string), argTypes: ["string"], returnType: "string" },
     lower: { fn: (s) => lower(s as string), argTypes: ["string"] },
     nindent: {
-      fn: (n, s) => nindent(n as number | bigint, s as string),
-      argTypes: ["number", "string"],
+      fn: (n, s) => nindent(n as number, s as string),
+      argTypes: ["int", "string"],
     },
     nospace: { fn: (s) => nospace(s as string), argTypes: ["string"], returnType: "string" },
     plural: {
-      fn: (one, many, n) => plural(one as string, many as string, n as number | bigint),
-      argTypes: ["string", "string", "number"],
+      fn: (one, many, n) => plural(one as string, many as string, n as number),
+      argTypes: ["string", "string", "int"],
       returnType: "string",
     },
     quote: { fn: (...a) => quote(...(a as string[])), argTypes: ["string"] },
@@ -142,8 +142,8 @@ export function sprigStrings(): FuncMap {
       returnType: "string",
     },
     repeat: {
-      fn: (n, s) => repeat(n as number | bigint, s as string),
-      argTypes: ["number", "string"],
+      fn: (n, s) => repeat(n as number, s as string),
+      argTypes: ["int", "string"],
     },
     replace: {
       fn: (o, n, s) => replace(o as string, n as string, s as string),
@@ -156,14 +156,14 @@ export function sprigStrings(): FuncMap {
       argTypes: ["string", "string"],
     },
     splitn: {
-      fn: (sep, n, s) => splitn(sep as string, n as number | bigint, s as string),
-      argTypes: ["string", "number", "string"],
+      fn: (sep, n, s) => splitn(sep as string, n as number, s as string),
+      argTypes: ["string", "int", "string"],
       returnType: "dict",
     },
     squote: { fn: (...a) => squote(...(a as string[])), argTypes: ["string"] },
     substr: {
-      fn: (i, j, s) => substr(i as number | bigint, j as number | bigint, s as string),
-      argTypes: ["number", "number", "string"],
+      fn: (i, j, s) => substr(i as number, j as number, s as string),
+      argTypes: ["int", "int", "string"],
     },
     swapcase: { fn: (s) => swapcase(s as string), argTypes: ["string"], returnType: "string" },
     title: { fn: (s) => title(s as string), argTypes: ["string"] },
@@ -181,18 +181,18 @@ export function sprigStrings(): FuncMap {
       argTypes: ["string", "string"],
     },
     trunc: {
-      fn: (n, s) => trunc(n as number | bigint, s as string),
-      argTypes: ["number", "string"],
+      fn: (n, s) => trunc(n as number, s as string),
+      argTypes: ["int", "string"],
     },
     untitle: { fn: (s) => untitle(s as string), argTypes: ["string"] },
     upper: { fn: (s) => upper(s as string), argTypes: ["string"] },
     wrap: {
-      fn: (w, s) => wrap(w as number | bigint, s as string),
-      argTypes: ["number", "string"],
+      fn: (w, s) => wrap(w as number, s as string),
+      argTypes: ["int", "string"],
     },
     wrapWith: {
-      fn: (w, sep, s) => wrapWith(w as number | bigint, sep as string, s as string),
-      argTypes: ["number", "string", "string"],
+      fn: (w, sep, s) => wrapWith(w as number, sep as string, s as string),
+      argTypes: ["int", "string", "string"],
     },
   };
 }

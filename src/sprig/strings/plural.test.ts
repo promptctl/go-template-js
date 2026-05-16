@@ -11,9 +11,4 @@ describe("sprig.plural", () => {
     expect(plural("apple", "apples", 2)).toBe("apples");
     expect(plural("apple", "apples", -1)).toBe("apples");
   });
-
-  it("treats 1n (bigint) as singular for parity with int slot", () => {
-    expect(plural("apple", "apples", 1n)).toBe("apple");
-    expect(plural("apple", "apples", 2n)).toBe("apples");
-  });
 });

@@ -70,13 +70,13 @@ export function sprigLists(): FuncMap {
     has: { fn: (i, l) => has(i, l as unknown[]), argTypes: ["value", "list"] },
     compact: { fn: (l) => compact(l as unknown[]), argTypes: ["list"] },
     slice: {
-      fn: (l, i, j) => slice(l as unknown[], i as number | bigint, j as number | bigint),
-      argTypes: ["list", "number", "number"],
+      fn: (l, i, j) => slice(l as unknown[], i as number | undefined, j as number | undefined),
+      argTypes: ["list", "int", "int"],
     },
     concat: { fn: (...l) => concat(...(l as unknown[][])), argTypes: ["list"] },
     chunk: {
-      fn: (s, l) => chunk(s as number | bigint, l as unknown[]),
-      argTypes: ["number", "list"],
+      fn: (s, l) => chunk(s as number, l as unknown[]),
+      argTypes: ["int", "list"],
     },
     prepend: {
       fn: (l, i) => prepend(l as unknown[], i),
