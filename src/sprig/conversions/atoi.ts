@@ -8,12 +8,17 @@
 // [LAW:single-enforcer] The `"string"` gate validates the kind once;
 // the body trusts it. Parse failure → 0 (Go-parity). Magnitude
 // overflow → 0 as well: Go's `strconv.Atoi` errors on overflow and
-// sprig discards the error, so a huge digit string like "9".repeat(400)
-// must collapse to 0 — *not* JS's Infinity. This also keeps the
-// registration's `returnType: "int"` theorem honest: the "int" carrier
-// rejects non-finite numbers, so the body must never emit them.
+// sprig discards the error, so digit strings beyond JS's safe-integer
+// range — finite-but-precision-losing (e.g. `"9223372036854775808"`,
+// which `Number.parseInt` rounds to a finite double) *and* fully
+// runaway (e.g. `"9".repeat(400)` → JS Infinity) — both collapse to 0.
+// The matching predicate is the same one the "int" ArgType matcher
+// uses for bigint inputs at the gate: `Number.isSafeInteger`. Using it
+// here keeps `returnType: "int"` a true theorem at every return site —
+// the gate's input predicate and this body's output predicate are one
+// definition of "int", not two.
 export function atoi(s: string): number {
   if (!/^[+-]?\d+$/.test(s)) return 0;
   const n = Number.parseInt(s, 10);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isSafeInteger(n) ? n : 0;
 }
