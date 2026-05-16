@@ -10,14 +10,25 @@ import { parseBase0 } from "./parseBase0.js";
 // [LAW:dataflow-not-control-flow] Variability lives in *values*; the
 // shape of the dispatch (one branch per JS kind) mirrors the JS type
 // system's discriminator, not an external mode flag.
+// [LAW:types-are-the-program] Every return path collapses non-finite
+// outcomes (NaN/±Infinity) to 0 so the registration's `returnType:
+// "int"` is a true theorem, not metadata that lies. Sources of
+// non-finite results: `Math.trunc(NaN | ±Infinity)` for direct
+// number inputs, `Number(huge_bigint)` overflowing to Infinity, and
+// `Number.parseInt` of a long-enough digit string. All three collapse
+// to 0 — matching the "parse failure → 0" Go-sprig fallback already
+// established for the string path.
 export function int(v: unknown): number {
-  if (typeof v === "number") return Math.trunc(v);
-  if (typeof v === "bigint") return Number(v);
+  if (typeof v === "number") return Number.isFinite(v) ? Math.trunc(v) : 0;
+  if (typeof v === "bigint") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
   if (typeof v === "string") {
     const parsed = parseBase0(v);
     if (parsed === null) return 0;
     const n = Number.parseInt(parsed.digits, parsed.base);
-    return Number.isNaN(n) ? 0 : parsed.sign * n;
+    return Number.isFinite(n) ? parsed.sign * n : 0;
   }
   if (typeof v === "boolean") return v ? 1 : 0;
   return 0;
