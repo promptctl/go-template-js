@@ -4,9 +4,9 @@
  */
 
 // [LAW:single-enforcer] Slot kinds (`["string", "string", "int"]`) are
-// validated at the dispatch gate; the body trusts them. Bigint comes
-// in via the "int" slot for >2^53 counts — convert to a comparison
-// against 1 that works for both.
-export function plural(one: string, many: string, n: number | bigint): string {
-  return n === 1 || n === 1n ? one : many;
+// validated and normalized at the dispatch gate; the body receives a
+// finite `number`. Bigints (>2^53 counts) are truncated at the gate
+// and arrive as plain `number` — no body-side bigint comparison needed.
+export function plural(one: string, many: string, n: number): string {
+  return n === 1 ? one : many;
 }
