@@ -78,17 +78,19 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
 
     // [LAW:single-enforcer] `slice x i j` — array/slice/string slicing.
     // First slot declares "sliceable" (string|array) so the gate
-    // rejects non-sliceable receivers once; index slots declare
-    // "number". Body trusts the kinds and only routes the slice op.
+    // rejects non-sliceable receivers once; index slots declare "int"
+    // so the gate normalizes `number|bigint` to a finite-integer
+    // `number` carrier before the body runs. Body trusts both kinds
+    // and only routes the slice op — no defensive `Number(...)`.
     slice: {
       fn: (collection: unknown, ...indices: unknown[]) => {
-        const i = indices.length >= 1 ? Number(indices[0]) : 0;
-        const j = indices.length >= 2 ? Number(indices[1]) : undefined;
+        const i = indices.length >= 1 ? (indices[0] as number) : 0;
+        const j = indices.length >= 2 ? (indices[1] as number) : undefined;
         return typeof collection === "string"
           ? collection.slice(i, j)
           : (collection as unknown[]).slice(i, j);
       },
-      argTypes: ["sliceable", "number"],
+      argTypes: ["sliceable", "int"],
     },
 
     // [LAW:single-enforcer] Formatted printers declare "stringifiable"

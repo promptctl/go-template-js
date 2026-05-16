@@ -52,10 +52,10 @@ export function sprigConversions(): FuncMap {
   // during TS's literal-type inference, which widens `argTypes` from
   // a tuple of ArgType to `string[]` and breaks the entry.
   const map: FuncMap = {
-    atoi: { fn: (s) => atoi(s as string), argTypes: ["string"], returnType: "number" },
-    int: { fn: (v) => int(v), argTypes: ["value"], returnType: "number" },
+    atoi: { fn: (s) => atoi(s as string), argTypes: ["string"], returnType: "int" },
+    int: { fn: (v) => int(v), argTypes: ["value"], returnType: "int" },
     int64: { fn: (v) => int64(v), argTypes: ["value"] },
-    float64: { fn: (v) => float64(v), argTypes: ["value"], returnType: "number" },
+    float64: { fn: (v) => float64(v), argTypes: ["value"], returnType: "float" },
     // The `toString` key matches `Object.prototype.toString`, which
     // shadows TS's contextual typing for this single entry. Pinning
     // the literal types with `as const` (or `satisfies TemplateFunc`)
@@ -73,7 +73,7 @@ export function sprigConversions(): FuncMap {
     toDecimal: {
       fn: (s) => toDecimal(s as string),
       argTypes: ["string"],
-      returnType: "number",
+      returnType: "int",
     },
     toRawJson: {
       fn: (v) => toRawJson(v),
