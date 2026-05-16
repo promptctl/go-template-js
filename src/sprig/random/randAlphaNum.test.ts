@@ -18,8 +18,4 @@ describe("sprig.randAlphaNum", () => {
   it("deterministic with seeded PRNG", () => {
     expect(randAlphaNum(4, () => 0)).toBe("aaaa");
   });
-
-  it("accepts bigint n", () => {
-    expect(randAlphaNum(3n, () => 0)).toBe("aaa");
-  });
 });

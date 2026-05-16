@@ -24,8 +24,4 @@ describe("sprig.randAscii", () => {
     // floor(0.9999 * 95) = 94 → ASCII[94] = '~' (0x7E)
     expect(randAscii(2, () => 0.9999)).toBe("~~");
   });
-
-  it("accepts bigint n", () => {
-    expect(randAscii(3n, () => 0)).toBe("   ");
-  });
 });

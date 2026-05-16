@@ -26,24 +26,24 @@ export { randAlpha, randAlphaNum, randAscii, randInt, randNumeric, shuffle };
 export function sprigRandom(random: () => number = Math.random): FuncMap {
   return {
     randInt: {
-      fn: (min, max) => randInt(min as number | bigint, max as number | bigint, random),
-      argTypes: ["number", "number"],
+      fn: (min, max) => randInt(min as number, max as number, random),
+      argTypes: ["int", "int"],
     },
     randAlpha: {
-      fn: (n) => randAlpha(n as number | bigint, random),
-      argTypes: ["number"],
+      fn: (n) => randAlpha(n as number, random),
+      argTypes: ["int"],
     },
     randAlphaNum: {
-      fn: (n) => randAlphaNum(n as number | bigint, random),
-      argTypes: ["number"],
+      fn: (n) => randAlphaNum(n as number, random),
+      argTypes: ["int"],
     },
     randNumeric: {
-      fn: (n) => randNumeric(n as number | bigint, random),
-      argTypes: ["number"],
+      fn: (n) => randNumeric(n as number, random),
+      argTypes: ["int"],
     },
     randAscii: {
-      fn: (n) => randAscii(n as number | bigint, random),
-      argTypes: ["number"],
+      fn: (n) => randAscii(n as number, random),
+      argTypes: ["int"],
     },
     shuffle: {
       fn: (s) => shuffle(s as string, random),

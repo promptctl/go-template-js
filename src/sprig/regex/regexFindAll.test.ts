@@ -8,4 +8,7 @@ describe("sprig.regexFindAll", () => {
   it("respects an explicit limit", () => {
     expect(regexFindAll("\\d+", "1 22 333", 2)).toEqual(["1", "22"]);
   });
+  it("returns an empty array when n is 0 (Go regexp.FindAllString parity)", () => {
+    expect(regexFindAll("\\d+", "1 22 333", 0)).toEqual([]);
+  });
 });

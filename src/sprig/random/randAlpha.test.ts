@@ -24,8 +24,4 @@ describe("sprig.randAlpha", () => {
       (ALPHA[Math.floor(0.9999 * ALPHA.length)] as string).repeat(3),
     );
   });
-
-  it("accepts bigint n", () => {
-    expect(randAlpha(4n, () => 0)).toBe("aaaa");
-  });
 });
