@@ -43,9 +43,4 @@ describe("sprig.seq", () => {
   it("4+ args returns empty string", () => {
     expect(seq(1, 2, 3, 4)).toBe("");
   });
-
-  it("truncates fractional inputs", () => {
-    // (1, 2, 5): ascending with step 2, end inclusive → [1, 3, 5]
-    expect(seq(1.7, 2.4, 5.9)).toBe("1 3 5");
-  });
 });

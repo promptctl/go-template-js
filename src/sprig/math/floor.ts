@@ -1,3 +1,3 @@
-export function floor(a: number | bigint): number {
-  return Math.floor(Number(a));
+export function floor(a: number): number {
+  return Math.floor(a);
 }

@@ -1,4 +1,4 @@
 /** `add a b c …` — variadic integer sum. */
-export function add(...args: (number | bigint)[]): number {
-  return args.reduce<number>((acc, v) => acc + Math.trunc(Number(v)), 0);
+export function add(...args: number[]): number {
+  return args.reduce((acc, v) => acc + v, 0);
 }
