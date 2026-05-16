@@ -21,8 +21,4 @@ describe("sprig.randNumeric", () => {
     // PRNG 0.9 → floor(0.9*10) = 9 → '9'
     expect(randNumeric(3, () => 0.9)).toBe("999");
   });
-
-  it("accepts bigint n", () => {
-    expect(randNumeric(2n, () => 0)).toBe("00");
-  });
 });

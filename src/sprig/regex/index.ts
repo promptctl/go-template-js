@@ -32,8 +32,8 @@ export function sprigRegex(): FuncMap {
       argTypes: ["string", "string"],
     },
     regexFindAll: {
-      fn: (p, s, n) => regexFindAll(p as string, s as string, n as number | bigint),
-      argTypes: ["string", "string", "number"],
+      fn: (p, s, n) => regexFindAll(p as string, s as string, n as number),
+      argTypes: ["string", "string", "int"],
     },
     regexReplaceAll: {
       fn: (p, s, r) => regexReplaceAll(p as string, s as string, r as string),
@@ -44,8 +44,8 @@ export function sprigRegex(): FuncMap {
       argTypes: ["string", "string", "string"],
     },
     regexSplit: {
-      fn: (p, s, n) => regexSplit(p as string, s as string, n as number | bigint),
-      argTypes: ["string", "string", "number"],
+      fn: (p, s, n) => regexSplit(p as string, s as string, n as number),
+      argTypes: ["string", "string", "int"],
     },
   };
 }

@@ -26,11 +26,6 @@ describe("sprig.randInt", () => {
     expect(randInt(5, 20, cyclic)).toBe(12);
   });
 
-  it("accepts bigint arguments", () => {
-    const v = randInt(0n, 10n, () => 0.9);
-    expect(v).toBe(9);
-  });
-
   it("returns min when PRNG is 0", () => {
     expect(randInt(3, 10, () => 0)).toBe(3);
   });

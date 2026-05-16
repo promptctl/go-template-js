@@ -28,4 +28,15 @@ describe("sprig strings — integration", () => {
   it("initials of a name", () => {
     expect(render('{{ initials "Ada Lovelace" }}')).toBe("AL");
   });
+
+  it("'int' slot normalizes bigint scope values for string ops", () => {
+    expect(render('{{ repeat .n "x" }}', { n: 3n })).toBe("xxx");
+    expect(render('{{ (splitn "," .n "a,b,c,d")._1 }}', { n: 2n })).toBe("b,c,d");
+    expect(render('{{ plural "apple" "apples" .n }}', { n: 1n })).toBe("apple");
+  });
+
+  it("'int' slot truncates fractional scope values for string ops", () => {
+    expect(render('{{ repeat .n "x" }}', { n: 3.7 })).toBe("xxx");
+    expect(render('{{ trunc .n "abcdef" }}', { n: 3.9 })).toBe("abc");
+  });
 });

@@ -1,4 +1,3 @@
-export function repeat(n: number | bigint, s: string): string {
-  const count = Math.max(0, Number(n));
-  return s.repeat(count);
+export function repeat(n: number, s: string): string {
+  return s.repeat(Math.max(0, n));
 }

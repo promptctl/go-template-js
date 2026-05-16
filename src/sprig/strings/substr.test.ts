@@ -8,4 +8,11 @@ describe("sprig.substr", () => {
   it("clamps out-of-range end", () => {
     expect(substr(1, 99, "abcd")).toBe("bcd");
   });
+  it("clamps negative end to s.length (Go sprig parity)", () => {
+    expect(substr(1, -3, "abcdef")).toBe("bcdef");
+    expect(substr(0, -1, "abcdef")).toBe("abcdef");
+  });
+  it("clamps negative start to 0", () => {
+    expect(substr(-2, 3, "abcdef")).toBe("abc");
+  });
 });
