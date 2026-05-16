@@ -1,18 +1,46 @@
-# go-template-js
+# @promptctl/go-template-js
 
 Go template syntax + Sprig subset, generic over output type, in TypeScript.
 
-- **Same syntax as Go's `text/template`** — templates that parse there parse here.
-- **Generic over the output type** — render to strings, structured fragments, or anything else.
-- **No silent flattening** — typed values never become strings without an explicit conversion.
+[![npm](https://img.shields.io/npm/v/@promptctl/go-template-js.svg)](https://www.npmjs.com/package/@promptctl/go-template-js)
+[![CI](https://github.com/promptctl/go-template-js/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/promptctl/go-template-js/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/node/v/@promptctl/go-template-js.svg)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/npm/l/@promptctl/go-template-js.svg)](./LICENSE)
+
+## Highlights
+
+- **Same syntax as Go's `text/template`.** Templates that parse there parse here.
+- **Generic over the output type `T`.** Render to strings, structured fragments, or anything else; the engine emits `T[]`.
+- **No silent flattening.** Typed values never become strings without an explicit conversion — slots that should accept text declare so, and mismatches throw `TypeMismatchError`.
+- **Pure ESM, side-effect-free, single runtime dep.** Tree-shakes cleanly; only [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) at runtime (for `sprigHash()`).
+
+## Table of contents
+
+- [Highlights](#highlights)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Custom output types](#custom-output-types)
+- [`ArgType` reference](#argtype-reference)
+- [Syntax and built-ins](#syntax-and-built-ins)
+- [Sprig subset](#sprig-subset)
+- [Composing funcs from multiple sources](#composing-funcs-from-multiple-sources)
+- [Divergences from Go](#divergences-from-go)
+- [Errors](#errors)
+- [Versioning policy](#versioning-policy)
+- [Development](#development)
+- [License](#license)
 
 ## Install
 
 ```bash
 pnpm add @promptctl/go-template-js
+# or: npm install @promptctl/go-template-js
+# or: yarn add @promptctl/go-template-js
 ```
 
-## Quickstart (string output)
+Requires Node **≥ 20.19.0** (per `engines.node`). The package is ESM-only.
+
+## Quick start
 
 ```ts
 import { createEngine } from "@promptctl/go-template-js";
@@ -31,7 +59,7 @@ const greet = engine.compile("hi {{ .name }}");
 greet({ name: "ada" }).join(""); // "hi ada"
 ```
 
-## Generic-T tutorial
+## Custom output types
 
 The engine is parameterised over its output fragment type `T`. Consumers pick a fragment shape (e.g. styled text, AST nodes, layout primitives) and the engine emits a `T[]` that integrates into their downstream pipeline:
 
@@ -82,7 +110,7 @@ const engine = createEngine<Frag>({
 
 Use `"liftable"` for any consumer-defined function whose slot should accept either a `T` value or a string literal. The body, by contract, only ever receives `T` — the gate owns the lift, so the body has no string-vs-`T` discrimination to do.
 
-### `ArgType` reference
+## `ArgType` reference
 
 Every entry in `argTypes` is one of:
 
@@ -111,13 +139,13 @@ Every entry in `argTypes` is one of:
 
 The legacy `"any"` kind was removed in epic `template-laws-3gt`. Slots that genuinely accept anything now declare their *intent* (`"truthy"` / `"reflective"` / `"value"` / `"serializable"`); slots that did not are pinned to their precise kind so the gate enforces the constraint instead of leaking it into func bodies.
 
-#### Variadic patterns
+### Variadic patterns
 
 For variadic funcs, declare the trailing slot's type once — every excess argument is validated against it.
 
 For funcs whose variadic tail *cycles* (e.g. `dict "k1" v1 "k2" v2 …`), set `argTypePattern: "alternating"` on the registration. The slot for arg index `i` becomes `argTypes[i % argTypes.length]`, so `dict` declares `argTypes: ["string", "value"]` and the gate enforces "string at even index, anything at odd index" without per-key revalidation in the body.
 
-## Syntax reference
+## Syntax and built-ins
 
 Template syntax is Go template syntax. Read the canonical spec:
 https://pkg.go.dev/text/template
@@ -141,7 +169,7 @@ All of Go template's runtime built-ins:
 
 `and`/`or` short-circuit (the engine passes thunks for those). `printf` supports `%s`, `%d`, `%v`, `%q`, `%f` (precision-aware), `%t`, `%x`, plus width and `-` left-align flags. `html` flattens its arguments like `print` (via the engine's `toString`) and then escapes the six HTML-significant characters (`\0` → `�`, `"` → `&#34;`, `'` → `&#39;`, `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`) — matching Go's `text/template.HTMLEscaper` byte-for-byte. `js` shares the same flatten pipeline and emits JavaScript-literal-safe output: `\` → `\\`, `'` → `\'`, `"` → `\"`, `<` → `\u003C`, `>` → `\u003E`, `&` → `\u0026`, `=` → `\u003D`, ASCII control chars (< 0x20) and non-printable runes (incl. U+2028/U+2029) → `\u%04X` uppercase — matching Go's `text/template.JSEscaper`. `urlquery` shares the same flatten pipeline and percent-encodes the UTF-8 byte stream per Go's `net/url.QueryEscape`: the unreserved set `[A-Za-z0-9-._~]` passes through, space becomes `+`, every other byte becomes `%XX` uppercase hex (so a literal `+` round-trips as `%2B`, and `α` encodes to `%CE%B1`).
 
-### Sprig subset
+## Sprig subset
 
 Imported from `@promptctl/go-template-js` as category-scoped `FuncMap` factories:
 
@@ -194,7 +222,9 @@ The engine matches Go's `text/template` semantics aggressively. The remaining di
 - **Type mismatches at function boundaries are runtime errors, not compile errors.** By design: the engine does not know your `T` shape statically, so it surfaces the architectural commitment when the bad flow happens. See `TypeMismatchError`.
 - **printf verbs** beyond `%s %d %v %q %f %t %x` are rendered as `%!<verb>(<type>=<value>)`. If you need more, register your own formatter via the `funcs` registry.
 
-Notable parity statements (places where users sometimes expect divergence and there isn't one):
+### Notable parity statements
+
+Places where users sometimes expect divergence and there isn't one:
 
 - A nil/undefined pipeline emits the literal `<no value>` string, matching Go's `text/template`.
 - **Missing field/map-key access** follows Go's `Option("missingkey=...")`. Defaults to `"default"` (silent `<no value>`); set `missingKey: "error"` in `EngineConfig` to throw `MissingFieldError` instead. The `"zero"` value is accepted; see the divergence note above.
@@ -243,10 +273,14 @@ Reaching into `dist/` subpaths or `src/` deep imports is unsupported.
 
 ```bash
 pnpm install
-pnpm build      # tsdown → dist/
-pnpm test       # vitest
-pnpm lint       # biome check
-pnpm typecheck  # tsc --noEmit
+pnpm build       # tsdown → dist/
+pnpm test        # vitest
+pnpm lint        # biome check
+pnpm typecheck   # tsc --noEmit
 ```
 
-The roadmap and active work live in the project's `lit` issue tracker (run `lit ready` to see the queue).
+Bug reports and feature requests go to [GitHub Issues](https://github.com/promptctl/go-template-js/issues). The roadmap and active work live in the project's `lit` issue tracker (run `lit ready` to see the queue).
+
+## License
+
+[MIT](./LICENSE) © Brandon Fryslie
