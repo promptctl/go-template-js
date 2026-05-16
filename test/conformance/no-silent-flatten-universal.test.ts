@@ -71,7 +71,6 @@ function fillerFor(slot: ArgType): unknown {
   switch (slot) {
     case "string":
       return "x";
-    case "number":
     case "int":
     case "float":
       return 0;
@@ -241,14 +240,6 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: "null", value: null, pass: false },
     { label: "object", value: {}, pass: false },
     { label: "array", value: [], pass: false },
-  ],
-  number: [
-    { label: "number", value: 0, pass: true },
-    { label: "negative", value: -1.5, pass: true },
-    { label: "bigint", value: 1n, pass: true },
-    { label: "string", value: "1", pass: false },
-    { label: "bool", value: true, pass: false },
-    { label: "null", value: null, pass: false },
   ],
   // "int" matcher: finite number OR safe-integer-range bigint. NaN,
   // ±Infinity, and bigints outside Number.MAX_SAFE_INTEGER are
