@@ -51,7 +51,19 @@ import { isTruthy } from "./truthy.js";
  * - "string" — must be a JS string. Non-string values raise
  *   TypeMismatchError. This is the **architectural commitment**: T
  *   never silently flattens into a string parameter.
- * - "number" — must be `typeof "number"` or `bigint`.
+ * - "int"    — validate-AND-parse integer carrier. Accepts any finite
+ *   `number` and any `bigint` whose `Number()` is safe-integer-
+ *   representable; rejects `NaN`, `±Infinity`, and precision-losing
+ *   bigints. The gate normalizes `values[i]` to `Math.trunc(Number(v))`
+ *   so bodies see `number`. Used by `add`, `sub`, `mul`, `mod`, `max`,
+ *   `min`, the built-in `slice`'s index slots, `chunk`, `splitn`,
+ *   `repeat`. Added by epic template-variance-num-carrier-hfv.
+ * - "float"  — validate-AND-parse float carrier. Accepts any `number`
+ *   (including `NaN`/`±Infinity` — legitimate IEEE-754 floats) and any
+ *   `bigint` whose `Number()` is finite (overflow-to-Infinity rejected
+ *   as a magnitude failure). The gate normalizes to `Number(v)` so
+ *   bodies see `number`. Used by `addf`, `subf`, `mulf`, `divf`,
+ *   `maxf`, `minf`. Added by epic template-variance-num-carrier-hfv.
  * - "bool"   — must be `typeof "boolean"`.
  * - "T"      — opaque caller-defined T; treated as "anything that is
  *   not a string". The guard does no further checking.
@@ -105,7 +117,6 @@ import { isTruthy } from "./truthy.js";
  */
 export type ArgType =
   | "string"
-  | "number"
   // [LAW:types-are-the-program] "int" and "float" are validate-AND-parse
   // numeric carriers. The matcher's membership predicate IS the body's
   // contract — neither slot accepts "anything `typeof number|bigint`":
@@ -122,10 +133,11 @@ export type ArgType =
   // After membership is proven the gate mutates `values[i]` to a
   // `number` carrier ("int": `Math.trunc(Number(v))`; "float":
   // `Number(v)`). Mirrors the "liftable" precedent: the slot is both
-  // the membership rule and the parse step.
-  // Added by epic template-variance-num-carrier-hfv.1; tightened by
-  // .1.1. "number" survives as a transitional kind until .4 retires it
-  // after all consumers migrate (.2/.3).
+  // the membership rule and the parse step. Added by epic
+  // template-variance-num-carrier-hfv.1; tightened by .1.1; the legacy
+  // permissive "number" slot was retired in .4 once all consumers
+  // migrated (.2/.3) — every numeric slot now picks the integer-or-
+  // float carrier explicitly.
   | "int"
   | "float"
   | "bool"
@@ -1053,7 +1065,9 @@ export function enforceArgTypes(
     // the "liftable" lift above: matcher proves membership, gate
     // mutates to the canonical carrier. Bodies of "int"/"float" slots
     // can rely on `typeof value === "number"`. Added by epic
-    // template-variance-num-carrier-hfv.1; consumers migrate in .2/.3.
+    // template-variance-num-carrier-hfv.1; consumers migrated in .2/.3;
+    // the transitional "number" kind was retired in .4 so this gate is
+    // the only normalization site.
     if (declared === "int") {
       values[i] = Math.trunc(Number(value));
     } else if (declared === "float") {
@@ -1139,12 +1153,6 @@ function matchesArgType(
       return true;
     case "string":
       return typeof value === "string";
-    case "number":
-      // Transitional kind: same loose membership as the legacy slot, no
-      // gate-side normalization. Bodies of "number" slots still see
-      // `number | bigint` and re-coerce. Retires in epic
-      // template-variance-num-carrier-hfv.4 after consumers migrate.
-      return typeof value === "number" || typeof value === "bigint";
     case "int":
       // [LAW:types-are-the-program] Strongest true theorem for an "int"
       // slot: the value is a finite integer-valued carrier. The matcher
@@ -1281,6 +1289,21 @@ function matchesArgType(
       // `undefined` for functions/symbols and throws on circular refs;
       // either result fails the gate.
       return isJsonSerializable(value);
+    default: {
+      // [LAW:types-are-the-program] Explicit exhaustiveness check.
+      // The `never` assignment is what makes adding a future ArgType
+      // — or, equivalently, reintroducing the retired `"number"` —
+      // a tsc error: a fresh union member is no longer assignable to
+      // `never`, so the editor sees the missed case at compile time.
+      // The `throw` covers the only escape from the type system —
+      // callers that cast past `ArgType` at runtime (e.g. a stale
+      // `argTypes: ["number" as ArgType]` registration) get a clear
+      // "invalid ArgType" diagnostic instead of a silent `undefined`-
+      // returning matcher that would surface later as a confusing
+      // "expected undefined" TypeMismatchError.
+      const _exhaustive: never = declared;
+      throw new Error(`invalid ArgType: ${String(_exhaustive)}`);
+    }
   }
 }
 
@@ -1407,9 +1430,17 @@ function humanArgType(t: ArgType): string {
     case "reflective":
     case "value":
     case "string":
-    case "number":
     case "bool":
       return t;
+    default: {
+      // [LAW:types-are-the-program] Same explicit exhaustiveness arm
+      // as `matchesArgType` — see the rationale there. Mirrors it
+      // here so the retirement-of-"number" guardrail is symmetric:
+      // both the gate's membership predicate and its human-readable
+      // labeller refuse to silently handle an unknown kind.
+      const _exhaustive: never = t;
+      throw new Error(`invalid ArgType: ${String(_exhaustive)}`);
+    }
   }
 }
 

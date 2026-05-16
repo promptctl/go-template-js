@@ -182,6 +182,37 @@ describe("builtins — len / index / slice", () => {
     expect(render("{{ index (slice . 1 3) 0 }}", [10, 20, 30, 40])).toBe("20");
   });
 
+  // [LAW:types-are-the-program] The built-in `slice` migrated from
+  // `["sliceable", "number"]` to `["sliceable", "int"]` in
+  // template-variance-num-carrier-hfv.4 and dropped its body-side
+  // `Number(idx)` coercions — bodies now trust that the gate already
+  // normalized the index to a JS `number`. These regressions cover
+  // the discriminants integer-literal tests can't reach: scope-
+  // provided bigint and fractional indices both flow through the
+  // gate's `Math.trunc(Number(v))` normalization, while non-finite
+  // indices are rejected at the gate before the body sees them.
+  it("slice accepts scope-provided bigint indices via the int gate", () => {
+    expect(render("{{ slice .s .i .j }}", { s: "abcdef", i: 1n, j: 4n })).toBe("bcd");
+    expect(render("{{ slice .s .i .j }}", { s: [10, 20, 30, 40, 50], i: 1n, j: 3n })).toBe(
+      "[20 30]",
+    );
+  });
+
+  it("slice truncates scope-provided fractional indices via the int gate", () => {
+    // The gate's int normalizer is Math.trunc(Number(v)) — fractional
+    // numbers are accepted (finite) and truncated toward zero.
+    expect(render("{{ slice .s .i .j }}", { s: "abcdef", i: 1.7, j: 4.9 })).toBe("bcd");
+  });
+
+  it("slice rejects non-finite indices at the gate", () => {
+    expect(() =>
+      render("{{ slice .s .i 4 }}", { s: "abcdef", i: Number.POSITIVE_INFINITY }),
+    ).toThrow(TypeMismatchError);
+    expect(() => render("{{ slice .s .i 4 }}", { s: "abcdef", i: Number.NaN })).toThrow(
+      TypeMismatchError,
+    );
+  });
+
   // [LAW:single-enforcer] Closes audit B5: the gate rejects typed-T
   // keys before the body's `String(key)` could silently flatten them.
   it("index rejects a typed-T key against an object collection (B5)", () => {

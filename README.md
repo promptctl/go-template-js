@@ -89,7 +89,8 @@ Every entry in `argTypes` is one of:
 | Kind | Accepts at runtime | Used by (examples) |
 | --- | --- | --- |
 | `"string"` | JS `string` | `upper`, `lower`, `trim`, `printf` format string |
-| `"number"` | `typeof === "number"` or `bigint` (interchangeable) | `add`, `sub`, `mul`, `mod` |
+| `"int"` | finite `number` or safe-integer-range `bigint`; gate normalizes to `number` via `Math.trunc(Number(v))` so the body sees `number` | `add`, `sub`, `mul`, `mod`, `max`, `min`, `slice` indices, `chunk`, `splitn`, `repeat` |
+| `"float"` | any `number` (including `NaN`/`±Infinity` — legitimate IEEE-754 floats) or `bigint` whose `Number()` is finite; gate normalizes to `number` via `Number(v)` | `addf`, `subf`, `mulf`, `divf`, `maxf`, `minf` |
 | `"bool"` | `typeof === "boolean"` | (rare; most boolean slots use `"truthy"`) |
 | `"T"` | Any non-primitive (consumer-defined fragment) | consumer-defined typed funcs returning `T` |
 | `"ordered"` | `string`, `number`, `bigint`, or `boolean` | `lt`, `le`, `gt`, `ge` — additionally requires both slots share a kind |
