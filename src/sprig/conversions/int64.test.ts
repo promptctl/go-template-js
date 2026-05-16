@@ -16,7 +16,11 @@ describe("sprig.int64", () => {
     expect(int64(-3.7)).toBe(-3n);
   });
 
-  it("parses base-detect strings (matches int)", () => {
+  // Shares the base-detect string forms with `int` (both route through
+  // `parseBase0`). The carrier diverges past the safe-integer
+  // boundary — `int` clamps, `int64` preserves — but the recognized
+  // input *shapes* are identical.
+  it("parses base-detect strings (shared input shapes with int)", () => {
     expect(int64("42")).toBe(42n);
     expect(int64("-7")).toBe(-7n);
     expect(int64("0xff")).toBe(255n);
