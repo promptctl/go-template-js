@@ -20,8 +20,10 @@
 
 // [LAW:single-enforcer] Slot kinds (`["string", "int", "string"]`)
 // validate and normalize the inputs at the dispatch gate — `n` arrives
-// as a finite `number` (bigints truncated). The body owns the
-// SplitN→map shape transform.
+// as an integer-valued `number`. Safe-integer bigints (|n| ≤ 2^53)
+// are accepted and normalized via `Math.trunc(Number(v))`; bigints
+// outside that range, NaN, and ±Infinity are rejected at the gate.
+// The body owns the SplitN→map shape transform.
 export function splitn(sep: string, n: number, s: string): Record<string, string> {
   const parts = goSplitN(s, sep, n);
   const res: Record<string, string> = {};
