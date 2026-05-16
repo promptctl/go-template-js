@@ -16,6 +16,7 @@ Go template syntax + Sprig subset, generic over output type, in TypeScript.
 
 ## Table of contents
 
+- [Highlights](#highlights)
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Custom output types](#custom-output-types)
