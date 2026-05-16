@@ -24,21 +24,30 @@ describe("sprig.toDecimal", () => {
     expect(toDecimal("3.14")).toBe(0);
   });
 
-  // [LAW:types-are-the-program] Pins the registration's
-  // `returnType: "int"` theorem against octal overflow. Go's
-  // `strconv.ParseInt(..., 8, 64)` errors on overflow and sprig
-  // discards → 0; both the finite-but-precision-losing case and the
-  // runaway-to-Infinity case must collapse to 0 here for the "int"
-  // contract to hold.
-  it("collapses values outside JS safe-integer range to 0 (Go-parity overflow)", () => {
-    // Octal 0o1000000000000000000 = 2^54, beyond MAX_SAFE_INTEGER but
-    // still finite as a double.
+  // [LAW:types-are-the-program] Pins toDecimal's *output-precision
+  // policy* — same shape as atoi's. The boundary is JS safe-integer,
+  // stricter than Go's int64 (octals decoding into the
+  // [MAX_SAFE_INTEGER+1, int64-max] band are valid in Go but lose
+  // precision under JS doubles) and stricter than the gate's "int"
+  // matcher (looser for number-discriminant inputs). Applies here
+  // because the input is a string, not a trusted JS number.
+  it("collapses octals above MAX_SAFE_INTEGER (within int64) to 0 — output-precision policy", () => {
+    // 2^54 in octal = "1000000000000000000". Well under int64 max,
+    // exactly representable as a JS double, but one bit too wide for
+    // safe-integer range. Pinning this boundary prevents a future
+    // relaxation to an int64-only overflow check.
     expect(toDecimal("1000000000000000000")).toBe(0);
     expect(toDecimal("-1000000000000000000")).toBe(0);
-    // Runaway: parseInt overflows to Infinity for a long-enough octal.
-    expect(toDecimal("7".repeat(400))).toBe(0);
-    // Boundary: an octal whose decimal value is MAX_SAFE_INTEGER is
-    // still valid. 2^53 - 1 in octal is "377777777777777777".
+    // Boundary the other way: 2^53 - 1 = MAX_SAFE_INTEGER, octal
+    // "377777777777777777", survives.
     expect(toDecimal("377777777777777777")).toBe(Number.MAX_SAFE_INTEGER);
+    expect(toDecimal("-377777777777777777")).toBe(Number.MIN_SAFE_INTEGER);
+  });
+
+  it("collapses runaway-to-Infinity octal inputs to 0", () => {
+    // Long-enough octal overflows parseInt to Infinity (Go rejects
+    // too); falls out of the same safe-integer predicate.
+    expect(toDecimal("7".repeat(400))).toBe(0);
+    expect(toDecimal("-" + "7".repeat(400))).toBe(0);
   });
 });
