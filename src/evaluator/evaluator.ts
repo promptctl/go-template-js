@@ -1276,6 +1276,21 @@ function matchesArgType(
       // `undefined` for functions/symbols and throws on circular refs;
       // either result fails the gate.
       return isJsonSerializable(value);
+    default: {
+      // [LAW:types-are-the-program] Explicit exhaustiveness check.
+      // The `never` assignment is what makes adding a future ArgType
+      // — or, equivalently, reintroducing the retired `"number"` —
+      // a tsc error: a fresh union member is no longer assignable to
+      // `never`, so the editor sees the missed case at compile time.
+      // The `throw` covers the only escape from the type system —
+      // callers that cast past `ArgType` at runtime (e.g. a stale
+      // `argTypes: ["number" as ArgType]` registration) get a clear
+      // "invalid ArgType" diagnostic instead of a silent `undefined`-
+      // returning matcher that would surface later as a confusing
+      // "expected undefined" TypeMismatchError.
+      const _exhaustive: never = declared;
+      throw new Error(`invalid ArgType: ${String(_exhaustive)}`);
+    }
   }
 }
 
@@ -1404,6 +1419,15 @@ function humanArgType(t: ArgType): string {
     case "string":
     case "bool":
       return t;
+    default: {
+      // [LAW:types-are-the-program] Same explicit exhaustiveness arm
+      // as `matchesArgType` — see the rationale there. Mirrors it
+      // here so the retirement-of-"number" guardrail is symmetric:
+      // both the gate's membership predicate and its human-readable
+      // labeller refuse to silently handle an unknown kind.
+      const _exhaustive: never = t;
+      throw new Error(`invalid ArgType: ${String(_exhaustive)}`);
+    }
   }
 }
 
