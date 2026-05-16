@@ -23,4 +23,22 @@ describe("sprig.toDecimal", () => {
     expect(toDecimal("")).toBe(0);
     expect(toDecimal("3.14")).toBe(0);
   });
+
+  // [LAW:types-are-the-program] Pins the registration's
+  // `returnType: "int"` theorem against octal overflow. Go's
+  // `strconv.ParseInt(..., 8, 64)` errors on overflow and sprig
+  // discards → 0; both the finite-but-precision-losing case and the
+  // runaway-to-Infinity case must collapse to 0 here for the "int"
+  // contract to hold.
+  it("collapses values outside JS safe-integer range to 0 (Go-parity overflow)", () => {
+    // Octal 0o1000000000000000000 = 2^54, beyond MAX_SAFE_INTEGER but
+    // still finite as a double.
+    expect(toDecimal("1000000000000000000")).toBe(0);
+    expect(toDecimal("-1000000000000000000")).toBe(0);
+    // Runaway: parseInt overflows to Infinity for a long-enough octal.
+    expect(toDecimal("7".repeat(400))).toBe(0);
+    // Boundary: an octal whose decimal value is MAX_SAFE_INTEGER is
+    // still valid. 2^53 - 1 in octal is "377777777777777777".
+    expect(toDecimal("377777777777777777")).toBe(Number.MAX_SAFE_INTEGER);
+  });
 });

@@ -752,3 +752,28 @@ describe("EngineConfig.toString — defaults", () => {
     expect(() => eng.parse("{{ f . }}").evaluate({ tag: "x" })).toThrow(TypeMismatchError);
   });
 });
+
+describe("matchesArgType — invalid ArgType (assertNever default arm)", () => {
+  // [LAW:types-are-the-program] The exhaustiveness arm added in
+  // template-variance-num-carrier-hfv.4 has two jobs: a compile-time
+  // `never` assignment that errors at tsc if a future ArgType is
+  // added (or `"number"` is reintroduced), and a runtime `throw` for
+  // callers that cast past the type system. This regression pins the
+  // runtime arm so a stale `argTypes: ["number" as ArgType]`
+  // registration fails loudly with the offending kind in the message,
+  // not silently with the legacy "expected undefined" TypeMismatchError.
+  it("throws 'invalid ArgType: <kind>' for a slot cast past the union", () => {
+    const eng = createEngine<string>({
+      fromString: (s) => s,
+      // Cast through `unknown` so the cast survives
+      // `exactOptionalPropertyTypes` and the readonly-tuple inference.
+      funcs: {
+        f: {
+          fn: () => "ok",
+          argTypes: ["number"] as unknown as TemplateFunc["argTypes"],
+        },
+      },
+    });
+    expect(() => eng.parse("{{ f . }}").evaluate(1)).toThrow(/invalid ArgType: number/);
+  });
+});
