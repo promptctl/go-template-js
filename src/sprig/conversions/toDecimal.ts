@@ -14,14 +14,18 @@
 // [LAW:one-source-of-truth] Behavior is "parse base-8" full stop.
 // Anyone who wants base-detect uses `int` instead; that's where the
 // auto-detect rule lives (`parseBase0`).
-// Magnitude overflow → 0 (Go's `strconv.ParseInt(..., 8, 64)` errors on
-// overflow; sprig discards the error). Required for the registration's
-// `returnType: "int"` theorem: "int" rejects non-finite numbers, so a
-// long-enough octal string must collapse to 0, not Infinity.
+// Magnitude overflow → 0. Go's `strconv.ParseInt(..., 8, 64)` errors
+// on overflow and sprig discards the error, so octal strings that
+// would land outside JS's safe-integer range collapse to 0 — both the
+// finite-but-precision-losing case (e.g. an octal string between 2^53
+// and 2^63) and the fully-runaway Infinity case. The predicate is the
+// same one the "int" ArgType matcher uses for bigint inputs at the
+// gate: `Number.isSafeInteger`. Sharing it here keeps the
+// registration's `returnType: "int"` honest at every return site.
 export function toDecimal(s: string): number {
   if (!/^[+-]?[0-7]+$/.test(s)) return 0;
   const sign = s[0] === "-" ? -1 : 1;
   const body = s[0] === "+" || s[0] === "-" ? s.slice(1) : s;
-  const n = Number.parseInt(body, 8);
-  return Number.isFinite(n) ? sign * n : 0;
+  const n = sign * Number.parseInt(body, 8);
+  return Number.isSafeInteger(n) ? n : 0;
 }
