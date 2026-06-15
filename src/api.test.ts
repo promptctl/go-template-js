@@ -21,6 +21,51 @@ describe("public API — Engine.parse + Template.evaluate", () => {
   });
 });
 
+describe("public API — Template.referencedFunctions", () => {
+  it("reports a command-head function and excludes one never referenced", () => {
+    const engine = createEngine<string>({
+      fromString: (s) => s,
+      funcs: { ...sprigStrings() },
+    });
+    const refs = engine.parse("{{ upper .name }}").referencedFunctions();
+    expect(refs.has("upper")).toBe(true);
+    expect(refs.has("lower")).toBe(false);
+  });
+
+  it("sees functions through pipelines and nested calls, not just heads", () => {
+    const engine = createEngine<string>({
+      fromString: (s) => s,
+      funcs: { ...sprigStrings() },
+    });
+    const refs = engine
+      .parse('{{ .name | upper | trim }}{{ printf "%s" (lower .x) }}')
+      .referencedFunctions();
+    expect(refs.has("upper")).toBe(true);
+    expect(refs.has("trim")).toBe(true);
+    expect(refs.has("lower")).toBe(true);
+    expect(refs.has("printf")).toBe(true);
+  });
+
+  it("does not mistake a field path or a string literal for a function", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    // `.menu` is a field; "menu" is a string literal — neither is a call.
+    const refs = engine.parse('{{ .menu }}{{ print "menu" }}').referencedFunctions();
+    expect(refs.has("menu")).toBe(false);
+    expect(refs.has("print")).toBe(true);
+  });
+
+  it("collects functions referenced inside {{ define }} blocks", () => {
+    const engine = createEngine<string>({
+      fromString: (s) => s,
+      funcs: { ...sprigStrings() },
+    });
+    const refs = engine
+      .parse('{{ define "x" }}{{ upper .y }}{{ end }}{{ template "x" . }}')
+      .referencedFunctions();
+    expect(refs.has("upper")).toBe(true);
+  });
+});
+
 describe("public API — Engine.compile", () => {
   it("returns a closure usable many times", () => {
     const engine = createEngine<string>({ fromString: (s) => s });
