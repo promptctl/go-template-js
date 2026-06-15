@@ -34,6 +34,7 @@ import {
 import type { Delims } from "../parser/lexer.js";
 import { type ParseResult, parse as parseSource } from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
+import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins } from "./builtins.js";
 import { isLazy } from "./lazy.js";
@@ -404,25 +405,83 @@ const NO_PIPE: Piped = { kind: "none" };
 // callable factory for Template. Captured from the static block below
 // so that Engine (and only Engine) can construct Templates without
 // exposing the parsed AST shape on the public type surface.
-let internalCreateTemplate: <U>(source: string, evaluate: (scope: unknown) => U[]) => Template<U>;
+let internalCreateTemplate: <U>(
+  source: string,
+  evaluate: (scope: unknown) => U[],
+  referencedFunctions: ReadonlySet<string>,
+) => Template<U>;
 
 export class Template<T> {
   readonly source: string;
   private readonly _evaluate: (scope: unknown) => T[];
+  // [LAW:types-are-the-program] The set of FuncMap names this template
+  // references, computed ONCE from the parsed AST at construction. A name here
+  // is a function the template *can* call (it is the head of some command, or
+  // appears as a function-valued argument); whether a given evaluation reaches
+  // it is a runtime question this static fact does not answer. Frozen so the
+  // exposed set cannot be mutated by a caller.
+  private readonly _referencedFunctions: ReadonlySet<string>;
 
-  private constructor(source: string, evaluate: (scope: unknown) => T[]) {
+  private constructor(
+    source: string,
+    evaluate: (scope: unknown) => T[],
+    referencedFunctions: ReadonlySet<string>,
+  ) {
     this.source = source;
     this._evaluate = evaluate;
+    this._referencedFunctions = referencedFunctions;
   }
 
   static {
-    internalCreateTemplate = <U>(source: string, evaluate: (scope: unknown) => U[]) =>
-      new Template(source, evaluate);
+    internalCreateTemplate = <U>(
+      source: string,
+      evaluate: (scope: unknown) => U[],
+      referencedFunctions: ReadonlySet<string>,
+    ) => new Template(source, evaluate, referencedFunctions);
   }
 
   evaluate(scope: unknown): T[] {
     return this._evaluate(scope);
   }
+
+  /**
+   * The FuncMap function names this template references — every identifier that
+   * names a function anywhere in the template body or its `{{ define }}` blocks.
+   *
+   * This is a STATIC fact derived from the parsed AST, not an execution trace:
+   * a name in the set is a function the template *can* invoke; a name absent
+   * from the set is one it provably never invokes. Use it to ask "does this
+   * template use helper X?" without evaluating it (e.g. to discover which
+   * templates depend on a feature func) — robust where a source-text scan is
+   * not, because it sees through whitespace, pipelines, and field/string
+   * lookalikes.
+   *
+   * Built-in operators registered for every engine (`and`, `eq`, `index`,
+   * `printf`, …) are reported the same as consumer funcs — a referenced name is
+   * a referenced name regardless of who registered it.
+   */
+  referencedFunctions(): ReadonlySet<string> {
+    return this._referencedFunctions;
+  }
+}
+
+// [LAW:single-enforcer] The one place "which functions does this AST reference"
+// is computed — a single preorder walk (the shared traversal helper) over the
+// root body and every `{{ define }}` body. In go-template's grammar every
+// IdentifierNode names a function (bare `true`/`nil`/numbers parse to their own
+// node kinds), whether it is a command head (`{{ f x }}`) or a function-valued
+// argument (`{{ call .x f }}`), so collecting every Identifier is exactly the
+// set of referenced functions — no positional special-casing.
+function collectReferencedFunctions(parsed: ParseResult): ReadonlySet<string> {
+  const names = new Set<string>();
+  const collect = (root: Node): void => {
+    walk(root, (node) => {
+      if (node.type === "Identifier") names.add(node.ident);
+    });
+  };
+  collect(parsed.root);
+  for (const body of parsed.defines.values()) collect(body);
+  return names;
 }
 
 export class Engine<T> {
@@ -483,7 +542,11 @@ export class Engine<T> {
    */
   parse(source: string): Template<T> {
     const parsed = parseSource(source, this.delims);
-    return internalCreateTemplate(parsed.source, (scope) => this.evalParsed(parsed, scope));
+    return internalCreateTemplate(
+      parsed.source,
+      (scope) => this.evalParsed(parsed, scope),
+      collectReferencedFunctions(parsed),
+    );
   }
 
   /**
