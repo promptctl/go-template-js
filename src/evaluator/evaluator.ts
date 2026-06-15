@@ -33,8 +33,8 @@ import {
 } from "../parser/ast.js";
 import type { Delims } from "../parser/lexer.js";
 import { type ParseResult, parse as parseSource } from "../parser/parser.js";
-import { walk } from "../parser/walk.js";
 import type { Pos } from "../parser/pos.js";
+import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins } from "./builtins.js";
 import { isLazy } from "./lazy.js";
