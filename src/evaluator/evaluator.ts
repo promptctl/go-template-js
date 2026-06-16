@@ -409,7 +409,26 @@ let internalCreateTemplate: <U>(
   source: string,
   evaluate: (scope: unknown) => U[],
   referencedFunctions: ReadonlySet<string>,
+  referencedCalls: readonly ReferencedCall[],
 ) => Template<U>;
+
+// [LAW:types-are-the-program] One command-head call site projected to the facts
+// a static consumer can act on: the callee name and its positional arguments,
+// with each LITERAL string argument decoded and every non-literal argument
+// (field, pipeline, bool, number, …) reported as `null` so positions are
+// preserved. This is the argument-aware companion to `referencedFunctions`:
+// where that answers "is X called?", this answers "with what literal strings?".
+export interface ReferencedCall {
+  /** The function name at the head of the command. */
+  readonly name: string;
+  /**
+   * The positional arguments after the head. A literal string argument is its
+   * decoded value; any non-string-literal argument is `null` (its value is only
+   * known at evaluation time). Indices match the call site, so `args[0]` is the
+   * first argument regardless of the kinds in between.
+   */
+  readonly args: readonly (string | null)[];
+}
 
 export class Template<T> {
   readonly source: string;
@@ -421,15 +440,22 @@ export class Template<T> {
   // it is a runtime question this static fact does not answer. Frozen so the
   // exposed set cannot be mutated by a caller.
   private readonly _referencedFunctions: ReadonlySet<string>;
+  // [LAW:types-are-the-program] Every command-head call with its literal string
+  // args, computed ONCE from the same parsed AST. A superset of the information
+  // in `_referencedFunctions` (every call's name is also a referenced function),
+  // exposed separately so the cheaper name-only query stays a `Set`.
+  private readonly _referencedCalls: readonly ReferencedCall[];
 
   private constructor(
     source: string,
     evaluate: (scope: unknown) => T[],
     referencedFunctions: ReadonlySet<string>,
+    referencedCalls: readonly ReferencedCall[],
   ) {
     this.source = source;
     this._evaluate = evaluate;
     this._referencedFunctions = referencedFunctions;
+    this._referencedCalls = referencedCalls;
   }
 
   static {
@@ -437,7 +463,8 @@ export class Template<T> {
       source: string,
       evaluate: (scope: unknown) => U[],
       referencedFunctions: ReadonlySet<string>,
-    ) => new Template(source, evaluate, referencedFunctions);
+      referencedCalls: readonly ReferencedCall[],
+    ) => new Template(source, evaluate, referencedFunctions, referencedCalls);
   }
 
   evaluate(scope: unknown): T[] {
@@ -463,6 +490,24 @@ export class Template<T> {
   referencedFunctions(): ReadonlySet<string> {
     return this._referencedFunctions;
   }
+
+  /**
+   * Every command-head call in the template body and its `{{ define }}` blocks,
+   * in preorder, each paired with its positional arguments projected to literal
+   * strings (a non-string-literal argument is reported as `null`, preserving
+   * argument positions).
+   *
+   * Like {@link referencedFunctions} this is a STATIC fact from the parsed AST,
+   * not an execution trace. Use it when "is X called?" is not enough and you
+   * need the literal arguments a call was written with — e.g. to discover that a
+   * template contains `{{ menu "applyTheme" "themePage" }}` and read its first
+   * argument without evaluating the template. Calls whose head is not a bare
+   * function identifier (e.g. a field invoked via `call`) are not reported here;
+   * their names still appear in {@link referencedFunctions}.
+   */
+  referencedCalls(): readonly ReferencedCall[] {
+    return this._referencedCalls;
+  }
 }
 
 // [LAW:single-enforcer] The one place "which functions does this AST reference"
@@ -482,6 +527,34 @@ function collectReferencedFunctions(parsed: ParseResult): ReadonlySet<string> {
   collect(parsed.root);
   for (const body of parsed.defines.values()) collect(body);
   return names;
+}
+
+// [LAW:single-enforcer] The one place "which command-head calls, with what
+// literal args" is computed — the same preorder walk as
+// `collectReferencedFunctions`, over the root body and every `{{ define }}`. A
+// CommandNode whose first arg is an Identifier is a call of that function; the
+// remaining args are projected to their decoded string value (StringNode) or
+// `null` (any other node kind — its value is an eval-time question), preserving
+// positions. Pipeline stages (`{{ x | f }}`) parse as Commands too, so `f` is
+// reported with the args written at its own stage (the piped value is prepended
+// at eval and is not an AST argument) — consistent with how the head/args split
+// is defined here.
+function collectReferencedCalls(parsed: ParseResult): readonly ReferencedCall[] {
+  const calls: ReferencedCall[] = [];
+  const collect = (root: Node): void => {
+    walk(root, (node) => {
+      if (node.type !== "Command") return;
+      const head = node.args[0];
+      if (head === undefined || head.type !== "Identifier") return;
+      calls.push({
+        name: head.ident,
+        args: node.args.slice(1).map((arg) => (arg.type === "String" ? arg.value : null)),
+      });
+    });
+  };
+  collect(parsed.root);
+  for (const body of parsed.defines.values()) collect(body);
+  return calls;
 }
 
 export class Engine<T> {
@@ -546,6 +619,7 @@ export class Engine<T> {
       parsed.source,
       (scope) => this.evalParsed(parsed, scope),
       collectReferencedFunctions(parsed),
+      collectReferencedCalls(parsed),
     );
   }
 
