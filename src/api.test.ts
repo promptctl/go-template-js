@@ -66,6 +66,50 @@ describe("public API — Template.referencedFunctions", () => {
   });
 });
 
+describe("public API — Template.referencedCalls", () => {
+  it("reports a call's literal string args, with null for non-literals", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine.parse('{{ menu "applyTheme" "themePage" false true }}').referencedCalls();
+    const menu = calls.find((c) => c.name === "menu");
+    expect(menu).toBeDefined();
+    // strings decoded; bools (non-string-literals) become null, positions kept.
+    expect(menu?.args).toEqual(["applyTheme", "themePage", null, null]);
+  });
+
+  it("reports two calls of the same function in one template", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine
+      .parse('{{ menu "applyTheme" "p1" }}{{ menu "applyStyle" "p2" }}')
+      .referencedCalls()
+      .filter((c) => c.name === "menu");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.args[0]).toBe("applyTheme");
+    expect(calls[1]?.args[0]).toBe("applyStyle");
+  });
+
+  it("projects a field argument to null (only its position is known statically)", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine.parse('{{ menu "applyTheme" .pageVar }}').referencedCalls();
+    const menu = calls.find((c) => c.name === "menu");
+    expect(menu?.args).toEqual(["applyTheme", null]);
+  });
+
+  it("does not treat a bare field or string literal as a call", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine.parse('{{ .menu }}{{ print "menu" }}').referencedCalls();
+    expect(calls.some((c) => c.name === "menu")).toBe(false);
+    expect(calls.some((c) => c.name === "print")).toBe(true);
+  });
+
+  it("collects calls inside {{ define }} blocks", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine
+      .parse('{{ define "x" }}{{ menu "applyTheme" "p" }}{{ end }}{{ template "x" . }}')
+      .referencedCalls();
+    expect(calls.some((c) => c.name === "menu" && c.args[0] === "applyTheme")).toBe(true);
+  });
+});
+
 describe("public API — Engine.compile", () => {
   it("returns a closure usable many times", () => {
     const engine = createEngine<string>({ fromString: (s) => s });

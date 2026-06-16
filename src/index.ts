@@ -42,6 +42,7 @@ export {
   type EngineConfig,
   type FuncMap,
   type MissingKeyOption,
+  type ReferencedCall,
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
