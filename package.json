@@ -1,6 +1,6 @@
 {
   "name": "@promptctl/go-template-js",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Go template syntax + sprig subset, generic over output type, in TypeScript.",
   "keywords": [
     "go-template",
@@ -48,6 +48,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",
