@@ -4,7 +4,15 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createEngine, sprigDefaults, sprigStrings, type TemplateFunc } from "./index.js";
+import {
+  createEngine,
+  type ReferencedArg,
+  type ReferencedLiteral,
+  sprigDefaults,
+  sprigStrings,
+  staticDictEntries,
+  type TemplateFunc,
+} from "./index.js";
 
 describe("public API — Engine.parse + Template.evaluate", () => {
   it("parses once and evaluates with multiple scopes", () => {
@@ -107,6 +115,73 @@ describe("public API — Template.referencedCalls", () => {
       .parse('{{ define "x" }}{{ menu "applyTheme" "p" }}{{ end }}{{ template "x" . }}')
       .referencedCalls();
     expect(calls.some((c) => c.name === "menu" && c.args[0] === "applyTheme")).toBe(true);
+  });
+});
+
+describe("public API — ReferencedCall.argExprs (static argument projection)", () => {
+  const lit = (value: ReferencedLiteral): ReferencedArg => ({ kind: "literal", value });
+
+  it("projects a literal (dict …) argument recursively, readable via staticDictEntries", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine
+      .parse('{{ menu "a" (dict "key" "pickers" "paged" false) }}')
+      .referencedCalls();
+    const menu = calls.find((c) => c.name === "menu");
+    expect(menu?.argExprs).toEqual([
+      lit("a"),
+      {
+        kind: "call",
+        name: "dict",
+        args: [lit("key"), lit("pickers"), lit("paged"), lit(false)],
+      },
+    ]);
+    const dictArg = menu?.argExprs[1];
+    expect(dictArg && staticDictEntries(dictArg)).toEqual({ key: "pickers", paged: false });
+    // the legacy string-only view is unchanged by the richer projection.
+    expect(menu?.args).toEqual(["a", null]);
+  });
+
+  it("reports a dict with a non-literal entry as unreadable — never a guessed value", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine.parse('{{ menu "a" (dict "key" .x) }}').referencedCalls();
+    const dictArg = calls.find((c) => c.name === "menu")?.argExprs[1];
+    expect(dictArg).toEqual({
+      kind: "call",
+      name: "dict",
+      args: [lit("key"), { kind: "dynamic" }],
+    });
+    expect(dictArg && staticDictEntries(dictArg)).toBeNull();
+  });
+
+  it("reports a nested non-dict call by name; staticDictEntries refuses it", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine.parse('{{ menu "a" (upper "k") }}').referencedCalls();
+    const arg = calls.find((c) => c.name === "menu")?.argExprs[1];
+    expect(arg).toEqual({ kind: "call", name: "upper", args: [lit("k")] });
+    expect(arg && staticDictEntries(arg)).toBeNull();
+  });
+
+  it("projects scalar literals to the values evaluation would produce", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine.parse('{{ menu "a" 3 2.5 true nil }}').referencedCalls();
+    const menu = calls.find((c) => c.name === "menu");
+    expect(menu?.argExprs).toEqual([lit("a"), lit(3), lit(2.5), lit(true), lit(null)]);
+    // only the string literal survives into the legacy view.
+    expect(menu?.args).toEqual(["a", null, null, null, null]);
+  });
+
+  it("projects a multi-stage paren pipeline as dynamic", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine.parse('{{ menu "a" (.x | upper) }}').referencedCalls();
+    expect(calls.find((c) => c.name === "menu")?.argExprs[1]).toEqual({ kind: "dynamic" });
+  });
+
+  it("keeps argExprs aligned with args position-for-position", () => {
+    const engine = createEngine<string>({ fromString: (s) => s });
+    const calls = engine.parse('{{ menu "a" .x "b" false }}').referencedCalls();
+    const menu = calls.find((c) => c.name === "menu");
+    expect(menu?.args).toEqual(["a", null, "b", null]);
+    expect(menu?.argExprs).toEqual([lit("a"), { kind: "dynamic" }, lit("b"), lit(false)]);
   });
 });
 
