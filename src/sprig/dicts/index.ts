@@ -1,7 +1,7 @@
 /** Sprig dict utilities — pair-files per epic spec. */
 
 import type { FuncMap } from "../../evaluator/evaluator.js";
-import { dict } from "./dict.js";
+import { dict, staticDictEntries } from "./dict.js";
 import { get } from "./get.js";
 import { hasKey } from "./hasKey.js";
 import { keys } from "./keys.js";
@@ -14,7 +14,21 @@ import { set } from "./set.js";
 import { unset } from "./unset.js";
 import { values } from "./values.js";
 
-export { dict, get, hasKey, keys, merge, mergeOverwrite, omit, pick, pluck, set, unset, values };
+export {
+  dict,
+  get,
+  hasKey,
+  keys,
+  merge,
+  mergeOverwrite,
+  omit,
+  pick,
+  pluck,
+  set,
+  staticDictEntries,
+  unset,
+  values,
+};
 
 export function sprigDicts(): FuncMap {
   // [LAW:single-enforcer] Dict slots declare "dict" so the gate enforces

@@ -13,6 +13,9 @@
  * - Error hierarchy: TemplateError → ParseError, EvalError; EvalError
  *   → FuncNotFoundError, TypeMismatchError, MissingFieldError; the
  *   ErrorKind discriminator string union.
+ * - Static introspection: ReferencedCall / ReferencedArg /
+ *   ReferencedLiteral (see Template.referencedCalls) and
+ *   staticDictEntries, the literal-`(dict …)` argument reader.
  * - Sprig category factories: sprigDefaults, sprigStrings, sprigMath,
  *   sprigLists, sprigDicts, sprigRegex, sprigTypes, sprigConversions,
  *   sprigSemver, sprigFlow, sprigRandom, sprigHash, sprigDatetime.
@@ -42,14 +45,16 @@ export {
   type EngineConfig,
   type FuncMap,
   type MissingKeyOption,
+  type ReferencedArg,
   type ReferencedCall,
+  type ReferencedLiteral,
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
 export { sprigConversions } from "./sprig/conversions/index.js";
 export { sprigDatetime } from "./sprig/datetime/index.js";
 export { sprigDefaults } from "./sprig/defaults/index.js";
-export { sprigDicts } from "./sprig/dicts/index.js";
+export { sprigDicts, staticDictEntries } from "./sprig/dicts/index.js";
 export { sprigFlow } from "./sprig/flow/index.js";
 export { sprigHash } from "./sprig/hash/index.js";
 export { sprigLists } from "./sprig/lists/index.js";
