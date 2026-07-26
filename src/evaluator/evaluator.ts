@@ -426,9 +426,40 @@ export interface ReferencedCall {
    * decoded value; any non-string-literal argument is `null` (its value is only
    * known at evaluation time). Indices match the call site, so `args[0]` is the
    * first argument regardless of the kinds in between.
+   *
+   * [LAW:one-source-of-truth] A derived view of {@link argExprs} — the
+   * string-literal projection kept for consumers that only read literal
+   * string slots. `args[i]` is `argExprs[i].value` when that is a literal
+   * string, `null` otherwise.
    */
   readonly args: readonly (string | null)[];
+  /**
+   * The positional arguments after the head, each statically projected to a
+   * {@link ReferencedArg}. Indices match the call site (`argExprs[0]` is the
+   * first argument), and `argExprs.length === args.length`.
+   */
+  readonly argExprs: readonly ReferencedArg[];
 }
+
+/**
+ * A scalar value statically decodable from a literal argument node. Numbers
+ * carry the same JS value evaluation would produce (safe ints as `number`,
+ * larger ints as `bigint`); `null` is the projection of the `nil` literal.
+ */
+export type ReferencedLiteral = string | number | bigint | boolean | null;
+
+// [LAW:types-are-the-program] The total static projection of one call
+// argument. Three shapes cover the whole grammar: a literal scalar whose
+// value is known at parse time; a nested call `(f a b …)` projected
+// recursively so a consumer can read e.g. `(dict "k" "v")` option args
+// without evaluating; and `dynamic` for everything whose value only exists
+// at eval time (fields, variables, pipelines, function-valued idents, …).
+// A value is never guessed: anything not provably literal is `dynamic`
+// [LAW:no-silent-failure].
+export type ReferencedArg =
+  | { readonly kind: "literal"; readonly value: ReferencedLiteral }
+  | { readonly kind: "call"; readonly name: string; readonly args: readonly ReferencedArg[] }
+  | { readonly kind: "dynamic" };
 
 export class Template<T> {
   readonly source: string;
@@ -501,9 +532,12 @@ export class Template<T> {
    * not an execution trace. Use it when "is X called?" is not enough and you
    * need the literal arguments a call was written with — e.g. to discover that a
    * template contains `{{ menu "applyTheme" "themePage" }}` and read its first
-   * argument without evaluating the template. Calls whose head is not a bare
-   * function identifier (e.g. a field invoked via `call`) are not reported here;
-   * their names still appear in {@link referencedFunctions}.
+   * argument without evaluating the template. Each call's `argExprs` carries the
+   * full {@link ReferencedArg} projection (scalar literals, nested literal calls
+   * like `(dict "k" "v")`, `dynamic` for eval-time values); `args` is its
+   * string-literal-only view. Calls whose head is not a bare function
+   * identifier (e.g. a field invoked via `call`) are not reported here; their
+   * names still appear in {@link referencedFunctions}.
    */
   referencedCalls(): readonly ReferencedCall[] {
     return this._referencedCalls;
@@ -529,16 +563,53 @@ function collectReferencedFunctions(parsed: ParseResult): ReadonlySet<string> {
   return names;
 }
 
+const DYNAMIC_ARG: ReferencedArg = { kind: "dynamic" };
+
+// [LAW:single-enforcer] The one place an argument node becomes a
+// ReferencedArg. Literal leaves decode to the SAME JS value evaluation
+// produces — strings/bools directly, numbers via the shared `numberValue`
+// (complex literals have no scalar carrier, so they stay `dynamic` rather
+// than invent one), `nil` as `null`. A parenthesised argument parses as a
+// PipeNode; only the trivial pipe — no declarations, exactly one command,
+// an Identifier head — is a statically readable nested call `(f a b …)`,
+// projected recursively. Every other shape is an eval-time value: `dynamic`.
+function projectArg(node: Node): ReferencedArg {
+  switch (node.type) {
+    case "String":
+      return { kind: "literal", value: node.value };
+    case "Bool":
+      return { kind: "literal", value: node.value };
+    case "Nil":
+      return { kind: "literal", value: null };
+    case "Number": {
+      const value = numberValue(node);
+      return typeof value === "number" || typeof value === "bigint"
+        ? { kind: "literal", value }
+        : DYNAMIC_ARG;
+    }
+    case "Pipe": {
+      if (node.decls.length !== 0 || node.cmds.length !== 1) return DYNAMIC_ARG;
+      const cmd = node.cmds[0];
+      if (cmd === undefined) return DYNAMIC_ARG;
+      const head = cmd.args[0];
+      if (head === undefined || head.type !== "Identifier") return DYNAMIC_ARG;
+      return { kind: "call", name: head.ident, args: cmd.args.slice(1).map(projectArg) };
+    }
+    default:
+      return DYNAMIC_ARG;
+  }
+}
+
 // [LAW:single-enforcer] The one place "which command-head calls, with what
 // literal args" is computed — the same preorder walk as
 // `collectReferencedFunctions`, over the root body and every `{{ define }}`. A
 // CommandNode whose first arg is an Identifier is a call of that function; the
-// remaining args are projected to their decoded string value (StringNode) or
-// `null` (any other node kind — its value is an eval-time question), preserving
-// positions. Pipeline stages (`{{ x | f }}`) parse as Commands too, so `f` is
-// reported with the args written at its own stage (the piped value is prepended
-// at eval and is not an AST argument) — consistent with how the head/args split
-// is defined here.
+// remaining args are projected via `projectArg`, preserving positions, and the
+// legacy string-only `args` view is derived from that projection
+// [LAW:one-source-of-truth]. Pipeline stages (`{{ x | f }}`) parse as Commands
+// too, so `f` is reported with the args written at its own stage (the piped
+// value is prepended at eval and is not an AST argument) — consistent with how
+// the head/args split is defined here.
 function collectReferencedCalls(parsed: ParseResult): readonly ReferencedCall[] {
   const calls: ReferencedCall[] = [];
   const collect = (root: Node): void => {
@@ -546,9 +617,13 @@ function collectReferencedCalls(parsed: ParseResult): readonly ReferencedCall[] 
       if (node.type !== "Command") return;
       const head = node.args[0];
       if (head === undefined || head.type !== "Identifier") return;
+      const argExprs = node.args.slice(1).map(projectArg);
       calls.push({
         name: head.ident,
-        args: node.args.slice(1).map((arg) => (arg.type === "String" ? arg.value : null)),
+        args: argExprs.map((arg) =>
+          arg.kind === "literal" && typeof arg.value === "string" ? arg.value : null,
+        ),
+        argExprs,
       });
     });
   };
