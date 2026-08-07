@@ -10,11 +10,13 @@
  */
 export function initials(s: string): string {
   const enc = new TextEncoder();
-  return s
-    .split(/\s+/)
-    .filter((w) => w.length > 0)
-    // [LAW:dataflow-not-control-flow] spread of the 1-byte slice: an (impossible)
-    // empty word contributes "" naturally instead of a guarded fallback value.
-    .map((w) => String.fromCharCode(...enc.encode(w).slice(0, 1)))
-    .join("");
+  return (
+    s
+      .split(/\s+/)
+      .filter((w) => w.length > 0)
+      // [LAW:dataflow-not-control-flow] spread of the 1-byte slice: an (impossible)
+      // empty word contributes "" naturally instead of a guarded fallback value.
+      .map((w) => String.fromCharCode(...enc.encode(w).slice(0, 1)))
+      .join("")
+  );
 }
