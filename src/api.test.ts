@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
+  FuncNotFoundError,
   type ReferencedArg,
   type ReferencedLiteral,
   sprigDefaults,
@@ -225,5 +226,48 @@ describe("public API — Engine instances are stateless", () => {
     const b = engine.parse("{{ .y }}");
     expect(a.evaluate({ x: "X", y: "Y" }).join("")).toBe("X");
     expect(b.evaluate({ x: "X", y: "Y" }).join("")).toBe("Y");
+  });
+});
+
+describe("parse with inherited defines", () => {
+  const engine = createEngine<string>({ fromString: (s) => s, funcs: sprigStrings() });
+  const preambleSrc =
+    '{{ define "shout" }}{{ upper . }}!{{ end }}{{ define "boom" }}{{ nosuchfn . }}{{ end }}';
+  const helpers = engine.parse(preambleSrc).defines();
+
+  it("evaluates inherited templates exactly as prepended ones", () => {
+    const shared = engine.parse('{{ template "shout" .name }}', helpers);
+    const prepended = engine.parse(`${preambleSrc}{{ template "shout" .name }}`);
+    expect(shared.evaluate({ name: "hi" })).toEqual(prepended.evaluate({ name: "hi" }));
+    expect(shared.evaluate({ name: "hi" }).join("")).toBe("HI!");
+  });
+
+  it("keeps the inheriting template's source free of the preamble", () => {
+    const tpl = engine.parse('{{ template "shout" .name }}', helpers);
+    expect(tpl.source).toBe('{{ template "shout" .name }}');
+  });
+
+  it("an error inside an inherited body snippets against the preamble's source", () => {
+    const tpl = engine.parse('{{ template "boom" . }}', helpers);
+    let caught: unknown;
+    try {
+      tpl.evaluate({});
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FuncNotFoundError);
+    expect((caught as FuncNotFoundError).source).toBe(preambleSrc);
+  });
+
+  it("referencedCalls/Functions describe this parse only, not the inherited set", () => {
+    const tpl = engine.parse('{{ template "shout" (lower .name) }}', helpers);
+    expect(tpl.referencedFunctions()).toEqual(new Set(["lower"]));
+    expect(engine.parse(preambleSrc).referencedFunctions()).toEqual(new Set(["upper", "nosuchfn"]));
+  });
+
+  it("defines() chain: a template's own defines ride in front of the inherited ones", () => {
+    const mid = engine.parse('{{ define "quiet" }}{{ lower . }}{{ end }}', helpers);
+    const tpl = engine.parse('{{ template "quiet" .a }}{{ template "shout" .b }}', mid.defines());
+    expect(tpl.evaluate({ a: "AB", b: "cd" }).join("")).toBe("abCD!");
   });
 });

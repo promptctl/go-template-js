@@ -32,7 +32,12 @@ import {
   type PipeNode,
 } from "../parser/ast.js";
 import type { Delims } from "../parser/lexer.js";
-import { type ParseResult, parse as parseSource } from "../parser/parser.js";
+import {
+  type Defines,
+  lookupDefine,
+  type ParseResult,
+  parse as parseSource,
+} from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
@@ -361,7 +366,7 @@ export interface EngineConfig<T> {
 // Per-evaluate context. Threaded through every internal method.
 interface EvalContext<T> {
   readonly out: T[];
-  readonly defines: ReadonlyMap<string, ListNode>;
+  readonly defines: Defines;
   readonly source: string | undefined;
 }
 
@@ -408,6 +413,7 @@ const NO_PIPE: Piped = { kind: "none" };
 let internalCreateTemplate: <U>(
   source: string,
   evaluate: (scope: unknown) => U[],
+  defines: Defines,
   referencedFunctions: ReadonlySet<string>,
   referencedCalls: readonly ReferencedCall[],
 ) => Template<U>;
@@ -464,6 +470,7 @@ export type ReferencedArg =
 export class Template<T> {
   readonly source: string;
   private readonly _evaluate: (scope: unknown) => T[];
+  private readonly _defines: Defines;
   // [LAW:types-are-the-program] The set of FuncMap names this template
   // references, computed ONCE from the parsed AST at construction. A name here
   // is a function the template *can* call (it is the head of some command, or
@@ -480,11 +487,13 @@ export class Template<T> {
   private constructor(
     source: string,
     evaluate: (scope: unknown) => T[],
+    defines: Defines,
     referencedFunctions: ReadonlySet<string>,
     referencedCalls: readonly ReferencedCall[],
   ) {
     this.source = source;
     this._evaluate = evaluate;
+    this._defines = defines;
     this._referencedFunctions = referencedFunctions;
     this._referencedCalls = referencedCalls;
   }
@@ -493,9 +502,23 @@ export class Template<T> {
     internalCreateTemplate = <U>(
       source: string,
       evaluate: (scope: unknown) => U[],
+      defines: Defines,
       referencedFunctions: ReadonlySet<string>,
       referencedCalls: readonly ReferencedCall[],
-    ) => new Template(source, evaluate, referencedFunctions, referencedCalls);
+    ) => new Template(source, evaluate, defines, referencedFunctions, referencedCalls);
+  }
+
+  /**
+   * The named sub-templates this template can invoke — its own `{{define}}`s
+   * chained onto whatever it inherited at parse. Pass it to `engine.parse` as
+   * `inherit` to let another template invoke the same set without re-parsing
+   * (and re-allocating) it: the idiom for a shared helper preamble is
+   * `const helpers = engine.parse(preamble).defines()` once, then
+   * `engine.parse(src, helpers)` per template. Opaque: the AST inside is not
+   * part of the public surface.
+   */
+  defines(): Defines {
+    return this._defines;
   }
 
   evaluate(scope: unknown): T[] {
@@ -504,7 +527,9 @@ export class Template<T> {
 
   /**
    * The FuncMap function names this template references — every identifier that
-   * names a function anywhere in the template body or its `{{ define }}` blocks.
+   * names a function in this parse: the template body and its own `{{ define }}`
+   * blocks. A set inherited at parse (see {@link Template.defines}) is described
+   * by the template that parsed it, not here.
    *
    * This is a STATIC fact derived from the parsed AST, not an execution trace:
    * a name in the set is a function the template *can* invoke; a name absent
@@ -523,8 +548,8 @@ export class Template<T> {
   }
 
   /**
-   * Every command-head call in the template body and its `{{ define }}` blocks,
-   * in preorder, each paired with its positional arguments projected to literal
+   * Every command-head call in this parse — the template body and its own
+   * `{{ define }}` blocks, never an inherited set — in preorder, each paired with its positional arguments projected to literal
    * strings (a non-string-literal argument is reported as `null`, preserving
    * argument positions).
    *
@@ -559,7 +584,7 @@ function collectReferencedFunctions(parsed: ParseResult): ReadonlySet<string> {
     });
   };
   collect(parsed.root);
-  for (const body of parsed.defines.values()) collect(body);
+  for (const entry of parsed.ownDefines.values()) collect(entry.list);
   return names;
 }
 
@@ -628,7 +653,7 @@ function collectReferencedCalls(parsed: ParseResult): readonly ReferencedCall[] 
     });
   };
   collect(parsed.root);
-  for (const body of parsed.defines.values()) collect(body);
+  for (const entry of parsed.ownDefines.values()) collect(entry.list);
   return calls;
 }
 
@@ -688,11 +713,12 @@ export class Engine<T> {
    * it any number of times with different scopes is safe and avoids
    * re-parsing.
    */
-  parse(source: string): Template<T> {
-    const parsed = parseSource(source, this.delims);
+  parse(source: string, inherit?: Defines): Template<T> {
+    const parsed = parseSource(source, this.delims, inherit);
     return internalCreateTemplate(
       parsed.source,
       (scope) => this.evalParsed(parsed, scope),
+      parsed.defines,
       collectReferencedFunctions(parsed),
       collectReferencedCalls(parsed),
     );
@@ -899,15 +925,17 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const tpl = ctx.defines.get(node.name);
-    if (!tpl) {
+    const entry = lookupDefine(ctx.defines, node.name);
+    if (!entry) {
       throw new EvalError(`template ${JSON.stringify(node.name)} is not defined`, node.pos, {
         source: ctx.source,
       });
     }
     const arg = node.pipe ? this.evalPipe(node.pipe, scope, ctx) : scope.dot;
     const child = pushScope(scope, arg);
-    this.evalList(tpl, child, ctx);
+    // The body's errors snippet against the source that declared it, which
+    // for an inherited define is not this template's source.
+    this.evalList(entry.list, child, { out: ctx.out, defines: ctx.defines, source: entry.source });
   }
 
   private evalBlock(
@@ -920,8 +948,8 @@ export class Engine<T> {
     // The dot for the block body is the pipe's value when present.
     const arg = node.pipe ? this.evalPipe(node.pipe, scope, ctx) : scope.dot;
     const child = pushScope(scope, arg);
-    const tpl = ctx.defines.get(node.name) ?? node.list;
-    this.evalList(tpl, child, ctx);
+    const entry = lookupDefine(ctx.defines, node.name) ?? { list: node.list, source: ctx.source };
+    this.evalList(entry.list, child, { out: ctx.out, defines: ctx.defines, source: entry.source });
   }
 
   // -------------------------------------------------------------------
