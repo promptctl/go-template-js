@@ -51,7 +51,7 @@ export {
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
-export type { Defines } from "./parser/parser.js";
+export { Defines } from "./parser/parser.js";
 export { sprigConversions } from "./sprig/conversions/index.js";
 export { sprigDatetime } from "./sprig/datetime/index.js";
 export { sprigDefaults } from "./sprig/defaults/index.js";
