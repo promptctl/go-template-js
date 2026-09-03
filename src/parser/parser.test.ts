@@ -428,7 +428,11 @@ describe("inherited defines", () => {
   });
 
   it("a block whose name is inherited falls back to the inherited define", () => {
-    const { defines, ownDefines } = parse('{{block "hdr" .}}fallback{{end}}', undefined, preamble.defines);
+    const { defines, ownDefines } = parse(
+      '{{block "hdr" .}}fallback{{end}}',
+      undefined,
+      preamble.defines,
+    );
     expect(ownDefines.has("hdr")).toBe(false);
     expect(defines.get("hdr")).toBe(preamble.defines.get("hdr"));
   });
