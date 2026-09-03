@@ -47,17 +47,92 @@ import type { Pos } from "./pos.js";
 // Public API.
 // ---------------------------------------------------------------------------
 
+/**
+ * A named sub-template body together with the source it was parsed from.
+ * A body invoked through an inherited `Defines` runs far from the template
+ * that invoked it, so an error inside it must snippet against ITS source,
+ * not the invoker's.
+ */
+export interface DefineEntry {
+  readonly list: ListNode;
+  readonly source: string;
+}
+
+/**
+ * The named sub-templates a template can invoke: the ones its own source
+ * declared plus, transitively, the ones it inherited at parse. Opaque: only
+ * `has` and the `EMPTY` identity are public, so a consumer can neither build
+ * one by hand (the parser is the single enforcer of the redefinition invariant
+ * below) nor reach the AST inside — the entry lookup is `lookupDefine`, a
+ * module export index.ts never re-exports.
+ *
+ * [LAW:one-source-of-truth] Inheritance is a parent LINK, never a copy. N
+ * templates parsed against one shared preamble hold one preamble AST among
+ * them — the alternative (prepending the preamble's source to each parse)
+ * multiplies the preamble's AST by N, which is how a 2 KB helper block became
+ * hundreds of megabytes in a long-lived process.
+ *
+ * Lookup is nearest-first, but the parser forbids a template from declaring a
+ * name its inherited set already holds (the same `redefinition` error as two
+ * declarations in one source), so nearest-first never actually shadows.
+ */
+// [LAW:one-source-of-truth] The parser is the only place a Defines is built
+// and the evaluator the only reader of its entries — both captured from the
+// static block below, the same way Engine reaches Template's private
+// constructor — so the public surface carries neither a constructor nor an
+// AST-returning method.
+let chainDefines: (own: ReadonlyMap<string, DefineEntry>, parent: Defines) => Defines;
+let readDefine: (defines: Defines, name: string) => DefineEntry | undefined;
+
+/** Nearest-first entry lookup through the inheritance chain. Package-internal. */
+export function lookupDefine(defines: Defines, name: string): DefineEntry | undefined {
+  return readDefine(defines, name);
+}
+
+export class Defines {
+  static readonly EMPTY = new Defines(new Map(), undefined);
+  readonly #own: ReadonlyMap<string, DefineEntry>;
+  readonly #parent: Defines | undefined;
+
+  private constructor(own: ReadonlyMap<string, DefineEntry>, parent: Defines | undefined) {
+    this.#own = own;
+    this.#parent = parent;
+  }
+
+  static {
+    chainDefines = (own, parent) => new Defines(own, parent);
+    readDefine = (d, name) => d.#own.get(name) ?? (d.#parent && readDefine(d.#parent, name));
+  }
+
+  has(name: string): boolean {
+    return readDefine(this, name) !== undefined;
+  }
+}
+
 export interface ParseResult {
   /** The body of the unnamed/root template. */
   readonly root: ListNode;
-  /** Templates created by `{{define "name"}}...{{end}}` blocks. */
-  readonly defines: ReadonlyMap<string, ListNode>;
+  /**
+   * Templates this parse can invoke: its own (`ownDefines`) chained onto the
+   * inherited set it was parsed against.
+   */
+  readonly defines: Defines;
+  /**
+   * The sub-templates this source itself declared, by `{{define "name"}}` /
+   * `{{block}}` — what static introspection describes; the inherited set is
+   * described by the parse that declared it.
+   */
+  readonly ownDefines: ReadonlyMap<string, DefineEntry>;
   /** Original source text — preserved for error snippets and Template.source. */
   readonly source: string;
 }
 
-export function parse(source: string, delims?: Delims): ParseResult {
-  const parser = new Parser(source, delims);
+export function parse(
+  source: string,
+  delims?: Delims,
+  inherit: Defines = Defines.EMPTY,
+): ParseResult {
+  const parser = new Parser(source, delims, inherit);
   return parser.parseTemplate();
 }
 
@@ -68,7 +143,8 @@ export function parse(source: string, delims?: Delims): ParseResult {
 class Parser {
   private readonly lex: Lexer;
   private readonly buf: Token[] = [];
-  private readonly defines = new Map<string, ListNode>();
+  private readonly defines = new Map<string, DefineEntry>();
+  private readonly inherit: Defines;
   private readonly source: string;
   // [LAW:types-are-the-program] Lexical-only counter: how many enclosing
   // `{{range}}` bodies surround the current parse position. `{{break}}`
@@ -79,8 +155,9 @@ class Parser {
   // inside a range but inside a nested define is still an error.
   private rangeDepth = 0;
 
-  constructor(source: string, delims?: Delims) {
+  constructor(source: string, delims: Delims | undefined, inherit: Defines) {
     this.source = source;
+    this.inherit = inherit;
     this.lex = delims ? new Lexer(source, delims) : new Lexer(source);
   }
 
@@ -144,7 +221,12 @@ class Parser {
       }
       throw this.errAt(left, `unexpected ${tokenLabel(left)}`, { found: tokenLabel(left) });
     }
-    return { root, defines: this.defines, source: this.source };
+    return {
+      root,
+      defines: chainDefines(this.defines, this.inherit),
+      ownDefines: this.defines,
+      source: this.source,
+    };
   }
 
   // -------------------------------------------------------------------
@@ -387,10 +469,11 @@ class Parser {
     const endRight = this.consumeEnd();
     const trim: TrimMarkers = { trimLeft, trimRight: endRight };
     // Block both registers a default body under `name` AND invokes it.
-    // A preceding `{{define}}` for the same name takes precedence —
-    // the block body is the fallback, not the override.
-    if (!this.defines.has(name)) {
-      this.defines.set(name, list);
+    // A preceding `{{define}}` for the same name — in this source or in the
+    // inherited set — takes precedence: the block body is the fallback, not
+    // the override.
+    if (!this.defines.has(name) && !this.inherit.has(name)) {
+      this.defines.set(name, { list, source: this.source });
     }
     return pipe
       ? ({ type: "Block", pos: startPos, name, pipe, list, trim } satisfies BlockNode)
@@ -410,12 +493,12 @@ class Parser {
     const list = this.parseList();
     this.rangeDepth = savedDepth;
     this.consumeEnd();
-    if (this.defines.has(name)) {
+    if (this.defines.has(name) || this.inherit.has(name)) {
       throw new ParseError(`redefinition of template ${JSON.stringify(name)}`, list.pos, {
         source: this.source,
       });
     }
-    this.defines.set(name, list);
+    this.defines.set(name, { list, source: this.source });
   }
 
   private parseQuotedName(): string {
