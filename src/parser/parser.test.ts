@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Node, NodeType } from "./ast.js";
-import { parse } from "./parser.js";
+import { lookupDefine, parse } from "./parser.js";
 import { stringify } from "./stringify.js";
 
 // Local narrowing helper — `noUncheckedIndexedAccess` makes
@@ -199,14 +199,14 @@ describe("parse — sub-templates", () => {
     const { root, defines } = parse('{{define "hdr"}}H{{end}}main');
     expect(root.nodes).toEqual([expect.objectContaining({ type: "Text", text: "main" })]);
     expect(defines.has("hdr")).toBe(true);
-    expect(defines.get("hdr")?.list.nodes[0]).toMatchObject({ type: "Text", text: "H" });
+    expect(lookupDefine(defines, "hdr")?.list.nodes[0]).toMatchObject({ type: "Text", text: "H" });
   });
 
   it("parses {{block}} which both defines and invokes", () => {
     const { root, defines } = parse('{{block "hdr" .}}H{{end}}');
     const b = root.nodes[0];
     expect(b?.type).toBe("Block");
-    expect(defines.get("hdr")?.list.nodes[0]).toMatchObject({ type: "Text", text: "H" });
+    expect(lookupDefine(defines, "hdr")?.list.nodes[0]).toMatchObject({ type: "Text", text: "H" });
   });
 });
 
@@ -406,19 +406,19 @@ describe("inherited defines", () => {
   it("shares the inherited bodies by reference, never by copy", () => {
     const a = parse("a", undefined, preamble.defines);
     const b = parse("b", undefined, preamble.defines);
-    expect(a.defines.get("hdr")).toBe(preamble.defines.get("hdr"));
-    expect(a.defines.get("hdr")).toBe(b.defines.get("hdr"));
+    expect(lookupDefine(a.defines, "hdr")).toBe(lookupDefine(preamble.defines, "hdr"));
+    expect(lookupDefine(a.defines, "hdr")).toBe(lookupDefine(b.defines, "hdr"));
   });
 
   it("own defines chain in front of inherited ones", () => {
     const { defines, ownDefines } = parse('{{define "x"}}X{{end}}', undefined, preamble.defines);
     expect(ownDefines.has("x")).toBe(true);
-    expect(defines.get("hdr")).toBe(preamble.defines.get("hdr"));
+    expect(lookupDefine(defines, "hdr")).toBe(lookupDefine(preamble.defines, "hdr"));
   });
 
   it("an entry remembers the source it was parsed from", () => {
     const { defines } = parse("body", undefined, preamble.defines);
-    expect(defines.get("hdr")?.source).toBe(preamble.source);
+    expect(lookupDefine(defines, "hdr")?.source).toBe(preamble.source);
   });
 
   it("redefining an inherited name is the same error as redefining a local one", () => {
@@ -434,6 +434,6 @@ describe("inherited defines", () => {
       preamble.defines,
     );
     expect(ownDefines.has("hdr")).toBe(false);
-    expect(defines.get("hdr")).toBe(preamble.defines.get("hdr"));
+    expect(lookupDefine(defines, "hdr")).toBe(lookupDefine(preamble.defines, "hdr"));
   });
 });

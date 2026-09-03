@@ -32,7 +32,12 @@ import {
   type PipeNode,
 } from "../parser/ast.js";
 import type { Delims } from "../parser/lexer.js";
-import { type Defines, type ParseResult, parse as parseSource } from "../parser/parser.js";
+import {
+  type Defines,
+  lookupDefine,
+  type ParseResult,
+  parse as parseSource,
+} from "../parser/parser.js";
 import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
@@ -920,7 +925,7 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const entry = ctx.defines.get(node.name);
+    const entry = lookupDefine(ctx.defines, node.name);
     if (!entry) {
       throw new EvalError(`template ${JSON.stringify(node.name)} is not defined`, node.pos, {
         source: ctx.source,
@@ -943,7 +948,7 @@ export class Engine<T> {
     // The dot for the block body is the pipe's value when present.
     const arg = node.pipe ? this.evalPipe(node.pipe, scope, ctx) : scope.dot;
     const child = pushScope(scope, arg);
-    const entry = ctx.defines.get(node.name) ?? { list: node.list, source: ctx.source };
+    const entry = lookupDefine(ctx.defines, node.name) ?? { list: node.list, source: ctx.source };
     this.evalList(entry.list, child, { out: ctx.out, defines: ctx.defines, source: entry.source });
   }
 

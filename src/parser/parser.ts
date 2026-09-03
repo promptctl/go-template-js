@@ -61,9 +61,10 @@ export interface DefineEntry {
 /**
  * The named sub-templates a template can invoke: the ones its own source
  * declared plus, transitively, the ones it inherited at parse. Opaque: only
- * `get`/`has` and the `EMPTY` identity are public, so a consumer can neither
- * build one by hand (the parser is the single enforcer of the redefinition
- * invariant below) nor reach the AST inside.
+ * `has` and the `EMPTY` identity are public, so a consumer can neither build
+ * one by hand (the parser is the single enforcer of the redefinition invariant
+ * below) nor reach the AST inside — the entry lookup is `lookupDefine`, a
+ * module export index.ts never re-exports.
  *
  * [LAW:one-source-of-truth] Inheritance is a parent LINK, never a copy. N
  * templates parsed against one shared preamble hold one preamble AST among
@@ -75,10 +76,18 @@ export interface DefineEntry {
  * name its inherited set already holds (the same `redefinition` error as two
  * declarations in one source), so nearest-first never actually shadows.
  */
-// [LAW:one-source-of-truth] The parser is the only place a Defines is built —
-// captured from the static block below, the same way Engine reaches Template's
-// private constructor — so the public surface carries no constructor.
+// [LAW:one-source-of-truth] The parser is the only place a Defines is built
+// and the evaluator the only reader of its entries — both captured from the
+// static block below, the same way Engine reaches Template's private
+// constructor — so the public surface carries neither a constructor nor an
+// AST-returning method.
 let chainDefines: (own: ReadonlyMap<string, DefineEntry>, parent: Defines) => Defines;
+let readDefine: (defines: Defines, name: string) => DefineEntry | undefined;
+
+/** Nearest-first entry lookup through the inheritance chain. Package-internal. */
+export function lookupDefine(defines: Defines, name: string): DefineEntry | undefined {
+  return readDefine(defines, name);
+}
 
 export class Defines {
   static readonly EMPTY = new Defines(new Map(), undefined);
@@ -92,14 +101,11 @@ export class Defines {
 
   static {
     chainDefines = (own, parent) => new Defines(own, parent);
-  }
-
-  get(name: string): DefineEntry | undefined {
-    return this.#own.get(name) ?? this.#parent?.get(name);
+    readDefine = (d, name) => d.#own.get(name) ?? (d.#parent && readDefine(d.#parent, name));
   }
 
   has(name: string): boolean {
-    return this.get(name) !== undefined;
+    return readDefine(this, name) !== undefined;
   }
 }
 
