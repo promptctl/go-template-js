@@ -397,10 +397,10 @@ describe("inherited defines", () => {
   const preamble = parse('{{define "hdr"}}H{{end}}{{define "ftr"}}F{{end}}');
 
   it("a template parsed against a Defines can see every inherited name", () => {
-    const { defines } = parse('{{template "hdr"}}', undefined, preamble.defines);
+    const { defines, ownDefines } = parse('{{template "hdr"}}', undefined, preamble.defines);
     expect(defines.has("hdr")).toBe(true);
     expect(defines.has("ftr")).toBe(true);
-    expect(defines.own.size).toBe(0);
+    expect(ownDefines.size).toBe(0);
   });
 
   it("shares the inherited bodies by reference, never by copy", () => {
@@ -411,8 +411,8 @@ describe("inherited defines", () => {
   });
 
   it("own defines chain in front of inherited ones", () => {
-    const { defines } = parse('{{define "x"}}X{{end}}', undefined, preamble.defines);
-    expect(defines.own.has("x")).toBe(true);
+    const { defines, ownDefines } = parse('{{define "x"}}X{{end}}', undefined, preamble.defines);
+    expect(ownDefines.has("x")).toBe(true);
     expect(defines.get("hdr")).toBe(preamble.defines.get("hdr"));
   });
 
@@ -428,8 +428,8 @@ describe("inherited defines", () => {
   });
 
   it("a block whose name is inherited falls back to the inherited define", () => {
-    const { defines } = parse('{{block "hdr" .}}fallback{{end}}', undefined, preamble.defines);
-    expect(defines.own.has("hdr")).toBe(false);
+    const { defines, ownDefines } = parse('{{block "hdr" .}}fallback{{end}}', undefined, preamble.defines);
+    expect(ownDefines.has("hdr")).toBe(false);
     expect(defines.get("hdr")).toBe(preamble.defines.get("hdr"));
   });
 });

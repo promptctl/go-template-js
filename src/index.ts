@@ -16,6 +16,8 @@
  * - Static introspection: ReferencedCall / ReferencedArg /
  *   ReferencedLiteral (see Template.referencedCalls) and
  *   staticDictEntries, the literal-`(dict …)` argument reader.
+ * - Sub-template inheritance: Defines, the opaque set a parse can invoke
+ *   (Template.defines, Engine.parse's `inherit` parameter).
  * - Sprig category factories: sprigDefaults, sprigStrings, sprigMath,
  *   sprigLists, sprigDicts, sprigRegex, sprigTypes, sprigConversions,
  *   sprigSemver, sprigFlow, sprigRandom, sprigHash, sprigDatetime.

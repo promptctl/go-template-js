@@ -522,7 +522,9 @@ export class Template<T> {
 
   /**
    * The FuncMap function names this template references — every identifier that
-   * names a function anywhere in the template body or its `{{ define }}` blocks.
+   * names a function in this parse: the template body and its own `{{ define }}`
+   * blocks. A set inherited at parse (see {@link Template.defines}) is described
+   * by the template that parsed it, not here.
    *
    * This is a STATIC fact derived from the parsed AST, not an execution trace:
    * a name in the set is a function the template *can* invoke; a name absent
@@ -541,8 +543,8 @@ export class Template<T> {
   }
 
   /**
-   * Every command-head call in the template body and its `{{ define }}` blocks,
-   * in preorder, each paired with its positional arguments projected to literal
+   * Every command-head call in this parse — the template body and its own
+   * `{{ define }}` blocks, never an inherited set — in preorder, each paired with its positional arguments projected to literal
    * strings (a non-string-literal argument is reported as `null`, preserving
    * argument positions).
    *
@@ -577,7 +579,7 @@ function collectReferencedFunctions(parsed: ParseResult): ReadonlySet<string> {
     });
   };
   collect(parsed.root);
-  for (const entry of parsed.defines.own.values()) collect(entry.list);
+  for (const entry of parsed.ownDefines.values()) collect(entry.list);
   return names;
 }
 
@@ -646,7 +648,7 @@ function collectReferencedCalls(parsed: ParseResult): readonly ReferencedCall[] 
     });
   };
   collect(parsed.root);
-  for (const entry of parsed.defines.own.values()) collect(entry.list);
+  for (const entry of parsed.ownDefines.values()) collect(entry.list);
   return calls;
 }
 

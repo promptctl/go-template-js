@@ -60,7 +60,10 @@ export interface DefineEntry {
 
 /**
  * The named sub-templates a template can invoke: the ones its own source
- * declared (`own`) plus, transitively, the ones it inherited at parse.
+ * declared plus, transitively, the ones it inherited at parse. Opaque: only
+ * `get`/`has` and the `EMPTY` identity are public, so a consumer can neither
+ * build one by hand (the parser is the single enforcer of the redefinition
+ * invariant below) nor reach the AST inside.
  *
  * [LAW:one-source-of-truth] Inheritance is a parent LINK, never a copy. N
  * templates parsed against one shared preamble hold one preamble AST among
@@ -72,16 +75,27 @@ export interface DefineEntry {
  * name its inherited set already holds (the same `redefinition` error as two
  * declarations in one source), so nearest-first never actually shadows.
  */
+// [LAW:one-source-of-truth] The parser is the only place a Defines is built —
+// captured from the static block below, the same way Engine reaches Template's
+// private constructor — so the public surface carries no constructor.
+let chainDefines: (own: ReadonlyMap<string, DefineEntry>, parent: Defines) => Defines;
+
 export class Defines {
   static readonly EMPTY = new Defines(new Map(), undefined);
+  readonly #own: ReadonlyMap<string, DefineEntry>;
+  readonly #parent: Defines | undefined;
 
-  constructor(
-    readonly own: ReadonlyMap<string, DefineEntry>,
-    readonly parent: Defines | undefined,
-  ) {}
+  private constructor(own: ReadonlyMap<string, DefineEntry>, parent: Defines | undefined) {
+    this.#own = own;
+    this.#parent = parent;
+  }
+
+  static {
+    chainDefines = (own, parent) => new Defines(own, parent);
+  }
 
   get(name: string): DefineEntry | undefined {
-    return this.own.get(name) ?? this.parent?.get(name);
+    return this.#own.get(name) ?? this.#parent?.get(name);
   }
 
   has(name: string): boolean {
@@ -93,11 +107,16 @@ export interface ParseResult {
   /** The body of the unnamed/root template. */
   readonly root: ListNode;
   /**
-   * Templates this parse can invoke: those created by its own
-   * `{{define "name"}}...{{end}}` / `{{block}}` forms (`defines.own`) chained
-   * onto the inherited set it was parsed against.
+   * Templates this parse can invoke: its own (`ownDefines`) chained onto the
+   * inherited set it was parsed against.
    */
   readonly defines: Defines;
+  /**
+   * The sub-templates this source itself declared, by `{{define "name"}}` /
+   * `{{block}}` — what static introspection describes; the inherited set is
+   * described by the parse that declared it.
+   */
+  readonly ownDefines: ReadonlyMap<string, DefineEntry>;
   /** Original source text — preserved for error snippets and Template.source. */
   readonly source: string;
 }
@@ -196,7 +215,12 @@ class Parser {
       }
       throw this.errAt(left, `unexpected ${tokenLabel(left)}`, { found: tokenLabel(left) });
     }
-    return { root, defines: new Defines(this.defines, this.inherit), source: this.source };
+    return {
+      root,
+      defines: chainDefines(this.defines, this.inherit),
+      ownDefines: this.defines,
+      source: this.source,
+    };
   }
 
   // -------------------------------------------------------------------
