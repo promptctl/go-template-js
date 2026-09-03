@@ -199,14 +199,14 @@ describe("parse — sub-templates", () => {
     const { root, defines } = parse('{{define "hdr"}}H{{end}}main');
     expect(root.nodes).toEqual([expect.objectContaining({ type: "Text", text: "main" })]);
     expect(defines.has("hdr")).toBe(true);
-    expect(defines.get("hdr")?.nodes[0]).toMatchObject({ type: "Text", text: "H" });
+    expect(defines.get("hdr")?.list.nodes[0]).toMatchObject({ type: "Text", text: "H" });
   });
 
   it("parses {{block}} which both defines and invokes", () => {
     const { root, defines } = parse('{{block "hdr" .}}H{{end}}');
     const b = root.nodes[0];
     expect(b?.type).toBe("Block");
-    expect(defines.get("hdr")?.nodes[0]).toMatchObject({ type: "Text", text: "H" });
+    expect(defines.get("hdr")?.list.nodes[0]).toMatchObject({ type: "Text", text: "H" });
   });
 });
 
@@ -390,5 +390,46 @@ describe("parse — error cases", () => {
     const inner = outer.list.nodes[0];
     assertNode(inner, "Range");
     expect(inner.elseList?.nodes[0]).toMatchObject({ type: "Break" });
+  });
+});
+
+describe("inherited defines", () => {
+  const preamble = parse('{{define "hdr"}}H{{end}}{{define "ftr"}}F{{end}}');
+
+  it("a template parsed against a Defines can see every inherited name", () => {
+    const { defines } = parse('{{template "hdr"}}', undefined, preamble.defines);
+    expect(defines.has("hdr")).toBe(true);
+    expect(defines.has("ftr")).toBe(true);
+    expect(defines.own.size).toBe(0);
+  });
+
+  it("shares the inherited bodies by reference, never by copy", () => {
+    const a = parse("a", undefined, preamble.defines);
+    const b = parse("b", undefined, preamble.defines);
+    expect(a.defines.get("hdr")).toBe(preamble.defines.get("hdr"));
+    expect(a.defines.get("hdr")).toBe(b.defines.get("hdr"));
+  });
+
+  it("own defines chain in front of inherited ones", () => {
+    const { defines } = parse('{{define "x"}}X{{end}}', undefined, preamble.defines);
+    expect(defines.own.has("x")).toBe(true);
+    expect(defines.get("hdr")).toBe(preamble.defines.get("hdr"));
+  });
+
+  it("an entry remembers the source it was parsed from", () => {
+    const { defines } = parse("body", undefined, preamble.defines);
+    expect(defines.get("hdr")?.source).toBe(preamble.source);
+  });
+
+  it("redefining an inherited name is the same error as redefining a local one", () => {
+    expect(() => parse('{{define "hdr"}}again{{end}}', undefined, preamble.defines)).toThrow(
+      /redefinition of template "hdr"/,
+    );
+  });
+
+  it("a block whose name is inherited falls back to the inherited define", () => {
+    const { defines } = parse('{{block "hdr" .}}fallback{{end}}', undefined, preamble.defines);
+    expect(defines.own.has("hdr")).toBe(false);
+    expect(defines.get("hdr")).toBe(preamble.defines.get("hdr"));
   });
 });
