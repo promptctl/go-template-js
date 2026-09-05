@@ -317,6 +317,19 @@ export interface EngineConfig<T> {
    */
   readonly toString?: (value: T) => string;
   /**
+   * Is this output-stream value a T (pass it through) or a plain object
+   * the template reached into a document for (format it Go-style)?
+   *
+   * [LAW:single-enforcer] The one place the engine tells a T from a plain
+   * object in the output stream. Without it every object is taken for a
+   * T, so a consumer whose T is a class and whose scope carries JSON
+   * documents sees a bare `{{ .doc }}` leak the document into its
+   * fragments. With `isT: (v) => v instanceof RichText` that same
+   * `{{ .doc }}` prints `map[k:v …]` — what Go prints for a map.
+   * Default: every object is a T (the `T = plain object` consumer).
+   */
+  readonly isT?: (value: unknown) => value is T;
+  /**
    * PRNG source for `sprigRandom` functions. Defaults to `Math.random`.
    * Supply a seeded generator for reproducible templates.
    *
@@ -664,6 +677,7 @@ export class Engine<T> {
   // `enforceArgTypes` so `"stringifiable"` slots probe with the same
   // function that downstream func bodies will re-use to flatten.
   private readonly toString: (value: unknown) => string;
+  private readonly isT: (value: unknown) => boolean;
   private readonly funcs: FuncMap;
   // [LAW:single-enforcer] One field, consulted only at `resolveFieldChain`.
   // [LAW:one-source-of-truth] Default is `"default"` so the engine
@@ -687,6 +701,7 @@ export class Engine<T> {
     // engines.
     const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
     this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
+    this.isT = config.isT ?? (() => true);
     // [LAW:no-defensive-null-guards] exception: trust boundary — the
     // EngineConfig flows in from JS callers (no compile-time guard) and
     // TS callers using `as` casts. A typo like `"erro"` would silently
@@ -1199,34 +1214,46 @@ export class Engine<T> {
     // `{f1 f2}`) when the value lands in a string-output stream. This
     // matches Go's `fmt.Sprintf("%v", v)` shape for the common cases
     // and keeps the conformance corpus byte-equal.
-    if (Array.isArray(value)) {
-      ctx.out.push(this.fromString(formatArrayLikeGo(value)));
-      return;
-    }
-    if (value instanceof Map) {
-      ctx.out.push(this.fromString(formatMapLikeGo(value)));
+    if (Array.isArray(value) || value instanceof Map || !this.isT(value)) {
+      ctx.out.push(this.fromString(formatScalarLikeGo(value, this.isT)));
       return;
     }
     ctx.out.push(value as T);
   }
 }
 
-function formatArrayLikeGo(arr: readonly unknown[]): string {
-  return `[${arr.map(formatScalarLikeGo).join(" ")}]`;
+type IsT = (value: unknown) => boolean;
+
+function formatArrayLikeGo(arr: readonly unknown[], isT: IsT): string {
+  return `[${arr.map((v) => formatScalarLikeGo(v, isT)).join(" ")}]`;
 }
 
-function formatMapLikeGo(m: ReadonlyMap<unknown, unknown>): string {
-  const parts: string[] = [];
-  for (const [k, v] of m) {
-    parts.push(`${formatScalarLikeGo(k)}:${formatScalarLikeGo(v)}`);
-  }
+function formatMapLikeGo(m: ReadonlyMap<unknown, unknown>, isT: IsT): string {
+  return formatEntriesLikeGo([...m], isT);
+}
+
+// A plain object prints as Go prints a map: `map[k:v …]`, keys sorted, the
+// way fmt orders map keys.
+function formatObjectLikeGo(o: object, isT: IsT): string {
+  const entries = Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return formatEntriesLikeGo(entries, isT);
+}
+
+function formatEntriesLikeGo(entries: readonly (readonly [unknown, unknown])[], isT: IsT): string {
+  const parts = entries.map(
+    ([k, v]) => `${formatScalarLikeGo(k, isT)}:${formatScalarLikeGo(v, isT)}`,
+  );
   return `map[${parts.join(" ")}]`;
 }
 
-function formatScalarLikeGo(v: unknown): string {
+// [LAW:dataflow-not-control-flow] `isT` is the value that decides whether an
+// object is opaque (a T: its own String) or a map to walk — the engine's one
+// predicate, threaded, never a second copy.
+function formatScalarLikeGo(v: unknown, isT: IsT): string {
   if (v === null || v === undefined) return "<nil>";
-  if (Array.isArray(v)) return formatArrayLikeGo(v);
-  if (v instanceof Map) return formatMapLikeGo(v);
+  if (Array.isArray(v)) return formatArrayLikeGo(v, isT);
+  if (v instanceof Map) return formatMapLikeGo(v, isT);
+  if (typeof v === "object" && !isT(v)) return formatObjectLikeGo(v, isT);
   return String(v);
 }
 

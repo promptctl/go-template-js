@@ -295,3 +295,40 @@ describe("evaluator — function dispatch failures", () => {
     expect(() => renderString("{{ totallymadeup }}", null)).toThrow(/is not registered/);
   });
 });
+
+describe("evaluator — isT: a T passes through, a plain object prints as Go prints a map", () => {
+  class Rich {
+    constructor(readonly s: string) {}
+  }
+  const rich = createEngine<Rich>({
+    fromString: (s) => new Rich(s),
+    isT: (v): v is Rich => v instanceof Rich,
+  });
+  const text = (src: string, scope: unknown): string =>
+    rich
+      .parse(src)
+      .evaluate(scope)
+      .map((f) => f.s)
+      .join("");
+
+  it("a T reached through the scope is pushed as itself", () => {
+    const t = new Rich("styled");
+    expect(rich.parse("{{ .t }}").evaluate({ t })[0]).toBe(t);
+  });
+
+  it("a plain object is not a T: map[k:v …] with sorted keys, nested, null-prototype alike", () => {
+    const doc = Object.assign(Object.create(null), { b: 2, a: { z: [1, "x"], y: null } });
+    expect(text("{{ . }}", doc)).toBe("map[a:map[y:<nil> z:[1 x]] b:2]");
+    expect(text("{{ .a }}", doc)).toBe("map[y:<nil> z:[1 x]]");
+  });
+
+  it("arrays and Maps format Go-style with or without isT", () => {
+    expect(text("{{ . }}", [1, 2])).toBe("[1 2]");
+    expect(renderString("{{ . }}", new Map([["k", 1]]))).toBe("map[k:1]");
+  });
+
+  it("without isT every object is a T (the T = plain object consumer)", () => {
+    const o = { a: 1 };
+    expect(stringEngine().parse("{{ . }}").evaluate(o)[0]).toBe(o as unknown as string);
+  });
+});
