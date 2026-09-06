@@ -18,7 +18,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { defaultBuiltins } from "../../src/evaluator/builtins.js";
-import { type ArgType, enforceArgTypes, type FuncMap } from "../../src/evaluator/evaluator.js";
+import {
+  type ArgType,
+  DEFAULT_IS_T,
+  enforceArgTypes,
+  type FuncMap,
+} from "../../src/evaluator/evaluator.js";
 import {
   sprigConversions,
   sprigDefaults,
@@ -49,7 +54,7 @@ const HARNESS_TOSTRING = (v: unknown): string => {
 };
 
 const allRegisteredFuncs = (): FuncMap => ({
-  ...defaultBuiltins(HARNESS_TOSTRING),
+  ...defaultBuiltins(HARNESS_TOSTRING, DEFAULT_IS_T),
   ...sprigDefaults(),
   ...sprigStrings(),
   ...sprigMath(),
@@ -284,9 +289,10 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
   ],
   T: [
     { label: "object", value: {}, pass: true },
-    { label: "array", value: [], pass: true },
     { label: "TaggedFragment", value: TAGGED, pass: true },
-    { label: "Map", value: new Map(), pass: true },
+    // Go-walked shapes: printed as `[…]` / `map[…]`, never a T by default.
+    { label: "array", value: [], pass: false },
+    { label: "Map", value: new Map(), pass: false },
     { label: "string", value: "x", pass: false },
     { label: "number", value: 1, pass: false },
     { label: "bool", value: true, pass: false },

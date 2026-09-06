@@ -41,7 +41,7 @@ import {
 import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
-import { defaultBuiltins } from "./builtins.js";
+import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
 import { isLazy } from "./lazy.js";
 import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
@@ -317,13 +317,15 @@ export interface EngineConfig<T> {
    */
   readonly toString?: (value: T) => string;
   /**
-   * Is this output-stream value a T (pushed as itself) or not (printed as
-   * Go prints it: `[a b]`, `map[k:v …]`, a Date's own String)?
+   * Is this value a T? At the output stream a T is pushed as itself and
+   * anything else is printed as Go prints it (`[a b]`, `map[k:v …]`, a
+   * Date's own String); at a call, a `"T"` ArgType slot accepts exactly
+   * what this says.
    *
-   * [LAW:single-enforcer] The one gate at the output stream, consulted
-   * first and alone. Default: every object except an array or a Map is a
-   * T — so without it a consumer whose scope carries JSON documents sees a
-   * bare `{{ .doc }}` leak the document into its fragments; with
+   * [LAW:single-enforcer] The one predicate, consulted first and alone.
+   * Default: a non-null object other than an array or a Map — so without
+   * it a consumer whose scope carries JSON documents sees a bare
+   * `{{ .doc }}` leak the document into its fragments; with
    * `isT: (v) => v instanceof RichText` that `{{ .doc }}` prints
    * `map[k:v …]`, and a consumer whose T is array-shaped says so here.
    */
@@ -676,7 +678,7 @@ export class Engine<T> {
   // `enforceArgTypes` so `"stringifiable"` slots probe with the same
   // function that downstream func bodies will re-use to flatten.
   private readonly toString: (value: unknown) => string;
-  private readonly isT: (value: unknown) => boolean;
+  private readonly isT: IsT;
   private readonly funcs: FuncMap;
   // [LAW:single-enforcer] One field, consulted only at `resolveFieldChain`.
   // [LAW:one-source-of-truth] Default is `"default"` so the engine
@@ -700,7 +702,7 @@ export class Engine<T> {
     // engines.
     const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
     this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
-    this.isT = config.isT ?? ((v) => !Array.isArray(v) && !(v instanceof Map));
+    this.isT = config.isT ?? DEFAULT_IS_T;
     // [LAW:no-defensive-null-guards] exception: trust boundary — the
     // EngineConfig flows in from JS callers (no compile-time guard) and
     // TS callers using `as` casts. A typo like `"erro"` would silently
@@ -717,7 +719,7 @@ export class Engine<T> {
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
-    this.funcs = { ...defaultBuiltins(this.toString), ...(config.funcs ?? {}) };
+    this.funcs = { ...defaultBuiltins(this.toString, this.isT), ...(config.funcs ?? {}) };
   }
 
   /**
@@ -1063,6 +1065,7 @@ export class Engine<T> {
       this.toString,
       fn.argTypePattern,
       this.fromString as (s: string) => unknown,
+      this.isT,
     );
     // [LAW:single-enforcer] One cast at the dispatch site. `TemplateFunc.fn`
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
@@ -1125,6 +1128,7 @@ export class Engine<T> {
           this.toString,
           fn.argTypePattern,
           this.fromString as (s: string) => unknown,
+          this.isT,
         );
         return (fn.fn as () => unknown)();
       }
@@ -1216,47 +1220,15 @@ export class Engine<T> {
       ctx.out.push(value as T);
       return;
     }
-    ctx.out.push(this.fromString(formatScalarLikeGo(value, this.isT)));
+    ctx.out.push(this.fromString(formatV(value, this.isT)));
   }
 }
 
-type IsT = (value: unknown) => boolean;
-
-function formatArrayLikeGo(arr: readonly unknown[], isT: IsT): string {
-  return `[${arr.map((v) => formatScalarLikeGo(v, isT)).join(" ")}]`;
-}
-
-function formatMapLikeGo(m: ReadonlyMap<unknown, unknown>, isT: IsT): string {
-  return formatEntriesLikeGo([...m], isT);
-}
-
-// A plain object prints as Go prints a map: `map[k:v …]`, keys sorted, the
-// way fmt orders map keys.
-function formatObjectLikeGo(o: object, isT: IsT): string {
-  const entries = Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return formatEntriesLikeGo(entries, isT);
-}
-
-function formatEntriesLikeGo(entries: readonly (readonly [unknown, unknown])[], isT: IsT): string {
-  const parts = entries.map(
-    ([k, v]) => `${formatScalarLikeGo(k, isT)}:${formatScalarLikeGo(v, isT)}`,
-  );
-  return `map[${parts.join(" ")}]`;
-}
-
-// [LAW:dataflow-not-control-flow] `isT` is the value that decides whether a
-// nested object is opaque (a T: its own String) — the engine's one predicate,
-// threaded, never a second copy. Of the rest, only the shapes Go walks are
-// walked (an array, a Map, a plain object); a Date, a Set, a class instance
-// that is not a T prints its own String.
-function formatScalarLikeGo(v: unknown, isT: IsT): string {
-  if (v === null || v === undefined) return "<nil>";
-  if (isT(v)) return String(v);
-  if (Array.isArray(v)) return formatArrayLikeGo(v, isT);
-  if (v instanceof Map) return formatMapLikeGo(v, isT);
-  if (isPlainObject(v)) return formatObjectLikeGo(v, isT);
-  return String(v);
-}
+// [LAW:one-source-of-truth] The engine's default `isT`, shared by the
+// constructor and the standalone `enforceArgTypes`, so the output stream and
+// the `"T"` ArgType gate cannot disagree about what a T is by default.
+export const DEFAULT_IS_T: IsT = (v) =>
+  typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Map);
 
 // ---------------------------------------------------------------------------
 // Convenience constructor matching the future public-API shape (.api.1).
@@ -1291,6 +1263,7 @@ export function enforceArgTypes(
   toString: (value: unknown) => string = defaultToString,
   pattern?: "alternating",
   fromString: (s: string) => unknown = defaultFromString,
+  isT: IsT = DEFAULT_IS_T,
 ): void {
   // [LAW:dataflow-not-control-flow] No short-circuit. The shape of work
   // is fixed: validate every positional value against its declared
@@ -1309,7 +1282,7 @@ export function enforceArgTypes(
   for (let i = 0; i < values.length; i++) {
     const declared = lookup(i);
     const value = values[i];
-    if (!matchesArgType(declared, value, toString)) {
+    if (!matchesArgType(declared, value, toString, isT)) {
       throw new TypeMismatchError(
         funcName,
         i + 1,
@@ -1408,6 +1381,7 @@ function matchesArgType(
   declared: ArgType,
   value: unknown,
   toString: (value: unknown) => string,
+  isT: IsT,
 ): boolean {
   switch (declared) {
     case "truthy":
@@ -1455,15 +1429,8 @@ function matchesArgType(
         typeof value === "boolean"
       );
     case "T":
-      return (
-        value !== null &&
-        value !== undefined &&
-        typeof value !== "string" &&
-        typeof value !== "number" &&
-        typeof value !== "boolean" &&
-        typeof value !== "bigint" &&
-        typeof value !== "symbol"
-      );
+      // [LAW:single-enforcer] What the engine's output stream calls a T.
+      return isT(value);
     case "list":
       // Go-parity: a string is not a list to sprig, even though it is
       // iterable. Excluding string here forces consumers to spell out
@@ -1608,16 +1575,6 @@ function defaultToString(value: unknown): string {
     describeValue(value),
     { line: 0, column: 0, offset: 0 },
   );
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) return false;
-  if (value instanceof Map || value instanceof Set) return false;
-  // Reject typed arrays, Dates, RegExps, and other built-ins by
-  // requiring a null prototype or the plain Object prototype.
-  const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
 }
 
 function isJsonSerializable(value: unknown): boolean {

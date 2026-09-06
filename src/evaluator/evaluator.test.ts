@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { MissingFieldError } from "../errors.js";
+import { MissingFieldError, TypeMismatchError } from "../errors.js";
 import { EvalError } from "./errors.js";
-import { createEngine, type Delims, type Engine, type MissingKeyOption } from "./evaluator.js";
+import {
+  createEngine,
+  type Delims,
+  type Engine,
+  type FuncMap,
+  type MissingKeyOption,
+} from "./evaluator.js";
 
 const stringEngine = (missingKey?: MissingKeyOption): Engine<string> =>
   createEngine<string>({ fromString: (s) => s, ...(missingKey ? { missingKey } : {}) });
@@ -345,7 +351,36 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     expect(rows.parse("{{ . }}").evaluate([1, 2])[0]).toEqual(Row.from(["[1 2]"]));
   });
 
-  it("without isT every object but an array or a Map is a T (the T = plain object consumer)", () => {
+  it("printf's %v and the output stream are one formatter", () => {
+    const printing = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      toString: (v) => (v instanceof Rich ? v.s : JSON.stringify(v)),
+      isT: (v): v is Rich => v instanceof Rich,
+    });
+    const doc = { b: 2, a: [1] };
+    const out = printing
+      .parse('{{ . }}|{{ printf "%v" . }}')
+      .evaluate(doc)
+      .map((f) => f.s)
+      .join("");
+    expect(out).toBe("map[a:[1] b:2]|map[a:[1] b:2]");
+  });
+
+  it('a "T" ArgType slot accepts exactly what isT says', () => {
+    const funcs: FuncMap = {
+      id: { fn: (v: unknown) => v, argTypes: ["T"], returnType: "T" },
+    };
+    const withFuncs = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      isT: (v): v is Rich => v instanceof Rich,
+      funcs,
+    });
+    const t = new Rich("x");
+    expect(withFuncs.parse("{{ id . }}").evaluate(t)[0]).toBe(t);
+    expect(() => withFuncs.parse("{{ id . }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
+  });
+
+  it("without isT every non-null object but an array or a Map is a T (the T = plain object consumer)", () => {
     const o = { a: 1 };
     expect(stringEngine().parse("{{ . }}").evaluate(o)[0]).toBe(o as unknown as string);
   });

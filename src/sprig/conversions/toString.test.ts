@@ -20,6 +20,10 @@ describe("sprig.toString", () => {
     expect(toString(undefined)).toBe("<nil>");
   });
 
+  it("formats a plain object as Go prints a map, keys sorted — the same %v the output stream prints", () => {
+    expect(toString({ b: 2, a: { d: [1], c: "x" } })).toBe("map[a:map[c:x d:[1]] b:2]");
+  });
+
   it("formats arrays with Go bracket-space syntax", () => {
     expect(toString([1, 2, 3])).toBe("[1 2 3]");
     expect(toString(["a", "b"])).toBe("[a b]");
