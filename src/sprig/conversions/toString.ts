@@ -9,5 +9,5 @@ import { formatV } from "../../evaluator/builtins.js";
  * either way.
  */
 export function toString(v: unknown): string {
-  return formatV(v, () => false);
+  return formatV(v, String, () => false);
 }

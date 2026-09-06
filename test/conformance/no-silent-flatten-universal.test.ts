@@ -298,6 +298,7 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: "bool", value: true, pass: false },
     { label: "bigint", value: 1n, pass: false },
     { label: "symbol", value: SYM, pass: false },
+    { label: "function", value: FN, pass: false },
     { label: "null", value: null, pass: false },
   ],
   ordered: [
@@ -423,9 +424,10 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: "string", value: "x", pass: true },
     { label: "empty string", value: "", pass: true },
     { label: "object", value: {}, pass: true },
-    { label: "array", value: [], pass: true },
     { label: "TaggedFragment", value: TAGGED, pass: true },
-    { label: "Map", value: new Map(), pass: true },
+    // Go-walked shapes are not a T at a liftable slot either.
+    { label: "array", value: [], pass: false },
+    { label: "Map", value: new Map(), pass: false },
     { label: "number", value: 1, pass: false },
     { label: "bool", value: true, pass: false },
     { label: "bigint", value: 1n, pass: false },

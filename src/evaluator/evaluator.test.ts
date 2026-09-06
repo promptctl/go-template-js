@@ -333,6 +333,22 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     expect(renderString("{{ . }}", new Map([["k", 1]]))).toBe("map[k:1]");
   });
 
+  it("a Map prints in the same key order as a plain object, whatever its insertion order", () => {
+    const outOfOrder = new Map<unknown, unknown>([
+      ["b", 1],
+      ["a", 2],
+    ]);
+    expect(renderString("{{ . }}", outOfOrder)).toBe("map[a:2 b:1]");
+    expect(text("{{ . }}", { b: 1, a: 2 })).toBe("map[a:2 b:1]");
+    // numeric keys order numerically and before text keys, as fmt orders them
+    const mixed = new Map<unknown, unknown>([
+      ["x", 0],
+      [10, "ten"],
+      [9n, "nine"],
+    ]);
+    expect(renderString("{{ . }}", mixed)).toBe("map[9:nine 10:ten x:0]");
+  });
+
   it("a non-T that is not a plain object prints its own String, never map[]", () => {
     const when = new Date(Date.UTC(2026, 0, 2, 3, 4, 5));
     expect(text("{{ . }}", when)).toBe(String(when));
@@ -366,6 +382,20 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     expect(out).toBe("map[a:[1] b:2]|map[a:[1] b:2]");
   });
 
+  it("printf's %v flattens a T through the engine's toString, like %s and the output stream", () => {
+    const printing = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      toString: (v) => (v instanceof Rich ? v.s : JSON.stringify(v)),
+      isT: (v): v is Rich => v instanceof Rich,
+    });
+    const out = printing
+      .parse('{{ printf "%v" .t }}|{{ printf "%s" .t }}|{{ printf "%v" . }}')
+      .evaluate({ t: new Rich("styled") })
+      .map((f) => f.s)
+      .join("");
+    expect(out).toBe("styled|styled|map[t:styled]");
+  });
+
   it('a "T" ArgType slot accepts exactly what isT says', () => {
     const funcs: FuncMap = {
       id: { fn: (v: unknown) => v, argTypes: ["T"], returnType: "T" },
@@ -378,6 +408,22 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     const t = new Rich("x");
     expect(withFuncs.parse("{{ id . }}").evaluate(t)[0]).toBe(t);
     expect(() => withFuncs.parse("{{ id . }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
+  });
+
+  it('a "liftable" slot reads the same isT: a T or a string, never a non-T object', () => {
+    const funcs: FuncMap = {
+      id: { fn: (v: unknown) => v, argTypes: ["liftable"], returnType: "T" },
+    };
+    const withFuncs = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      isT: (v): v is Rich => v instanceof Rich,
+      funcs,
+    });
+    const t = new Rich("x");
+    expect(withFuncs.parse("{{ id . }}").evaluate(t)[0]).toBe(t);
+    expect(withFuncs.parse('{{ id "lifted" }}').evaluate(null)[0]).toEqual(new Rich("lifted"));
+    expect(() => withFuncs.parse("{{ id . }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
+    expect(() => withFuncs.parse("{{ id . }}").evaluate([1])).toThrow(TypeMismatchError);
   });
 
   it("without isT every non-null object but an array or a Map is a T (the T = plain object consumer)", () => {

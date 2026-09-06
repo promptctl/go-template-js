@@ -506,7 +506,7 @@ function formatVerb(
       return applyWidth(spec, String(n));
     }
     case "v":
-      return applyWidth(spec, formatV(arg, isT));
+      return applyWidth(spec, formatV(arg, toString, isT));
     case "q":
       return applyWidth(spec, JSON.stringify(stringifyForPrint(arg, toString)));
     case "f": {
@@ -560,27 +560,43 @@ export type IsT = (value: unknown) => boolean;
 // [LAW:one-source-of-truth] The one Go-`%v` formatter: the output stream,
 // printf's `%v` verb, and sprig's `toString`/`toStrings` all print through
 // it, so a bare `{{ .doc }}` and `{{ printf "%v" .doc }}` cannot disagree.
-// Of the non-T values, only the shapes Go walks are walked — an array, a
-// Map, a plain object (printed as Go prints a map: `map[k:v …]`, keys
-// sorted the way fmt orders them); a Date, a Set, a class instance prints
-// its own String.
-export function formatV(value: unknown, isT: IsT): string {
+// A T flattens through the engine's `toString`, the same function `%s`
+// and `print` use. Of the non-T values, only the shapes Go walks are
+// walked — an array, a Map, a plain object (printed as Go prints a map:
+// `map[k:v …]`, keys sorted the way fmt orders them); a Date, a Set, a
+// class instance prints its own String.
+export function formatV(value: unknown, toString: ToString, isT: IsT): string {
   if (value === null || value === undefined) return "<nil>";
   if (typeof value === "string") return value;
-  if (isT(value)) return String(value);
-  if (Array.isArray(value)) return `[${value.map((v) => formatV(v, isT)).join(" ")}]`;
-  if (value instanceof Map) return formatEntries([...value.entries()], isT);
-  if (isPlainObject(value)) {
-    return formatEntries(
-      Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-      isT,
-    );
-  }
+  if (isT(value)) return toString(value);
+  if (Array.isArray(value)) return `[${value.map((v) => formatV(v, toString, isT)).join(" ")}]`;
+  if (value instanceof Map) return formatEntries([...value.entries()], toString, isT);
+  if (isPlainObject(value)) return formatEntries(Object.entries(value), toString, isT);
   return String(value);
 }
 
-function formatEntries(entries: readonly (readonly [unknown, unknown])[], isT: IsT): string {
-  return `map[${entries.map(([k, v]) => `${formatV(k, isT)}:${formatV(v, isT)}`).join(" ")}]`;
+type ToString = (value: unknown) => string;
+
+// [LAW:single-enforcer] The one ordering a Map and a plain object print in:
+// numeric keys numerically and first, every other key by its formatted text.
+function formatEntries(
+  entries: readonly (readonly [unknown, unknown])[],
+  toString: ToString,
+  isT: IsT,
+): string {
+  const fmt = (v: unknown): string => formatV(v, toString, isT);
+  const isNumeric = (k: unknown): k is number | bigint =>
+    typeof k === "number" || typeof k === "bigint";
+  const byKey = ([a]: readonly [unknown, unknown], [b]: readonly [unknown, unknown]): number => {
+    if (isNumeric(a) && isNumeric(b)) return a < b ? -1 : a > b ? 1 : 0;
+    if (isNumeric(a) !== isNumeric(b)) return isNumeric(a) ? -1 : 1;
+    const [as, bs] = [fmt(a), fmt(b)];
+    return as < bs ? -1 : as > bs ? 1 : 0;
+  };
+  return `map[${[...entries]
+    .sort(byKey)
+    .map(([k, v]) => `${fmt(k)}:${fmt(v)}`)
+    .join(" ")}]`;
 }
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {

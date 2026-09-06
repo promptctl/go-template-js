@@ -1220,7 +1220,7 @@ export class Engine<T> {
       ctx.out.push(value as T);
       return;
     }
-    ctx.out.push(this.fromString(formatV(value, this.isT)));
+    ctx.out.push(this.fromString(formatV(value, this.toString, this.isT)));
   }
 }
 
@@ -1504,21 +1504,10 @@ function matchesArgType(
       }
     }
     case "liftable":
-      // Mirror of "stringifiable" in the opposite direction: a slot
-      // that accepts T or a string the engine can lift to T via
-      // `engine.fromString`. The matcher only validates membership;
-      // the actual lift happens once in `enforceArgTypes` so func
-      // bodies see T uniformly. Non-string non-T values fail the
-      // gate — the same shape rules as "T".
-      return (
-        typeof value === "string" ||
-        (value !== null &&
-          value !== undefined &&
-          typeof value !== "number" &&
-          typeof value !== "boolean" &&
-          typeof value !== "bigint" &&
-          typeof value !== "symbol")
-      );
+      // Mirror of "stringifiable" in the opposite direction: a T, or a
+      // string `enforceArgTypes` lifts once through `engine.fromString`.
+      // [LAW:single-enforcer] The T half is the same predicate the "T" slot reads.
+      return typeof value === "string" || isT(value);
     case "serializable":
       // Runtime-validate JSON encodability. `JSON.stringify` returns
       // `undefined` for functions/symbols and throws on circular refs;
