@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { MissingFieldError } from "../errors.js";
+import { MissingFieldError, TypeMismatchError } from "../errors.js";
 import { EvalError } from "./errors.js";
-import { createEngine, type Delims, type Engine, type MissingKeyOption } from "./evaluator.js";
+import {
+  createEngine,
+  type Delims,
+  type Engine,
+  type FuncMap,
+  type MissingKeyOption,
+} from "./evaluator.js";
 
 const stringEngine = (missingKey?: MissingKeyOption): Engine<string> =>
   createEngine<string>({ fromString: (s) => s, ...(missingKey ? { missingKey } : {}) });
@@ -293,5 +299,173 @@ describe("evaluator — generic over T", () => {
 describe("evaluator — function dispatch failures", () => {
   it("throws FuncNotFoundError for an unregistered function", () => {
     expect(() => renderString("{{ totallymadeup }}", null)).toThrow(/is not registered/);
+  });
+});
+
+describe("evaluator — isT: a T passes through, a plain object prints as Go prints a map", () => {
+  class Rich {
+    constructor(readonly s: string) {}
+  }
+  const rich = createEngine<Rich>({
+    fromString: (s) => new Rich(s),
+    isT: (v): v is Rich => v instanceof Rich,
+  });
+  const text = (src: string, scope: unknown): string =>
+    rich
+      .parse(src)
+      .evaluate(scope)
+      .map((f) => f.s)
+      .join("");
+
+  it("a T reached through the scope is pushed as itself", () => {
+    const t = new Rich("styled");
+    expect(rich.parse("{{ .t }}").evaluate({ t })[0]).toBe(t);
+  });
+
+  it("a plain object is not a T: map[k:v …] with sorted keys, nested, null-prototype alike", () => {
+    const doc = Object.assign(Object.create(null), { b: 2, a: { z: [1, "x"], y: null } });
+    expect(text("{{ . }}", doc)).toBe("map[a:map[y:<nil> z:[1 x]] b:2]");
+    expect(text("{{ .a }}", doc)).toBe("map[y:<nil> z:[1 x]]");
+  });
+
+  it("arrays and Maps format Go-style with or without isT", () => {
+    expect(text("{{ . }}", [1, 2])).toBe("[1 2]");
+    expect(renderString("{{ . }}", new Map([["k", 1]]))).toBe("map[k:1]");
+  });
+
+  it("a Map prints in the same key order as a plain object, whatever its insertion order", () => {
+    const outOfOrder = new Map<unknown, unknown>([
+      ["b", 1],
+      ["a", 2],
+    ]);
+    expect(renderString("{{ . }}", outOfOrder)).toBe("map[a:2 b:1]");
+    expect(text("{{ . }}", { b: 1, a: 2 })).toBe("map[a:2 b:1]");
+    // numeric keys order numerically and before text keys, as fmt orders them
+    const mixed = new Map<unknown, unknown>([
+      ["x", 0],
+      [10, "ten"],
+      [9n, "nine"],
+    ]);
+    expect(renderString("{{ . }}", mixed)).toBe("map[9:nine 10:ten x:0]");
+  });
+
+  it("a non-T that is not a plain object prints its own String, never map[]", () => {
+    const when = new Date(Date.UTC(2026, 0, 2, 3, 4, 5));
+    expect(text("{{ . }}", when)).toBe(String(when));
+    expect(text("{{ . }}", { at: when })).toBe(`map[at:${String(when)}]`);
+    expect(text("{{ . }}", new Set([1]))).toBe("[object Set]");
+    class Foo {
+      x = 1;
+    }
+    expect(text("{{ toString . }}", new Foo())).toBe("[object Object]");
+  });
+
+  it("a T inside a walked value is the same T: the default toString refuses it loudly, isT says otherwise", () => {
+    // Under DEFAULT_IS_T a plain object is a T at any depth; the default
+    // engine cannot flatten a T, so [[object Object]] cannot be printed.
+    expect(() => renderString("{{ . }}", [{}])).toThrow(TypeMismatchError);
+    expect(() => renderString("{{ toString . }}", { a: 1 })).toThrow(TypeMismatchError);
+    const data = createEngine<string>({
+      fromString: (s) => s,
+      isT: (v): v is string => typeof v === "string",
+    });
+    expect(data.parse("{{ . }}").evaluate([{}]).join("")).toBe("[map[]]");
+    expect(data.parse("{{ toString . }}").evaluate({ a: 1 }).join("")).toBe("map[a:1]");
+  });
+
+  it("toString and toStrings are the builtin %v: primitives, nil, arrays, and a T through the engine's toString", () => {
+    expect(renderString("{{ toString . }}", 42)).toBe("42");
+    expect(renderString("{{ toString . }}", 3.14)).toBe("3.14");
+    expect(renderString("{{ toString . }}", true)).toBe("true");
+    expect(renderString("{{ toString . }}", 42n)).toBe("42");
+    expect(renderString("{{ toString . }}", null)).toBe("<nil>");
+    expect(renderString("{{ toString . }}", "hello")).toBe("hello");
+    expect(renderString("{{ toStrings . }}", [1, "a", null])).toBe("[1 a <nil>]");
+    const printing = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      toString: (v) => (v instanceof Rich ? v.s : JSON.stringify(v)),
+      isT: (v): v is Rich => v instanceof Rich,
+    });
+    const out = printing
+      .parse('{{ .t | toString }}|{{ printf "%v" .t }}|{{ toString . }}')
+      .evaluate({ t: new Rich("styled") })
+      .map((f) => f.s)
+      .join("");
+    expect(out).toBe("styled|styled|map[t:styled]");
+  });
+
+  it("isT is the one gate: an array-shaped T passes through when isT says so", () => {
+    class Row extends Array<string> {}
+    const rows = createEngine<Row>({
+      fromString: (s) => Row.from([s]) as Row,
+      isT: (v): v is Row => v instanceof Row,
+    });
+    const row = Row.from(["a", "b"]) as Row;
+    expect(rows.parse("{{ . }}").evaluate(row)[0]).toBe(row);
+    expect(rows.parse("{{ . }}").evaluate([1, 2])[0]).toEqual(Row.from(["[1 2]"]));
+  });
+
+  it("printf's %v and the output stream are one formatter", () => {
+    const printing = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      toString: (v) => (v instanceof Rich ? v.s : JSON.stringify(v)),
+      isT: (v): v is Rich => v instanceof Rich,
+    });
+    const doc = { b: 2, a: [1] };
+    const out = printing
+      .parse('{{ . }}|{{ printf "%v" . }}')
+      .evaluate(doc)
+      .map((f) => f.s)
+      .join("");
+    expect(out).toBe("map[a:[1] b:2]|map[a:[1] b:2]");
+  });
+
+  it("printf's %v flattens a T through the engine's toString, like %s and the output stream", () => {
+    const printing = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      toString: (v) => (v instanceof Rich ? v.s : JSON.stringify(v)),
+      isT: (v): v is Rich => v instanceof Rich,
+    });
+    const out = printing
+      .parse('{{ printf "%v" .t }}|{{ printf "%s" .t }}|{{ printf "%v" . }}')
+      .evaluate({ t: new Rich("styled") })
+      .map((f) => f.s)
+      .join("");
+    expect(out).toBe("styled|styled|map[t:styled]");
+  });
+
+  it('a "T" ArgType slot accepts exactly what isT says', () => {
+    const funcs: FuncMap = {
+      id: { fn: (v: unknown) => v, argTypes: ["T"], returnType: "T" },
+    };
+    const withFuncs = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      isT: (v): v is Rich => v instanceof Rich,
+      funcs,
+    });
+    const t = new Rich("x");
+    expect(withFuncs.parse("{{ id . }}").evaluate(t)[0]).toBe(t);
+    expect(() => withFuncs.parse("{{ id . }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
+  });
+
+  it('a "liftable" slot reads the same isT: a T or a string, never a non-T object', () => {
+    const funcs: FuncMap = {
+      id: { fn: (v: unknown) => v, argTypes: ["liftable"], returnType: "T" },
+    };
+    const withFuncs = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      isT: (v): v is Rich => v instanceof Rich,
+      funcs,
+    });
+    const t = new Rich("x");
+    expect(withFuncs.parse("{{ id . }}").evaluate(t)[0]).toBe(t);
+    expect(withFuncs.parse('{{ id "lifted" }}').evaluate(null)[0]).toEqual(new Rich("lifted"));
+    expect(() => withFuncs.parse("{{ id . }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
+    expect(() => withFuncs.parse("{{ id . }}").evaluate([1])).toThrow(TypeMismatchError);
+  });
+
+  it("without isT every non-null object but an array or a Map is a T (the T = plain object consumer)", () => {
+    const o = { a: 1 };
+    expect(stringEngine().parse("{{ . }}").evaluate(o)[0]).toBe(o as unknown as string);
   });
 });
