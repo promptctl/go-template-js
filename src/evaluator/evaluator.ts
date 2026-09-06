@@ -41,7 +41,7 @@ import {
 import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
-import { defaultBuiltins } from "./builtins.js";
+import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
 import { isLazy } from "./lazy.js";
 import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
@@ -71,8 +71,8 @@ import { isTruthy } from "./truthy.js";
  *   bodies see `number`. Used by `addf`, `subf`, `mulf`, `divf`,
  *   `maxf`, `minf`. Added by epic template-variance-num-carrier-hfv.
  * - "bool"   — must be `typeof "boolean"`.
- * - "T"      — opaque caller-defined T; treated as "anything that is
- *   not a string". The guard does no further checking.
+ * - "T"      — a T: membership is exactly the engine's `isT` (see
+ *   `EngineConfig.isT`).
  * - "ordered" — orderable primitive (string, number, bigint, boolean).
  *   When two or more "ordered" slots appear in the same call, all of
  *   them must share a kind, with `number` and `bigint` bridged. Used
@@ -316,6 +316,20 @@ export interface EngineConfig<T> {
    * `"stringifiable"` slot encounters a T value — never silently.
    */
   readonly toString?: (value: T) => string;
+  /**
+   * Is this value a T? At the output stream a T is pushed as itself and
+   * anything else is printed as Go prints it (`[a b]`, `map[k:v …]`, a
+   * Date's own String); at a call, a `"T"` ArgType slot accepts exactly
+   * what this says.
+   *
+   * [LAW:single-enforcer] The one predicate, consulted first and alone.
+   * Default: a non-null object other than an array or a Map — so without
+   * it a consumer whose scope carries JSON documents sees a bare
+   * `{{ .doc }}` leak the document into its fragments; with
+   * `isT: (v) => v instanceof RichText` that `{{ .doc }}` prints
+   * `map[k:v …]`, and a consumer whose T is array-shaped says so here.
+   */
+  readonly isT?: (value: unknown) => value is T;
   /**
    * PRNG source for `sprigRandom` functions. Defaults to `Math.random`.
    * Supply a seeded generator for reproducible templates.
@@ -664,6 +678,7 @@ export class Engine<T> {
   // `enforceArgTypes` so `"stringifiable"` slots probe with the same
   // function that downstream func bodies will re-use to flatten.
   private readonly toString: (value: unknown) => string;
+  private readonly isT: IsT;
   private readonly funcs: FuncMap;
   // [LAW:single-enforcer] One field, consulted only at `resolveFieldChain`.
   // [LAW:one-source-of-truth] Default is `"default"` so the engine
@@ -687,6 +702,7 @@ export class Engine<T> {
     // engines.
     const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
     this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
+    this.isT = config.isT ?? DEFAULT_IS_T;
     // [LAW:no-defensive-null-guards] exception: trust boundary — the
     // EngineConfig flows in from JS callers (no compile-time guard) and
     // TS callers using `as` casts. A typo like `"erro"` would silently
@@ -703,7 +719,7 @@ export class Engine<T> {
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
-    this.funcs = { ...defaultBuiltins(this.toString), ...(config.funcs ?? {}) };
+    this.funcs = { ...defaultBuiltins(this.toString, this.isT), ...(config.funcs ?? {}) };
   }
 
   /**
@@ -1049,6 +1065,7 @@ export class Engine<T> {
       this.toString,
       fn.argTypePattern,
       this.fromString as (s: string) => unknown,
+      this.isT,
     );
     // [LAW:single-enforcer] One cast at the dispatch site. `TemplateFunc.fn`
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
@@ -1111,6 +1128,7 @@ export class Engine<T> {
           this.toString,
           fn.argTypePattern,
           this.fromString as (s: string) => unknown,
+          this.isT,
         );
         return (fn.fn as () => unknown)();
       }
@@ -1195,40 +1213,22 @@ export class Engine<T> {
       ctx.out.push(this.fromString(String(value)));
       return;
     }
-    // Arrays / Maps / plain objects: format Go-like (`[a b c]`, `map[k:v]`,
-    // `{f1 f2}`) when the value lands in a string-output stream. This
-    // matches Go's `fmt.Sprintf("%v", v)` shape for the common cases
-    // and keeps the conformance corpus byte-equal.
-    if (Array.isArray(value)) {
-      ctx.out.push(this.fromString(formatArrayLikeGo(value)));
+    // A T is pushed as itself; anything else prints as Go's
+    // `fmt.Sprintf("%v", v)` would (`[a b c]`, `map[k:v]`), which keeps the
+    // conformance corpus byte-equal.
+    if (this.isT(value)) {
+      ctx.out.push(value as T);
       return;
     }
-    if (value instanceof Map) {
-      ctx.out.push(this.fromString(formatMapLikeGo(value)));
-      return;
-    }
-    ctx.out.push(value as T);
+    ctx.out.push(this.fromString(formatV(value, this.toString, this.isT)));
   }
 }
 
-function formatArrayLikeGo(arr: readonly unknown[]): string {
-  return `[${arr.map(formatScalarLikeGo).join(" ")}]`;
-}
-
-function formatMapLikeGo(m: ReadonlyMap<unknown, unknown>): string {
-  const parts: string[] = [];
-  for (const [k, v] of m) {
-    parts.push(`${formatScalarLikeGo(k)}:${formatScalarLikeGo(v)}`);
-  }
-  return `map[${parts.join(" ")}]`;
-}
-
-function formatScalarLikeGo(v: unknown): string {
-  if (v === null || v === undefined) return "<nil>";
-  if (Array.isArray(v)) return formatArrayLikeGo(v);
-  if (v instanceof Map) return formatMapLikeGo(v);
-  return String(v);
-}
+// [LAW:one-source-of-truth] The engine's default `isT`, shared by the
+// constructor and the standalone `enforceArgTypes`, so the output stream and
+// the `"T"` ArgType gate cannot disagree about what a T is by default.
+export const DEFAULT_IS_T: IsT = (v) =>
+  typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Map);
 
 // ---------------------------------------------------------------------------
 // Convenience constructor matching the future public-API shape (.api.1).
@@ -1263,6 +1263,7 @@ export function enforceArgTypes(
   toString: (value: unknown) => string = defaultToString,
   pattern?: "alternating",
   fromString: (s: string) => unknown = defaultFromString,
+  isT: IsT = DEFAULT_IS_T,
 ): void {
   // [LAW:dataflow-not-control-flow] No short-circuit. The shape of work
   // is fixed: validate every positional value against its declared
@@ -1281,7 +1282,7 @@ export function enforceArgTypes(
   for (let i = 0; i < values.length; i++) {
     const declared = lookup(i);
     const value = values[i];
-    if (!matchesArgType(declared, value, toString)) {
+    if (!matchesArgType(declared, value, toString, isT)) {
       throw new TypeMismatchError(
         funcName,
         i + 1,
@@ -1380,6 +1381,7 @@ function matchesArgType(
   declared: ArgType,
   value: unknown,
   toString: (value: unknown) => string,
+  isT: IsT,
 ): boolean {
   switch (declared) {
     case "truthy":
@@ -1427,15 +1429,8 @@ function matchesArgType(
         typeof value === "boolean"
       );
     case "T":
-      return (
-        value !== null &&
-        value !== undefined &&
-        typeof value !== "string" &&
-        typeof value !== "number" &&
-        typeof value !== "boolean" &&
-        typeof value !== "bigint" &&
-        typeof value !== "symbol"
-      );
+      // [LAW:single-enforcer] What the engine's output stream calls a T.
+      return isT(value);
     case "list":
       // Go-parity: a string is not a list to sprig, even though it is
       // iterable. Excluding string here forces consumers to spell out
@@ -1509,21 +1504,10 @@ function matchesArgType(
       }
     }
     case "liftable":
-      // Mirror of "stringifiable" in the opposite direction: a slot
-      // that accepts T or a string the engine can lift to T via
-      // `engine.fromString`. The matcher only validates membership;
-      // the actual lift happens once in `enforceArgTypes` so func
-      // bodies see T uniformly. Non-string non-T values fail the
-      // gate — the same shape rules as "T".
-      return (
-        typeof value === "string" ||
-        (value !== null &&
-          value !== undefined &&
-          typeof value !== "number" &&
-          typeof value !== "boolean" &&
-          typeof value !== "bigint" &&
-          typeof value !== "symbol")
-      );
+      // Mirror of "stringifiable" in the opposite direction: a T, or a
+      // string `enforceArgTypes` lifts once through `engine.fromString`.
+      // [LAW:single-enforcer] The T half is the same predicate the "T" slot reads.
+      return typeof value === "string" || isT(value);
     case "serializable":
       // Runtime-validate JSON encodability. `JSON.stringify` returns
       // `undefined` for functions/symbols and throws on circular refs;
@@ -1580,16 +1564,6 @@ function defaultToString(value: unknown): string {
     describeValue(value),
     { line: 0, column: 0, offset: 0 },
   );
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) return false;
-  if (value instanceof Map || value instanceof Set) return false;
-  // Reject typed arrays, Dates, RegExps, and other built-ins by
-  // requiring a null prototype or the plain Object prototype.
-  const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
 }
 
 function isJsonSerializable(value: unknown): boolean {

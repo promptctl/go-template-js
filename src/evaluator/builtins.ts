@@ -28,7 +28,7 @@ import { isTruthy } from "./truthy.js";
 // (probe at the gate, flatten in the body) — one source of truth.
 // ---------------------------------------------------------------------------
 
-function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
+function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
   return {
     // Comparison — Go template promotes numeric types and compares
     // strings/bools by value. We match that by leaning on JS `<`/`===`
@@ -109,9 +109,22 @@ function eagerBuiltins(toString: (v: unknown) => string): FuncMap {
       returnType: "string",
     },
     printf: {
-      fn: (format: string, ...args: unknown[]) => sprintf(format, args, toString),
+      fn: (format: string, ...args: unknown[]) => sprintf(format, args, toString, isT),
       argTypes: ["string", "stringifiable"],
       returnType: "string",
+    },
+    // Sprig's `toString`/`toStrings` are Go's `%v` — built here, beside
+    // `printf`, because that is where the engine's `toString`/`isT` are.
+    // `as const`: a property key named `toString` shadows
+    // `Object.prototype.toString` in TS's contextual typing of the literal.
+    toString: {
+      fn: (v: unknown) => formatV(v, toString, isT),
+      argTypes: ["value"] as const,
+      returnType: "string" as const,
+    },
+    toStrings: {
+      fn: (list: unknown[]) => list.map((v) => formatV(v, toString, isT)),
+      argTypes: ["list"],
     },
 
     // [LAW:single-enforcer] `call` declares "callable" for the first
@@ -206,8 +219,8 @@ function lazyBuiltins(): FuncMap {
 // Public default registry.
 // ---------------------------------------------------------------------------
 
-export function defaultBuiltins(toString: (v: unknown) => string): FuncMap {
-  return { ...eagerBuiltins(toString), ...lazyBuiltins() };
+export function defaultBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
+  return { ...eagerBuiltins(toString, isT), ...lazyBuiltins() };
 }
 
 // ---------------------------------------------------------------------------
@@ -448,6 +461,7 @@ function sprintf(
   format: string,
   args: readonly unknown[],
   toString: (v: unknown) => string,
+  isT: IsT,
 ): string {
   let out = "";
   let argIdx = 0;
@@ -477,7 +491,7 @@ function sprintf(
     const verb = format[j];
     const spec = format.slice(i + 1, j);
     const arg = args[argIdx++];
-    out += formatVerb(verb ?? "", spec, arg, toString);
+    out += formatVerb(verb ?? "", spec, arg, toString, isT);
     i = j + 1;
   }
   return out;
@@ -488,6 +502,7 @@ function formatVerb(
   spec: string,
   arg: unknown,
   toString: (v: unknown) => string,
+  isT: IsT,
 ): string {
   switch (verb) {
     case "s":
@@ -504,7 +519,7 @@ function formatVerb(
       return applyWidth(spec, String(n));
     }
     case "v":
-      return applyWidth(spec, formatV(arg));
+      return applyWidth(spec, formatV(arg, toString, isT));
     case "q":
       return applyWidth(spec, JSON.stringify(stringifyForPrint(arg, toString)));
     case "f": {
@@ -551,19 +566,58 @@ function applyWidth(spec: string, body: string): string {
   return flag.includes("-") ? body + pad : pad + body;
 }
 
-// [LAW:one-source-of-truth] Exported so sprig's `toString`/`toStrings`
-// share this Go-`%v` formatter with printf's `%v` verb. Two places
-// computing "%v shape" would drift; exporting makes it impossible.
-export function formatV(value: unknown): string {
+// Is this value a T — opaque, printed by its own String — or not? The
+// engine's one predicate, threaded to every place that prints a value.
+export type IsT = (value: unknown) => boolean;
+
+// [LAW:one-source-of-truth] The one Go-`%v` formatter: the output stream,
+// printf's `%v` verb, and sprig's `toString`/`toStrings` all print through
+// it, so a bare `{{ .doc }}` and `{{ printf "%v" .doc }}` cannot disagree.
+// A T flattens through the engine's `toString`, the same function `%s`
+// and `print` use. Of the non-T values, only the shapes Go walks are
+// walked — an array, a Map, a plain object (printed as Go prints a map:
+// `map[k:v …]`, keys sorted the way fmt orders them); a Date, a Set, a
+// class instance prints its own String.
+export function formatV(value: unknown, toString: ToString, isT: IsT): string {
   if (value === null || value === undefined) return "<nil>";
   if (typeof value === "string") return value;
-  if (typeof value === "bigint") return value.toString();
-  if (Array.isArray(value)) return `[${value.map(formatV).join(" ")}]`;
-  if (value instanceof Map) {
-    return `map[${[...value.entries()].map(([k, v]) => `${formatV(k)}:${formatV(v)}`).join(" ")}]`;
-  }
-  if (typeof value === "object") {
-    return `{${Object.values(value).map(formatV).join(" ")}}`;
-  }
+  if (isT(value)) return toString(value);
+  if (Array.isArray(value)) return `[${value.map((v) => formatV(v, toString, isT)).join(" ")}]`;
+  if (value instanceof Map) return formatEntries([...value.entries()], toString, isT);
+  if (isPlainObject(value)) return formatEntries(Object.entries(value), toString, isT);
   return String(value);
+}
+
+type ToString = (value: unknown) => string;
+
+// [LAW:single-enforcer] The one ordering a Map and a plain object print in:
+// numeric keys numerically and first, every other key by its formatted text.
+function formatEntries(
+  entries: readonly (readonly [unknown, unknown])[],
+  toString: ToString,
+  isT: IsT,
+): string {
+  const fmt = (v: unknown): string => formatV(v, toString, isT);
+  const isNumeric = (k: unknown): k is number | bigint =>
+    typeof k === "number" || typeof k === "bigint";
+  const byKey = ([a]: readonly [unknown, unknown], [b]: readonly [unknown, unknown]): number => {
+    if (isNumeric(a) && isNumeric(b)) return a < b ? -1 : a > b ? 1 : 0;
+    if (isNumeric(a) !== isNumeric(b)) return isNumeric(a) ? -1 : 1;
+    const [as, bs] = [fmt(a), fmt(b)];
+    return as < bs ? -1 : as > bs ? 1 : 0;
+  };
+  return `map[${[...entries]
+    .sort(byKey)
+    .map(([k, v]) => `${fmt(k)}:${fmt(v)}`)
+    .join(" ")}]`;
+}
+
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  if (value instanceof Map || value instanceof Set) return false;
+  // Reject typed arrays, Dates, RegExps, and other built-ins by
+  // requiring a null prototype or the plain Object prototype.
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || proto === Object.prototype;
 }
