@@ -327,7 +327,25 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     expect(renderString("{{ . }}", new Map([["k", 1]]))).toBe("map[k:1]");
   });
 
-  it("without isT every object is a T (the T = plain object consumer)", () => {
+  it("a non-T that is not a plain object prints its own String, never map[]", () => {
+    const when = new Date(Date.UTC(2026, 0, 2, 3, 4, 5));
+    expect(text("{{ . }}", when)).toBe(String(when));
+    expect(text("{{ . }}", { at: when })).toBe(`map[at:${String(when)}]`);
+    expect(text("{{ . }}", new Set([1]))).toBe("[object Set]");
+  });
+
+  it("isT is the one gate: an array-shaped T passes through when isT says so", () => {
+    class Row extends Array<string> {}
+    const rows = createEngine<Row>({
+      fromString: (s) => Row.from([s]) as Row,
+      isT: (v): v is Row => v instanceof Row,
+    });
+    const row = Row.from(["a", "b"]) as Row;
+    expect(rows.parse("{{ . }}").evaluate(row)[0]).toBe(row);
+    expect(rows.parse("{{ . }}").evaluate([1, 2])[0]).toEqual(Row.from(["[1 2]"]));
+  });
+
+  it("without isT every object but an array or a Map is a T (the T = plain object consumer)", () => {
     const o = { a: 1 };
     expect(stringEngine().parse("{{ . }}").evaluate(o)[0]).toBe(o as unknown as string);
   });

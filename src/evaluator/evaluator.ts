@@ -317,16 +317,15 @@ export interface EngineConfig<T> {
    */
   readonly toString?: (value: T) => string;
   /**
-   * Is this output-stream value a T (pass it through) or a plain object
-   * the template reached into a document for (format it Go-style)?
+   * Is this output-stream value a T (pushed as itself) or not (printed as
+   * Go prints it: `[a b]`, `map[k:v …]`, a Date's own String)?
    *
-   * [LAW:single-enforcer] The one place the engine tells a T from a plain
-   * object in the output stream. Without it every object is taken for a
-   * T, so a consumer whose T is a class and whose scope carries JSON
-   * documents sees a bare `{{ .doc }}` leak the document into its
-   * fragments. With `isT: (v) => v instanceof RichText` that same
-   * `{{ .doc }}` prints `map[k:v …]` — what Go prints for a map.
-   * Default: every object is a T (the `T = plain object` consumer).
+   * [LAW:single-enforcer] The one gate at the output stream, consulted
+   * first and alone. Default: every object except an array or a Map is a
+   * T — so without it a consumer whose scope carries JSON documents sees a
+   * bare `{{ .doc }}` leak the document into its fragments; with
+   * `isT: (v) => v instanceof RichText` that `{{ .doc }}` prints
+   * `map[k:v …]`, and a consumer whose T is array-shaped says so here.
    */
   readonly isT?: (value: unknown) => value is T;
   /**
@@ -701,7 +700,7 @@ export class Engine<T> {
     // engines.
     const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
     this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
-    this.isT = config.isT ?? (() => true);
+    this.isT = config.isT ?? ((v) => !Array.isArray(v) && !(v instanceof Map));
     // [LAW:no-defensive-null-guards] exception: trust boundary — the
     // EngineConfig flows in from JS callers (no compile-time guard) and
     // TS callers using `as` casts. A typo like `"erro"` would silently
@@ -1210,15 +1209,14 @@ export class Engine<T> {
       ctx.out.push(this.fromString(String(value)));
       return;
     }
-    // Arrays / Maps / plain objects: format Go-like (`[a b c]`, `map[k:v]`,
-    // `{f1 f2}`) when the value lands in a string-output stream. This
-    // matches Go's `fmt.Sprintf("%v", v)` shape for the common cases
-    // and keeps the conformance corpus byte-equal.
-    if (Array.isArray(value) || value instanceof Map || !this.isT(value)) {
-      ctx.out.push(this.fromString(formatScalarLikeGo(value, this.isT)));
+    // A T is pushed as itself; anything else prints as Go's
+    // `fmt.Sprintf("%v", v)` would (`[a b c]`, `map[k:v]`), which keeps the
+    // conformance corpus byte-equal.
+    if (this.isT(value)) {
+      ctx.out.push(value as T);
       return;
     }
-    ctx.out.push(value as T);
+    ctx.out.push(this.fromString(formatScalarLikeGo(value, this.isT)));
   }
 }
 
@@ -1246,14 +1244,17 @@ function formatEntriesLikeGo(entries: readonly (readonly [unknown, unknown])[], 
   return `map[${parts.join(" ")}]`;
 }
 
-// [LAW:dataflow-not-control-flow] `isT` is the value that decides whether an
-// object is opaque (a T: its own String) or a map to walk — the engine's one
-// predicate, threaded, never a second copy.
+// [LAW:dataflow-not-control-flow] `isT` is the value that decides whether a
+// nested object is opaque (a T: its own String) — the engine's one predicate,
+// threaded, never a second copy. Of the rest, only the shapes Go walks are
+// walked (an array, a Map, a plain object); a Date, a Set, a class instance
+// that is not a T prints its own String.
 function formatScalarLikeGo(v: unknown, isT: IsT): string {
   if (v === null || v === undefined) return "<nil>";
+  if (isT(v)) return String(v);
   if (Array.isArray(v)) return formatArrayLikeGo(v, isT);
   if (v instanceof Map) return formatMapLikeGo(v, isT);
-  if (typeof v === "object" && !isT(v)) return formatObjectLikeGo(v, isT);
+  if (isPlainObject(v)) return formatObjectLikeGo(v, isT);
   return String(v);
 }
 
