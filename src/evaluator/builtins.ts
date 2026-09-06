@@ -113,6 +113,19 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
       argTypes: ["string", "stringifiable"],
       returnType: "string",
     },
+    // Sprig's `toString`/`toStrings` are Go's `%v` — built here, beside
+    // `printf`, because that is where the engine's `toString`/`isT` are.
+    // `as const`: a property key named `toString` shadows
+    // `Object.prototype.toString` in TS's contextual typing of the literal.
+    toString: {
+      fn: (v: unknown) => formatV(v, toString, isT),
+      argTypes: ["value"] as const,
+      returnType: "string" as const,
+    },
+    toStrings: {
+      fn: (list: unknown[]) => list.map((v) => formatV(v, toString, isT)),
+      argTypes: ["list"],
+    },
 
     // [LAW:single-enforcer] `call` declares "callable" for the first
     // slot — the gate rejects non-functions once with TypeMismatchError;

@@ -354,6 +354,44 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     expect(text("{{ . }}", when)).toBe(String(when));
     expect(text("{{ . }}", { at: when })).toBe(`map[at:${String(when)}]`);
     expect(text("{{ . }}", new Set([1]))).toBe("[object Set]");
+    class Foo {
+      x = 1;
+    }
+    expect(text("{{ toString . }}", new Foo())).toBe("[object Object]");
+  });
+
+  it("a T inside a walked value is the same T: the default toString refuses it loudly, isT says otherwise", () => {
+    // Under DEFAULT_IS_T a plain object is a T at any depth; the default
+    // engine cannot flatten a T, so [[object Object]] cannot be printed.
+    expect(() => renderString("{{ . }}", [{}])).toThrow(TypeMismatchError);
+    expect(() => renderString("{{ toString . }}", { a: 1 })).toThrow(TypeMismatchError);
+    const data = createEngine<string>({
+      fromString: (s) => s,
+      isT: (v): v is string => typeof v === "string",
+    });
+    expect(data.parse("{{ . }}").evaluate([{}]).join("")).toBe("[map[]]");
+    expect(data.parse("{{ toString . }}").evaluate({ a: 1 }).join("")).toBe("map[a:1]");
+  });
+
+  it("toString and toStrings are the builtin %v: primitives, nil, arrays, and a T through the engine's toString", () => {
+    expect(renderString("{{ toString . }}", 42)).toBe("42");
+    expect(renderString("{{ toString . }}", 3.14)).toBe("3.14");
+    expect(renderString("{{ toString . }}", true)).toBe("true");
+    expect(renderString("{{ toString . }}", 42n)).toBe("42");
+    expect(renderString("{{ toString . }}", null)).toBe("<nil>");
+    expect(renderString("{{ toString . }}", "hello")).toBe("hello");
+    expect(renderString("{{ toStrings . }}", [1, "a", null])).toBe("[1 a <nil>]");
+    const printing = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      toString: (v) => (v instanceof Rich ? v.s : JSON.stringify(v)),
+      isT: (v): v is Rich => v instanceof Rich,
+    });
+    const out = printing
+      .parse('{{ .t | toString }}|{{ printf "%v" .t }}|{{ toString . }}')
+      .evaluate({ t: new Rich("styled") })
+      .map((f) => f.s)
+      .join("");
+    expect(out).toBe("styled|styled|map[t:styled]");
   });
 
   it("isT is the one gate: an array-shaped T passes through when isT says so", () => {

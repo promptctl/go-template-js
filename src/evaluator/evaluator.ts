@@ -71,8 +71,8 @@ import { isTruthy } from "./truthy.js";
  *   bodies see `number`. Used by `addf`, `subf`, `mulf`, `divf`,
  *   `maxf`, `minf`. Added by epic template-variance-num-carrier-hfv.
  * - "bool"   — must be `typeof "boolean"`.
- * - "T"      — opaque caller-defined T; treated as "anything that is
- *   not a string". The guard does no further checking.
+ * - "T"      — a T: membership is exactly the engine's `isT` (see
+ *   `EngineConfig.isT`).
  * - "ordered" — orderable primitive (string, number, bigint, boolean).
  *   When two or more "ordered" slots appear in the same call, all of
  *   them must share a kind, with `number` and `bigint` bridged. Used

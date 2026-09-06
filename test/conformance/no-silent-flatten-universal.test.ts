@@ -428,6 +428,7 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     // Go-walked shapes are not a T at a liftable slot either.
     { label: "array", value: [], pass: false },
     { label: "Map", value: new Map(), pass: false },
+    { label: "function", value: FN, pass: false },
     { label: "number", value: 1, pass: false },
     { label: "bool", value: true, pass: false },
     { label: "bigint", value: 1n, pass: false },
