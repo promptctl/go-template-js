@@ -52,7 +52,7 @@ Some internal npm proxies don't serve the `@promptctl` scope, and an ordinary in
 }
 ```
 
-The version appears twice in the URL; bump both together. If you also depend on `@promptctl/rich-js`, add an `overrides` entry redirecting its transitive `@promptctl/go-template-js` to the same URL, or that copy still resolves from npm and still fails. Don't substitute `github:promptctl/go-template-js#semver:^0.9.0` — a git dependency installs the source tree, which carries no `dist/`, so the install exits 0 and the package fails later at import.
+The version appears twice in the URL; bump both together. If you also depend on `@promptctl/rich-js`, redirect its transitive `@promptctl/go-template-js` to the same URL — the field is `pnpm.overrides` for pnpm, `overrides` for npm, `resolutions` for yarn — or that copy still resolves from npm and still fails. pnpm ignores a top-level `overrides` without warning. Don't substitute `github:promptctl/go-template-js#semver:^0.9.0` — a git dependency installs the source tree, which carries no `dist/`, so the install exits 0 and the package fails later at import.
 
 ## Quick start
 
