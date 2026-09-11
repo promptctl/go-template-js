@@ -40,6 +40,20 @@ pnpm add @promptctl/go-template-js
 
 Requires Node **≥ 20.19.0** (per `engines.node`). The package is ESM-only.
 
+### If the `@promptctl` scope is unreachable
+
+Some internal npm proxies don't serve the `@promptctl` scope, and an ordinary install can't resolve the package. Every GitHub release from v0.9.0 on carries the packed tarball as an asset, byte-identical to the one npm serves for that version — depend on it directly:
+
+```json
+{
+  "dependencies": {
+    "@promptctl/go-template-js": "https://github.com/promptctl/go-template-js/releases/download/vX.Y.Z/promptctl-go-template-js-X.Y.Z.tgz"
+  }
+}
+```
+
+Substitute a released version for `X.Y.Z` in both places; the [releases page](https://github.com/promptctl/go-template-js/releases) lists them, each with its asset. `@promptctl/rich-js` needs the same treatment if you depend on it — it sits in the same scope, so it won't resolve either: point it at its own release asset, and redirect the transitive `@promptctl/go-template-js` it pulls in to the URL above. The redirect field is `pnpm.overrides` for pnpm, `overrides` for npm, `resolutions` for yarn; pnpm ignores a top-level `overrides` without warning. Don't substitute `github:promptctl/go-template-js#semver:^X.Y.Z` — a git dependency installs the source tree, which carries no `dist/`, so the install exits 0 and the package fails later at import.
+
 ## Quick start
 
 ```ts
