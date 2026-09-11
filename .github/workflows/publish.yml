@@ -83,6 +83,9 @@ jobs:
       # npm with no token anyone could revoke, so a compromised or retagged
       # action publishes as us. ci.yml only reads.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history so the tagged commit can be proved to be on master.
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -124,16 +127,40 @@ jobs:
           # `latest` or GitHub's "Latest release" — the README points readers at
           # the latest release asset. The semver prerelease field is the
           # discriminator, so both channels read it from one place here and
-          # carry it forward as a value [LAW:dataflow-not-control-flow].
+          # carry it forward as values [LAW:dataflow-not-control-flow].
+          #
+          # A stable release passes NO --tag. npm guards `latest` against moving
+          # backwards only while the tag is implicit (publish.js gates both that
+          # check and the prerelease check on `isDefaultTag`), so naming
+          # `latest` explicitly would silently demote it when, say, a v0.9.1
+          # backport is tagged after v0.10.0. npm already owns that invariant;
+          # do not take it over [LAW:single-enforcer].
           if [ "$pkg" != "${pkg%%-*}" ]; then
-            echo "npm_tag=next" >> "$GITHUB_OUTPUT"
-            echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=--tag next" >> "$GITHUB_OUTPUT"
+            echo "gh_flags=--prerelease=true --latest=false" >> "$GITHUB_OUTPUT"
             echo "publishing ${pkg} as a prerelease (npm dist-tag: next)"
           else
-            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
-            echo "prerelease=" >> "$GITHUB_OUTPUT"
-            echo "publishing ${pkg} (npm dist-tag: latest)"
+            echo "npm_tag=" >> "$GITHUB_OUTPUT"
+            echo "gh_flags=--prerelease=false --latest=true" >> "$GITHUB_OUTPUT"
+            echo "publishing ${pkg} (npm applies its own default latest tag)"
           fi
+
+      # `v*` fires for a tag on ANY branch, and ci.yml does not run on tags — so
+      # without this, a tag on an unmerged commit publishes having never faced
+      # the full CI suite. In particular `prepublishOnly` below is lint,
+      # typecheck, test and build only; it omits the conformance-fixture parity
+      # check, which is ci.yml's strongest assertion. Rather than restate that
+      # check here as a second gate, require the commit to be one master already
+      # accepted [LAW:single-enforcer].
+      - name: Verify the tagged commit is on master
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::tagged commit ${GITHUB_SHA} is not an ancestor of origin/master — it has not passed CI on master"
+            exit 1
+          fi
+          echo "${GITHUB_SHA} is on master"
 
       # [LAW:one-source-of-truth] The package already defines its own publish
       # gate in `prepublishOnly` (lint, typecheck, test, build). Run that script
@@ -154,27 +181,39 @@ jobs:
           [ -s "$tgz" ] || { echo "::error::npm pack produced no tarball"; exit 1; }
           # The asset's whole purpose is carrying a prebuilt dist. Assert it,
           # rather than discovering it missing in a consumer's node_modules.
+          # Both of package.json's entry points are checked: a dts emit that
+          # silently stops producing declarations would otherwise ship runtime
+          # code with no types, which fails in the consumer, not here.
           # Listed to a file, not piped into grep: `grep -q` exits on first
           # match, tar takes SIGPIPE, and pipefail would report that 141 as a
           # failed check — intermittently, depending on which process wins.
           tar tzf "$tgz" >"$RUNNER_TEMP/tarball-listing.txt"
-          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/tarball-listing.txt" || {
-            echo "::error::packed tarball contains no package/dist/index.js — the build did not reach the tarball"
-            exit 1
-          }
+          for entry in package/dist/index.js package/dist/index.d.ts; do
+            grep -qx "$entry" "$RUNNER_TEMP/tarball-listing.txt" || {
+              echo "::error::packed tarball contains no ${entry} — the build did not reach the tarball"
+              exit 1
+            }
+          done
           echo "tgz=$tgz" >> "$GITHUB_OUTPUT"
           echo "packed $tgz"
 
       # First of the two publishes — see the ordering note in the file header.
       # No NODE_AUTH_TOKEN: npm >= 11.5.1 detects the Actions OIDC environment
-      # (id-token: write, above) and exchanges it for a short-lived publish
-      # token. Setting an explicit token here would make npm take that path
-      # instead and skip OIDC entirely.
+      # (id-token: write, above), exchanges it for a short-lived publish token,
+      # and writes that over whatever credential the .npmrc held — it does not
+      # inspect existing credentials first, so there is no token to remove here.
+      # One consequence worth knowing when this breaks: setup-node's
+      # `registry-url` leaves a literal `${NODE_AUTH_TOKEN}` in the job .npmrc,
+      # which npm counts as a credential, so a misconfigured trust surfaces as a
+      # bare registry E401 rather than npm's clearer ENEEDAUTH.
       - name: Publish to npm
         env:
           TGZ: ${{ steps.pack.outputs.tgz }}
           NPM_TAG: ${{ steps.version.outputs.npm_tag }}
-        run: npm publish "$TGZ" --access public --provenance --tag "$NPM_TAG"
+        # $NPM_TAG is deliberately unquoted: empty for a stable release, so npm
+        # keeps its implicit-tag guards (see the version step).
+        # shellcheck disable=SC2086
+        run: npm publish "$TGZ" --access public --provenance $NPM_TAG
 
       # Second, and only once npm has accepted the version: the release asset is
       # the same tarball, so it can only ever describe a version that exists.
@@ -182,18 +221,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TGZ: ${{ steps.pack.outputs.tgz }}
-          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          GH_FLAGS: ${{ steps.version.outputs.gh_flags }}
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           # A tag pushed by hand has no Release yet; one cut from the GitHub UI
           # does. `view` is an existence probe here — if it fails for any other
           # reason, `create` fails loudly on the next line rather than guessing.
-          # $PRERELEASE is deliberately unquoted: it is empty for a normal
-          # release and must expand to no argument at all.
-          # shellcheck disable=SC2086
           gh release view "$tag" >/dev/null 2>&1 \
-            || gh release create "$tag" --title "$tag" --generate-notes $PRERELEASE
+            || gh release create "$tag" --title "$tag" --generate-notes
+          # `edit` runs on both paths, never only on create. `gh release create`
+          # already exists for an rc cut with `gh release create` (which pushes
+          # the tag and fires this workflow), and its default make_latest is
+          # creation-date based, not semver — so flags applied only at creation
+          # are exactly the ones that go missing when they matter
+          # [LAW:dataflow-not-control-flow]. $GH_FLAGS carries explicit true or
+          # false for both, so this converges to the same state either way.
+          # shellcheck disable=SC2086
+          gh release edit "$tag" $GH_FLAGS
           # --clobber keeps a re-run idempotent. It cannot silently change the
           # bytes behind a URL that consumers' lockfiles pin by hash, because
           # the publish step above already refused the duplicate version and
