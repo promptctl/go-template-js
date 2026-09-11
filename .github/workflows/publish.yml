@@ -117,7 +117,11 @@ jobs:
           [ -s "$tgz" ] || { echo "::error::npm pack produced no tarball"; exit 1; }
           # The asset's whole purpose is carrying a prebuilt dist. Assert it,
           # rather than discovering it missing in a consumer's node_modules.
-          tar tzf "$tgz" | grep -qx 'package/dist/index.js' || {
+          # Listed to a file, not piped into grep: `grep -q` exits on first
+          # match, tar takes SIGPIPE, and pipefail would report that 141 as a
+          # failed check — intermittently, depending on which process wins.
+          tar tzf "$tgz" >"$RUNNER_TEMP/tarball-listing.txt"
+          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/tarball-listing.txt" || {
             echo "::error::packed tarball contains no package/dist/index.js — the build did not reach the tarball"
             exit 1
           }
