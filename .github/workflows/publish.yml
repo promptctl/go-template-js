@@ -16,7 +16,7 @@
 # the asset answers a blocked scope, not a blocked registry:
 #
 #   "@promptctl/go-template-js":
-#     "https://github.com/promptctl/go-template-js/releases/download/v0.9.0/promptctl-go-template-js-0.9.0.tgz"
+#     "https://github.com/promptctl/go-template-js/releases/download/vX.Y.Z/promptctl-go-template-js-X.Y.Z.tgz"
 #
 # Why an asset and not `github:promptctl/go-template-js#semver:^0.9.0`: a git
 # dependency installs the *source* tree, which carries no dist/. Measured with
@@ -55,7 +55,8 @@
 #   npm version <major|minor|patch> --no-git-tag-version   # bump on a branch
 #   # PR, review, merge to master
 #   git checkout master && git pull
-#   git tag v$(node -p "require('./package.json').version") && git push --tags
+#   tag="v$(node -p "require('./package.json').version")"
+#   git tag "$tag" && git push origin "$tag"   # this tag only, never --tags
 
 name: publish
 
@@ -129,20 +130,23 @@ jobs:
           # discriminator, so both channels read it from one place here and
           # carry it forward as values [LAW:dataflow-not-control-flow].
           #
-          # A stable release passes NO --tag. npm guards `latest` against moving
-          # backwards only while the tag is implicit (publish.js gates both that
-          # check and the prerelease check on `isDefaultTag`), so naming
-          # `latest` explicitly would silently demote it when, say, a v0.9.1
-          # backport is tagged after v0.10.0. npm already owns that invariant;
-          # do not take it over [LAW:single-enforcer].
+          # A stable release names neither channel's "latest", because both
+          # channels already guard it against moving backwards and both guards
+          # are disabled by naming it. npm gates that check on `isDefaultTag`, so
+          # it holds only while --tag is absent; GitHub's `make_latest: legacy`,
+          # what `gh release` sends while --latest is absent, weighs semver and
+          # not merely creation date. Claim either explicitly and a v0.9.1
+          # backport tagged after v0.10.0 silently demotes v0.10.0 — on the
+          # channel that claimed it, and on that channel alone, which is how the
+          # two come to disagree about what is current [LAW:single-enforcer].
           if [ "$pkg" != "${pkg%%-*}" ]; then
             echo "npm_tag=--tag next" >> "$GITHUB_OUTPUT"
             echo "gh_flags=--prerelease=true --latest=false" >> "$GITHUB_OUTPUT"
             echo "publishing ${pkg} as a prerelease (npm dist-tag: next)"
           else
             echo "npm_tag=" >> "$GITHUB_OUTPUT"
-            echo "gh_flags=--prerelease=false --latest=true" >> "$GITHUB_OUTPUT"
-            echo "publishing ${pkg} (npm applies its own default latest tag)"
+            echo "gh_flags=--prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "publishing ${pkg} (npm and GitHub each apply their own latest)"
           fi
 
       # `v*` fires for a tag on ANY branch, and ci.yml does not run on tags — so
@@ -210,10 +214,14 @@ jobs:
         env:
           TGZ: ${{ steps.pack.outputs.tgz }}
           NPM_TAG: ${{ steps.version.outputs.npm_tag }}
-        # $NPM_TAG is deliberately unquoted: empty for a stable release, so npm
-        # keeps its implicit-tag guards (see the version step).
-        # shellcheck disable=SC2086
-        run: npm publish "$TGZ" --access public --provenance $NPM_TAG
+        run: |
+          set -euo pipefail
+          # $NPM_TAG is deliberately unquoted: empty for a stable release, so npm
+          # keeps its implicit-tag guards (see the version step). The directive
+          # has to live inside the script — shellcheck only ever sees this block,
+          # so one written as a YAML comment above `run:` binds to nothing.
+          # shellcheck disable=SC2086
+          npm publish "$TGZ" --access public --provenance $NPM_TAG
 
       # Second, and only once npm has accepted the version: the release asset is
       # the same tarball, so it can only ever describe a version that exists.
@@ -230,13 +238,13 @@ jobs:
           # reason, `create` fails loudly on the next line rather than guessing.
           gh release view "$tag" >/dev/null 2>&1 \
             || gh release create "$tag" --title "$tag" --generate-notes
-          # `edit` runs on both paths, never only on create. `gh release create`
-          # already exists for an rc cut with `gh release create` (which pushes
-          # the tag and fires this workflow), and its default make_latest is
-          # creation-date based, not semver — so flags applied only at creation
-          # are exactly the ones that go missing when they matter
-          # [LAW:dataflow-not-control-flow]. $GH_FLAGS carries explicit true or
-          # false for both, so this converges to the same state either way.
+          # `edit` runs on both paths, never only on create: a Release already
+          # exists when the tag was cut from the UI or by `gh release create`,
+          # and flags applied only on the create path are exactly the ones that
+          # go missing when they matter [LAW:dataflow-not-control-flow]. The
+          # create above passes no --prerelease, so an rc is momentarily a
+          # stable release and legacy may hand it the badge; $GH_FLAGS carries
+          # the discriminator down from the version step and settles both.
           # shellcheck disable=SC2086
           gh release edit "$tag" $GH_FLAGS
           # --clobber keeps a re-run idempotent. It cannot silently change the

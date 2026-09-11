@@ -47,12 +47,12 @@ Some internal npm proxies don't serve the `@promptctl` scope, and an ordinary in
 ```json
 {
   "dependencies": {
-    "@promptctl/go-template-js": "https://github.com/promptctl/go-template-js/releases/download/v0.9.0/promptctl-go-template-js-0.9.0.tgz"
+    "@promptctl/go-template-js": "https://github.com/promptctl/go-template-js/releases/download/vX.Y.Z/promptctl-go-template-js-X.Y.Z.tgz"
   }
 }
 ```
 
-The version appears twice in the URL; bump both together. `@promptctl/rich-js` needs the same treatment if you depend on it — it sits in the same scope, so it won't resolve either: point it at its own release asset, and redirect the transitive `@promptctl/go-template-js` it pulls in to the URL above. The redirect field is `pnpm.overrides` for pnpm, `overrides` for npm, `resolutions` for yarn; pnpm ignores a top-level `overrides` without warning. Don't substitute `github:promptctl/go-template-js#semver:^0.9.0` — a git dependency installs the source tree, which carries no `dist/`, so the install exits 0 and the package fails later at import.
+Substitute a released version for `X.Y.Z` in both places; the [releases page](https://github.com/promptctl/go-template-js/releases) lists them, each with its asset. `@promptctl/rich-js` needs the same treatment if you depend on it — it sits in the same scope, so it won't resolve either: point it at its own release asset, and redirect the transitive `@promptctl/go-template-js` it pulls in to the URL above. The redirect field is `pnpm.overrides` for pnpm, `overrides` for npm, `resolutions` for yarn; pnpm ignores a top-level `overrides` without warning. Don't substitute `github:promptctl/go-template-js#semver:^X.Y.Z` — a git dependency installs the source tree, which carries no `dist/`, so the install exits 0 and the package fails later at import.
 
 ## Quick start
 
