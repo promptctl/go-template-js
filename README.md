@@ -40,6 +40,20 @@ pnpm add @promptctl/go-template-js
 
 Requires Node **≥ 20.19.0** (per `engines.node`). The package is ESM-only.
 
+### If the `@promptctl` scope is unreachable
+
+Some internal npm proxies don't serve the `@promptctl` scope, and an ordinary install can't resolve the package. Every GitHub release from v0.9.0 on carries the packed tarball as an asset, byte-identical to the one npm serves for that version — depend on it directly:
+
+```json
+{
+  "dependencies": {
+    "@promptctl/go-template-js": "https://github.com/promptctl/go-template-js/releases/download/v0.9.0/promptctl-go-template-js-0.9.0.tgz"
+  }
+}
+```
+
+The version appears twice in the URL; bump both together. If you also depend on `@promptctl/rich-js`, add an `overrides` entry redirecting its transitive `@promptctl/go-template-js` to the same URL, or that copy still resolves from npm and still fails. Don't substitute `github:promptctl/go-template-js#semver:^0.9.0` — a git dependency installs the source tree, which carries no `dist/`, so the install exits 0 and the package fails later at import.
+
 ## Quick start
 
 ```ts

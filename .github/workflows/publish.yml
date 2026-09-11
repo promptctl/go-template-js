@@ -1,0 +1,152 @@
+# Publish go-template-js from CI: one build, two distribution channels.
+#
+# The npm half is the ordinary one — a version tag ships the package to
+# registry.npmjs.org, and the tag is the single source of truth for "this
+# commit is released" (the workflow refuses to publish when the tag and
+# package.json disagree, rather than shipping a mislabeled version).
+#
+# The GitHub Release asset is the half that is not ordinary, and it exists for
+# a concrete failure: in some corporate environments the @promptctl scope is
+# unreachable through the internal npm proxy, so `pnpm install` in a consumer
+# checkout (cc-candybar keeps @promptctl/go-template-js and @promptctl/rich-js
+# as devDependencies) cannot resolve this package at all. Attaching the packed
+# tarball to the release gives those checkouts a registry-independent install
+# that needs nothing but GitHub:
+#
+#   "@promptctl/go-template-js":
+#     "https://github.com/promptctl/go-template-js/releases/download/v0.9.0/promptctl-go-template-js-0.9.0.tgz"
+#
+# Why an asset and not `github:promptctl/go-template-js#semver:^0.9.0`: a git
+# dependency installs the *source* tree, which carries no dist/. Measured with
+# the @promptctl scope pointed at a dead registry, that install exits 0 and
+# leaves an unusable package behind — pnpm runs no build, emits no warning, and
+# the failure only surfaces later as ERR_MODULE_NOT_FOUND on dist/index.js. The
+# release asset is the same prebuilt tarball npm serves, so it installs in ~1s,
+# needs no build-script allowlist, and cannot half-install.
+#
+# Publishing uses npm Trusted Publishing (OIDC): there is no NPM_TOKEN secret,
+# `npm publish` exchanges this job's GitHub Actions identity for a short-lived
+# credential. SETUP REQUIRED — unlike the sibling repo brandon-fryslie/rich-js,
+# @promptctl/go-template-js has no trusted publisher configured yet, so the
+# final step of this workflow will fail with E401 until one is added on
+# npmjs.com (Package → Settings → Trusted Publisher: this repo, workflow
+# `publish.yml`). The release asset is attached before that step, so a missing
+# trust config costs the npm publish and nothing else.
+#
+# That trust binds THIS FILENAME and THIS REPO — renaming this file silently
+# breaks publishing, and the rename must be mirrored on npmjs.com in the same
+# change.
+#
+# Release procedure:
+#   npm version <major|minor|patch> --no-git-tag-version   # bump on a branch
+#   # PR, review, merge to master
+#   git checkout master && git pull
+#   git tag v$(node -p "require('./package.json').version") && git push --tags
+
+name: publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  # contents: write is for the release asset — this workflow creates the
+  # GitHub Release if the tag does not already have one, and uploads to it.
+  contents: write
+  # Required for npm provenance and for Trusted Publishing's OIDC exchange.
+  id-token: write
+
+jobs:
+  publish:
+    # Same pinned image as ci.yml, for the same reason: toolchain drift under
+    # `ubuntu-latest` must not silently change what gets shipped.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted Publishing needs npm CLI >= 11.5.1, which Node 20 does not
+      # bundle. pnpm owns installing and gating; npm owns packing and
+      # publishing, because OIDC publishing is an npm CLI feature.
+      - name: Pin npm for Trusted Publishing
+        run: npm install -g npm@^11.5.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # [LAW:no-silent-failure] A tag that disagrees with package.json is a
+      # release-process bug. Fail here, before anything irreversible or
+      # outward-facing has happened.
+      - name: Verify tag matches package.json version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v${tag} does not match package.json version ${pkg}"
+            exit 1
+          fi
+          echo "publishing ${pkg}"
+
+      # [LAW:one-source-of-truth] The package already defines its own publish
+      # gate in `prepublishOnly` (lint, typecheck, test, build). Run that script
+      # by name rather than restating its steps here — publishing a pre-packed
+      # tarball does not fire prepublishOnly, and a second copy of the gate in
+      # YAML is a copy that drifts.
+      - name: Gate
+        run: pnpm run prepublishOnly
+
+      # One artifact serves both channels: this tarball becomes the release
+      # asset AND the thing npm publishes, so the two can never disagree about
+      # what version X.Y.Z contains.
+      - name: Pack
+        id: pack
+        run: |
+          set -euo pipefail
+          tgz="$(npm pack --silent)"
+          [ -s "$tgz" ] || { echo "::error::npm pack produced no tarball"; exit 1; }
+          # The asset's whole purpose is carrying a prebuilt dist. Assert it,
+          # rather than discovering it missing in a consumer's node_modules.
+          tar tzf "$tgz" | grep -qx 'package/dist/index.js' || {
+            echo "::error::packed tarball contains no package/dist/index.js — the build did not reach the tarball"
+            exit 1
+          }
+          echo "tgz=$tgz" >> "$GITHUB_OUTPUT"
+          echo "packed $tgz"
+
+      # Deliberately before the npm publish: this is the step that unblocks the
+      # registry-independent consumers, and it is idempotent (--clobber), while
+      # `npm publish` is the one irreversible action in this job and so goes
+      # last, after every check has passed.
+      - name: Attach tarball to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          # A tag pushed by hand has no Release yet; one cut from the GitHub UI
+          # does. `view` is an existence probe here — if it fails for any other
+          # reason, `create` fails loudly on the next line rather than guessing.
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" --title "$tag" --generate-notes
+          gh release upload "$tag" "$TGZ" --clobber
+
+      # No NODE_AUTH_TOKEN: npm >= 11.5.1 detects the Actions OIDC environment
+      # (id-token: write, above) and exchanges it for a short-lived publish
+      # token. Setting an explicit token here would make npm take that path
+      # instead and skip OIDC entirely.
+      - name: Publish to npm
+        env:
+          TGZ: ${{ steps.pack.outputs.tgz }}
+        run: npm publish "$TGZ" --access public --provenance
