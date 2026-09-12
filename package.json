@@ -54,7 +54,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
-    "conformance:regen": "cd conformance/gen && go run ."
+    "conformance:regen": "cd conformance/gen && go run .",
+    "arity:regen": "cd conformance/gen && go run ./arity"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.14",

@@ -61,6 +61,7 @@ const stylingFuncs: FuncMap = {
       text: String(value),
     }),
     argTypes: ["string", "value"],
+    arity: { kind: "exact" },
     returnType: "T",
   },
 };

@@ -38,69 +38,114 @@ function engineWithKind(
 const accept = (): TemplateFunc => ({
   fn: () => "ok",
   argTypes: [],
+  arity: { kind: "exact" },
 });
 
 describe("matchesArgType — list", () => {
   it("accepts arrays", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["list"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["list"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse("{{ f . }}").evaluate([1, 2, 3]).join("")).toBe("ok");
   });
 
   it("rejects strings (Go-parity: string is not a list)", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["list"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["list"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate("abc")).toThrow(TypeMismatchError);
   });
 
   it("rejects plain objects", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["list"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["list"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
   });
 
   it("rejects null", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["list"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["list"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(null)).toThrow(TypeMismatchError);
   });
 });
 
 describe("matchesArgType — dict", () => {
   it("accepts plain objects", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["dict"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["dict"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse("{{ f . }}").evaluate({ a: 1 }).join("")).toBe("ok");
   });
 
   it("accepts null-prototype objects", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["dict"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["dict"],
+      arity: { kind: "exact" },
+    });
     const bag = Object.create(null) as Record<string, unknown>;
     bag.k = 1;
     expect(eng.parse("{{ f . }}").evaluate(bag).join("")).toBe("ok");
   });
 
   it("rejects arrays", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["dict"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["dict"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate([1, 2])).toThrow(TypeMismatchError);
   });
 
   it("rejects Maps (handled separately)", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["dict"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["dict"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(new Map([["k", 1]]))).toThrow(TypeMismatchError);
   });
 
   it("rejects Sets and class instances", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["dict"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["dict"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(new Set([1]))).toThrow(TypeMismatchError);
     class Wrapper {}
     expect(() => eng.parse("{{ f . }}").evaluate(new Wrapper())).toThrow(TypeMismatchError);
   });
 
   it("rejects null", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["dict"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["dict"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(null)).toThrow(TypeMismatchError);
   });
 });
 
 describe("matchesArgType — sized", () => {
   it("accepts strings, arrays, Maps, Sets, plain objects", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["sized"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["sized"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse("{{ f . }}").evaluate("abc").join("")).toBe("ok");
     expect(eng.parse("{{ f . }}").evaluate([1, 2]).join("")).toBe("ok");
     expect(
@@ -119,20 +164,32 @@ describe("matchesArgType — sized", () => {
   });
 
   it("rejects numbers and booleans", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["sized"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["sized"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(42)).toThrow(TypeMismatchError);
     expect(() => eng.parse("{{ f . }}").evaluate(true)).toThrow(TypeMismatchError);
   });
 
   it("rejects null", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["sized"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["sized"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(null)).toThrow(TypeMismatchError);
   });
 });
 
 describe("matchesArgType — comparable", () => {
   it("accepts strings, numbers, bigints, booleans, null, undefined", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["comparable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["comparable"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse("{{ f . }}").evaluate("a").join("")).toBe("ok");
     expect(eng.parse("{{ f . }}").evaluate(1).join("")).toBe("ok");
     expect(eng.parse("{{ f . }}").evaluate(1n).join("")).toBe("ok");
@@ -142,7 +199,11 @@ describe("matchesArgType — comparable", () => {
   });
 
   it("accepts arrays, plain objects, Maps, and Sets (deep-equal in eq/ne)", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["comparable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["comparable"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse("{{ f . }}").evaluate([1, 2]).join("")).toBe("ok");
     expect(eng.parse("{{ f . }}").evaluate({ a: 1 }).join("")).toBe("ok");
     expect(
@@ -160,14 +221,22 @@ describe("matchesArgType — comparable", () => {
   });
 
   it("rejects functions (not JSON-shaped)", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["comparable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["comparable"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f .fn }}").evaluate({ fn: () => 1 })).toThrow(TypeMismatchError);
   });
 });
 
 describe("matchesArgType — collection", () => {
   it("accepts strings, arrays, Maps, plain objects", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["collection"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["collection"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse("{{ f . }}").evaluate("abc").join("")).toBe("ok");
     expect(eng.parse("{{ f . }}").evaluate([1, 2]).join("")).toBe("ok");
     expect(
@@ -180,7 +249,11 @@ describe("matchesArgType — collection", () => {
   });
 
   it("rejects Sets, numbers, booleans, null", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["collection"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["collection"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(new Set([1]))).toThrow(TypeMismatchError);
     expect(() => eng.parse("{{ f . }}").evaluate(42)).toThrow(TypeMismatchError);
     expect(() => eng.parse("{{ f . }}").evaluate(true)).toThrow(TypeMismatchError);
@@ -190,13 +263,21 @@ describe("matchesArgType — collection", () => {
 
 describe("matchesArgType — index-key", () => {
   it("accepts numbers, bigints, and strings", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["collection", "index-key"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["collection", "index-key"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse("{{ f . 0 }}").evaluate([1, 2]).join("")).toBe("ok");
     expect(eng.parse('{{ f . "k" }}').evaluate({ k: 1 }).join("")).toBe("ok");
   });
 
   it("rejects booleans, plain objects (typed-T keys)", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["collection", "index-key"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["collection", "index-key"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . true }}").evaluate({ a: 1 })).toThrow(TypeMismatchError);
     expect(() => eng.parse("{{ f . .key }}").evaluate({ a: 1, key: { tag: "x" } })).toThrow(
       TypeMismatchError,
@@ -206,7 +287,11 @@ describe("matchesArgType — index-key", () => {
 
 describe("matchesArgType — callable", () => {
   it("accepts function values from the scope", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["callable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["callable"],
+      arity: { kind: "exact" },
+    });
     expect(
       eng
         .parse("{{ f .fn }}")
@@ -216,7 +301,11 @@ describe("matchesArgType — callable", () => {
   });
 
   it("rejects non-function scope values", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["callable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["callable"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(42)).toThrow(TypeMismatchError);
     expect(() => eng.parse("{{ f . }}").evaluate("not-a-fn")).toThrow(TypeMismatchError);
   });
@@ -229,7 +318,11 @@ describe("matchesArgType — stringifiable", () => {
       called += 1;
       return String(v);
     };
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["stringifiable"] }, toString);
+    const eng = engineWithKind(
+      "f",
+      { fn: () => "ok", argTypes: ["stringifiable"], arity: { kind: "exact" } },
+      toString,
+    );
     expect(eng.parse("{{ f . }}").evaluate("hello").join("")).toBe("ok");
     expect(called).toBe(0);
   });
@@ -237,7 +330,7 @@ describe("matchesArgType — stringifiable", () => {
   it("accepts non-strings when engine.toString returns a string", () => {
     const eng = engineWithKind(
       "f",
-      { fn: () => "ok", argTypes: ["stringifiable"] },
+      { fn: () => "ok", argTypes: ["stringifiable"], arity: { kind: "exact" } },
       (v) => `[${String(v)}]`,
     );
     expect(eng.parse("{{ f . }}").evaluate({ tag: "x" }).join("")).toBe("ok");
@@ -247,7 +340,11 @@ describe("matchesArgType — stringifiable", () => {
     // No `toString` supplied → engine uses default, which throws for
     // non-strings. The matcher catches the throw and returns false,
     // and enforceArgTypes raises TypeMismatchError naming the slot.
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["stringifiable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["stringifiable"],
+      arity: { kind: "exact" },
+    });
     let caught: unknown;
     try {
       eng.parse("{{ f . }}").evaluate({ tag: "x" });
@@ -262,17 +359,25 @@ describe("matchesArgType — stringifiable", () => {
   });
 
   it("rejects non-strings when consumer toString throws", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["stringifiable"] }, (v) => {
-      if (typeof v === "string") return v;
-      throw new Error("cannot flatten");
-    });
+    const eng = engineWithKind(
+      "f",
+      { fn: () => "ok", argTypes: ["stringifiable"], arity: { kind: "exact" } },
+      (v) => {
+        if (typeof v === "string") return v;
+        throw new Error("cannot flatten");
+      },
+    );
     expect(() => eng.parse("{{ f . }}").evaluate(42)).toThrow(TypeMismatchError);
   });
 });
 
 describe("matchesArgType — serializable", () => {
   it("accepts plain JSON-encodable shapes", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["serializable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["serializable"],
+      arity: { kind: "exact" },
+    });
     expect(
       eng
         .parse("{{ f . }}")
@@ -285,24 +390,36 @@ describe("matchesArgType — serializable", () => {
   });
 
   it("rejects functions", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["serializable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["serializable"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f .fn }}").evaluate({ fn: () => 1 })).toThrow(TypeMismatchError);
   });
 
   it("rejects bigint (not JSON-encodable)", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["serializable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["serializable"],
+      arity: { kind: "exact" },
+    });
     expect(() => eng.parse("{{ f . }}").evaluate(1n)).toThrow(TypeMismatchError);
   });
 
   it("rejects circular references", () => {
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["serializable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["serializable"],
+      arity: { kind: "exact" },
+    });
     const circ: Record<string, unknown> = { a: 1 };
     circ.self = circ;
     expect(() => eng.parse("{{ f . }}").evaluate(circ)).toThrow(TypeMismatchError);
   });
 });
 
-describe('argTypePattern: "alternating" (template-laws-3gt.3)', () => {
+describe('arity: { kind: "alternating" } (template-laws-3gt.3)', () => {
   // The cycle pattern lets a func declare that argTypes describes a
   // *period*, not a fixed prefix. dict's `string, value, string, value …`
   // kv pairing is the motivating case: the gate validates every
@@ -316,7 +433,7 @@ describe('argTypePattern: "alternating" (template-laws-3gt.3)', () => {
       return out;
     },
     argTypes: ["string", "value"],
-    argTypePattern: "alternating",
+    arity: { kind: "alternating", minimum: 0 },
   });
 
   it("accepts alternating string/value pairs at every cycle", () => {
@@ -383,6 +500,7 @@ describe("matchesArgType — liftable", () => {
             return { kind: "frag", text: "ok" } as Frag;
           },
           argTypes: ["liftable"],
+          arity: { kind: "exact" },
         },
       },
     });
@@ -445,7 +563,11 @@ describe("matchesArgType — liftable", () => {
     // The default `engineWithKind` uses `fromString: (s) => s`. A
     // string at a `liftable` slot is "lifted" through identity, so
     // the body sees the same string. No-op but symmetric.
-    const eng = engineWithKind("f", { fn: (v: unknown) => String(v), argTypes: ["liftable"] });
+    const eng = engineWithKind("f", {
+      fn: (v: unknown) => String(v),
+      argTypes: ["liftable"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse('{{ f "x" }}').evaluate(null).join("")).toBe("x");
   });
 
@@ -460,6 +582,7 @@ describe("matchesArgType — liftable", () => {
             return { kind: "frag", text: "ok" } as Frag;
           },
           argTypes: ["liftable"],
+          arity: { kind: "variadic" },
         },
       },
     });
@@ -488,6 +611,7 @@ describe("matchesArgType — int", () => {
             return "ok";
           },
           argTypes: ["int"],
+          arity: { kind: "exact" },
         },
       },
     });
@@ -600,6 +724,7 @@ describe("matchesArgType — float", () => {
             return "ok";
           },
           argTypes: ["float"],
+          arity: { kind: "exact" },
         },
       },
     });
@@ -711,7 +836,11 @@ describe("matchesArgType — intent-named pass-through kinds", () => {
   // future grep can distinguish documented intent from escape-hatch use.
   for (const kind of ["truthy", "reflective", "value"] as const) {
     it(`${kind} accepts anything`, () => {
-      const eng = engineWithKind("f", { fn: () => "ok", argTypes: [kind] });
+      const eng = engineWithKind("f", {
+        fn: () => "ok",
+        argTypes: [kind],
+        arity: { kind: "exact" },
+      });
       expect(eng.parse("{{ f . }}").evaluate(null).join("")).toBe("ok");
       expect(eng.parse("{{ f . }}").evaluate(42).join("")).toBe("ok");
       expect(eng.parse("{{ f . }}").evaluate({ x: 1 }).join("")).toBe("ok");
@@ -732,7 +861,11 @@ describe("EngineConfig.toString — defaults", () => {
     // No `toString` configured → default. `stringifiable` accepts the
     // string without ever invoking the consumer (verified by the
     // earlier "accepts strings without invoking engine.toString" test).
-    const eng = engineWithKind("f", { fn: () => "ok", argTypes: ["stringifiable"] });
+    const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["stringifiable"],
+      arity: { kind: "exact" },
+    });
     expect(eng.parse("{{ f . }}").evaluate("ok").join("")).toBe("ok");
   });
 
@@ -744,7 +877,7 @@ describe("EngineConfig.toString — defaults", () => {
   it("does not bind Object.prototype.toString when consumer omits toString", () => {
     const eng = createEngine<string>({
       fromString: (s) => s,
-      funcs: { f: { fn: () => "ok", argTypes: ["stringifiable"] } },
+      funcs: { f: { fn: () => "ok", argTypes: ["stringifiable"], arity: { kind: "exact" } } },
     });
     // A plain object should be rejected — if the prototype's toString
     // were bound, it would return "[object Object]" and the matcher
@@ -771,6 +904,7 @@ describe("matchesArgType — invalid ArgType (assertNever default arm)", () => {
         f: {
           fn: () => "ok",
           argTypes: ["number"] as unknown as TemplateFunc["argTypes"],
+          arity: { kind: "exact" },
         },
       },
     });

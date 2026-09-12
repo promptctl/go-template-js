@@ -26,14 +26,26 @@ export { adler32sum, b32dec, b32enc, b64dec, b64enc, sha1sum, sha256sum, sha512s
 /** Build the sprig hash/encoding FuncMap. */
 export function sprigHash(): FuncMap {
   return {
-    b64enc: { fn: (s) => b64enc(s as string), argTypes: ["string"] },
-    b64dec: { fn: (s) => b64dec(s as string), argTypes: ["string"] },
-    b32enc: { fn: (s) => b32enc(s as string), argTypes: ["string"] },
-    b32dec: { fn: (s) => b32dec(s as string), argTypes: ["string"] },
-    sha1sum: { fn: (s) => sha1sum(s as string), argTypes: ["string"] },
-    sha256sum: { fn: (s) => sha256sum(s as string), argTypes: ["string"] },
-    sha512sum: { fn: (s) => sha512sum(s as string), argTypes: ["string"] },
-    adler32sum: { fn: (s) => adler32sum(s as string), argTypes: ["string"] },
-    uuidv4: { fn: () => uuidv4(), argTypes: [] },
+    b64enc: { fn: (s) => b64enc(s as string), argTypes: ["string"], arity: { kind: "exact" } },
+    b64dec: { fn: (s) => b64dec(s as string), argTypes: ["string"], arity: { kind: "exact" } },
+    b32enc: { fn: (s) => b32enc(s as string), argTypes: ["string"], arity: { kind: "exact" } },
+    b32dec: { fn: (s) => b32dec(s as string), argTypes: ["string"], arity: { kind: "exact" } },
+    sha1sum: { fn: (s) => sha1sum(s as string), argTypes: ["string"], arity: { kind: "exact" } },
+    sha256sum: {
+      fn: (s) => sha256sum(s as string),
+      argTypes: ["string"],
+      arity: { kind: "exact" },
+    },
+    sha512sum: {
+      fn: (s) => sha512sum(s as string),
+      argTypes: ["string"],
+      arity: { kind: "exact" },
+    },
+    adler32sum: {
+      fn: (s) => adler32sum(s as string),
+      argTypes: ["string"],
+      arity: { kind: "exact" },
+    },
+    uuidv4: { fn: () => uuidv4(), argTypes: [], arity: { kind: "exact" } },
   };
 }

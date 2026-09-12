@@ -6,6 +6,7 @@ const upper: FuncMap = {
   upper: {
     fn: (s: unknown) => (typeof s === "string" ? s.toUpperCase() : String(s)),
     argTypes: ["string"],
+    arity: { kind: "exact" },
     returnType: "string",
   },
 };
@@ -14,6 +15,7 @@ const concat: FuncMap = {
   concat: {
     fn: (a: unknown, b: unknown) => `${String(a)}${String(b)}`,
     argTypes: ["string", "string"],
+    arity: { kind: "exact" },
     returnType: "string",
   },
 };
@@ -34,6 +36,7 @@ describe("pipelines — multi-command", () => {
       bang: {
         fn: (s: unknown) => `${String(s)}!`,
         argTypes: ["string"],
+        arity: { kind: "exact" },
         returnType: "string",
       },
     };
@@ -46,6 +49,7 @@ describe("pipelines — multi-command", () => {
       shout: {
         fn: (s: unknown) => `${String(s).toUpperCase()}!`,
         argTypes: ["string"],
+        arity: { kind: "exact" },
       },
     };
     // "concat .pre .body" produces "<pre><body>", piped to shout
@@ -61,6 +65,7 @@ describe("pipelines — multi-command", () => {
       sub: {
         fn: (a: unknown, b: unknown) => (a as number) - (b as number),
         argTypes: ["int", "int"],
+        arity: { kind: "exact" },
       },
     };
     expect(renderString("{{ 2 | sub 10 }}", null, funcs)).toBe("8");
@@ -71,10 +76,11 @@ describe("pipelines — multi-command", () => {
     // followed by another command should pipe `undefined` as a real
     // value — not collapse to "no pipe" via sentinel collision.
     const funcs: FuncMap = {
-      maybe: { fn: () => undefined, argTypes: [] },
+      maybe: { fn: () => undefined, argTypes: [], arity: { kind: "exact" } },
       isnil: {
         fn: (v: unknown) => (v === undefined ? "nil" : "set"),
         argTypes: ["value"],
+        arity: { kind: "exact" },
       },
     };
     expect(renderString("{{ maybe | isnil }}", null, funcs)).toBe("nil");
@@ -136,6 +142,7 @@ describe("type guard — no silent flatten", () => {
       stripColor: {
         fn: (f: unknown) => ({ ...(f as Frag), color: "default" }),
         argTypes: ["T"],
+        arity: { kind: "exact" },
         returnType: "T",
       },
     };
@@ -153,6 +160,7 @@ describe("type guard — no silent flatten", () => {
       describe: {
         fn: (v: unknown) => `kind=${typeof v}`,
         argTypes: ["value"],
+        arity: { kind: "exact" },
         returnType: "string",
       },
     };
@@ -165,7 +173,7 @@ describe("type guard — no silent flatten", () => {
   it("argTypes ['any'] is the explicit permissive escape — T flows through unchanged", () => {
     type Frag = { color: string; text: string };
     const funcs: FuncMap = {
-      identity: { fn: (x: unknown) => x, argTypes: ["value"] },
+      identity: { fn: (x: unknown) => x, argTypes: ["value"], arity: { kind: "exact" } },
     };
     const eng = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
@@ -177,7 +185,11 @@ describe("type guard — no silent flatten", () => {
 
   it("int-typed slot rejects strings", () => {
     const funcs: FuncMap = {
-      double: { fn: (n: unknown) => (n as number) * 2, argTypes: ["int"] },
+      double: {
+        fn: (n: unknown) => (n as number) * 2,
+        argTypes: ["int"],
+        arity: { kind: "exact" },
+      },
     };
     expect(() => renderString('{{ "5" | double }}', null, funcs)).toThrow(TypeMismatchError);
   });

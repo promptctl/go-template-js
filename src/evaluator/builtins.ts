@@ -40,26 +40,48 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // b c` is true if any of b, c equals a.
     eq: {
       fn: (a: unknown, ...rest: unknown[]) => rest.some((r) => goEqPair(a, r)),
-      argTypes: ["comparable"],
+      // Go: `eq(arg1 reflect.Value, arg2 ...reflect.Value)` — two
+      // parameters, so Go's gate requires one. Go's own body separately
+      // rejects a lone argument with `errNoComparison`; this body does
+      // neither yet and returns false (template-conformance-3ds).
+      argTypes: ["comparable", "comparable"],
+      arity: { kind: "variadic" },
     },
     ne: {
       fn: (a: unknown, b: unknown) => !goEqPair(a, b),
       argTypes: ["comparable", "comparable"],
+      arity: { kind: "exact" },
     },
     // [LAW:single-enforcer] `argTypes: ["ordered", "ordered"]` routes
     // both per-slot kind validation and the cross-slot same-kind rule
     // through `enforceArgTypes`. By the time `compare` runs, the args
     // are guaranteed orderable and same-kinded, so it can be a thin
     // numeric/lexicographic body — no defensive cross-type check.
-    lt: { fn: (a: unknown, b: unknown) => compare(a, b) < 0, argTypes: ["ordered", "ordered"] },
-    le: { fn: (a: unknown, b: unknown) => compare(a, b) <= 0, argTypes: ["ordered", "ordered"] },
-    gt: { fn: (a: unknown, b: unknown) => compare(a, b) > 0, argTypes: ["ordered", "ordered"] },
-    ge: { fn: (a: unknown, b: unknown) => compare(a, b) >= 0, argTypes: ["ordered", "ordered"] },
+    lt: {
+      fn: (a: unknown, b: unknown) => compare(a, b) < 0,
+      argTypes: ["ordered", "ordered"],
+      arity: { kind: "exact" },
+    },
+    le: {
+      fn: (a: unknown, b: unknown) => compare(a, b) <= 0,
+      argTypes: ["ordered", "ordered"],
+      arity: { kind: "exact" },
+    },
+    gt: {
+      fn: (a: unknown, b: unknown) => compare(a, b) > 0,
+      argTypes: ["ordered", "ordered"],
+      arity: { kind: "exact" },
+    },
+    ge: {
+      fn: (a: unknown, b: unknown) => compare(a, b) >= 0,
+      argTypes: ["ordered", "ordered"],
+      arity: { kind: "exact" },
+    },
 
     // [LAW:single-enforcer] `len` declares "sized" so the gate rejects
     // numbers/booleans/nil once with TypeMismatchError. The body trusts
     // the kind and only fans out the per-kind size readout.
-    len: { fn: (v: unknown) => goLen(v), argTypes: ["sized"] },
+    len: { fn: (v: unknown) => goLen(v), argTypes: ["sized"], arity: { kind: "exact" } },
 
     // [LAW:single-enforcer] `index x i j` walks i, then j. The first
     // slot is "collection" (string | array | Map | dict); every key
@@ -74,6 +96,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
         return cur;
       },
       argTypes: ["collection", "index-key"],
+      arity: { kind: "variadic" },
     },
 
     // [LAW:single-enforcer] `slice x i j` — array/slice/string slicing.
@@ -91,6 +114,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
           : (collection as unknown[]).slice(i, j);
       },
       argTypes: ["sliceable", "int"],
+      arity: { kind: "variadic" },
     },
 
     // [LAW:single-enforcer] Formatted printers declare "stringifiable"
@@ -101,16 +125,19 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     print: {
       fn: (...args: unknown[]) => goPrint(args, toString),
       argTypes: ["stringifiable"],
+      arity: { kind: "variadic" },
       returnType: "string",
     },
     println: {
       fn: (...args: unknown[]) => `${goPrint(args, toString)}\n`,
       argTypes: ["stringifiable"],
+      arity: { kind: "variadic" },
       returnType: "string",
     },
     printf: {
       fn: (format: string, ...args: unknown[]) => sprintf(format, args, toString, isT),
       argTypes: ["string", "stringifiable"],
+      arity: { kind: "variadic" },
       returnType: "string",
     },
     // Sprig's `toString`/`toStrings` are Go's `%v` — built here, beside
@@ -120,11 +147,13 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     toString: {
       fn: (v: unknown) => formatV(v, toString, isT),
       argTypes: ["value"] as const,
+      arity: { kind: "exact" } as const,
       returnType: "string" as const,
     },
     toStrings: {
       fn: (list: unknown[]) => list.map((v) => formatV(v, toString, isT)),
       argTypes: ["list"],
+      arity: { kind: "exact" },
     },
 
     // [LAW:single-enforcer] `call` declares "callable" for the first
@@ -134,6 +163,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     call: {
       fn: (fn: unknown, ...args: unknown[]) => (fn as (...a: unknown[]) => unknown)(...args),
       argTypes: ["callable", "value"],
+      arity: { kind: "variadic" },
     },
 
     // [LAW:single-enforcer + LAW:one-source-of-truth] `html` mirrors Go's
@@ -145,6 +175,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     html: {
       fn: (...args: unknown[]) => htmlEscape(goPrint(args, toString)),
       argTypes: ["stringifiable"],
+      arity: { kind: "variadic" },
       returnType: "string",
     },
 
@@ -155,6 +186,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     js: {
       fn: (...args: unknown[]) => jsEscape(goPrint(args, toString)),
       argTypes: ["stringifiable"],
+      arity: { kind: "variadic" },
       returnType: "string",
     },
 
@@ -167,13 +199,14 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     urlquery: {
       fn: (...args: unknown[]) => urlQueryEscape(goPrint(args, toString)),
       argTypes: ["stringifiable"],
+      arity: { kind: "variadic" },
       returnType: "string",
     },
 
     // `not` is also lazy in spirit, but with a single argument it's
     // semantically equivalent to eager evaluation. Keep it eager.
     // Slot declares "truthy": isTruthy() runs against any value.
-    not: { fn: (v: unknown) => !isTruthy(v), argTypes: ["truthy"] },
+    not: { fn: (v: unknown) => !isTruthy(v), argTypes: ["truthy"], arity: { kind: "exact" } },
   };
 }
 
@@ -191,7 +224,8 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
 function lazyBuiltins(): FuncMap {
   return {
     and: markLazy({
-      argTypes: ["truthy"],
+      argTypes: ["truthy", "truthy"],
+      arity: { kind: "variadic" },
       fn: (...thunks: unknown[]) => {
         let last: unknown = true;
         for (const t of thunks) {
@@ -202,7 +236,8 @@ function lazyBuiltins(): FuncMap {
       },
     }),
     or: markLazy({
-      argTypes: ["truthy"],
+      argTypes: ["truthy", "truthy"],
+      arity: { kind: "variadic" },
       fn: (...thunks: unknown[]) => {
         let last: unknown = false;
         for (const t of thunks) {

@@ -36,7 +36,7 @@ export function sprigDicts(): FuncMap {
   // `(d && typeof d === "object" && !(d instanceof Map))` guards that
   // previously duplicated the check across 11 funcs.
   //
-  // `dict` (constructor) uses argTypePattern: "alternating" so the
+  // `dict` (constructor) uses arity: { kind: "alternating" } so the
   // gate validates the kv cycle (string at every even index, value at
   // every odd index) — otherwise the body would re-validate every key
   // beyond the first, splitting [LAW:single-enforcer] in two.
@@ -48,46 +48,74 @@ export function sprigDicts(): FuncMap {
     dict: {
       fn: (...kv) => dict(...kv),
       argTypes: ["string", "value"],
-      argTypePattern: "alternating",
+      // Go: `dict(v ...interface{})` — no required arguments; `{{ dict }}`
+      // is an empty dict. The cycle pairs even-index keys with
+      // odd-index values.
+      arity: { kind: "alternating", minimum: 0 },
     },
     get: {
       fn: (d, k) => get(d as Record<string, unknown>, k as string),
       argTypes: ["dict", "string"],
+      arity: { kind: "exact" },
     },
     set: {
       fn: (d, k, v) => set(d as Record<string, unknown>, k as string, v),
       argTypes: ["dict", "string", "value"],
+      arity: { kind: "exact" },
     },
     unset: {
       fn: (d, k) => unset(d as Record<string, unknown>, k as string),
       argTypes: ["dict", "string"],
+      arity: { kind: "exact" },
     },
-    keys: { fn: (d) => keys(d as Record<string, unknown>), argTypes: ["dict"] },
-    values: { fn: (d) => values(d as Record<string, unknown>), argTypes: ["dict"] },
+    // Go: `keys(dicts ...map[string]interface{})` — variadic, so no
+    // argument is required and every dict past the first contributes
+    // its keys too. `arity` declares Go's gate, not what this body
+    // currently consumes: the body reads one dict, ignores the rest,
+    // and throws on none where Go returns `[]`. Narrowing the arity to
+    // match the body would paper over that gap and invent a divergence
+    // the gate would then enforce; the gap is tracked on the
+    // conformance epic instead.
+    keys: {
+      fn: (d) => keys(d as Record<string, unknown>),
+      argTypes: ["dict"],
+      arity: { kind: "variadic" },
+    },
+    values: {
+      fn: (d) => values(d as Record<string, unknown>),
+      argTypes: ["dict"],
+      arity: { kind: "exact" },
+    },
     pluck: {
       fn: (k, ...d) => pluck(k as string, ...(d as Record<string, unknown>[])),
       argTypes: ["string", "dict"],
+      arity: { kind: "variadic" },
     },
     pick: {
       fn: (d, ...k) => pick(d as Record<string, unknown>, ...(k as string[])),
       argTypes: ["dict", "string"],
+      arity: { kind: "variadic" },
     },
     omit: {
       fn: (d, ...k) => omit(d as Record<string, unknown>, ...(k as string[])),
       argTypes: ["dict", "string"],
+      arity: { kind: "variadic" },
     },
     hasKey: {
       fn: (d, k) => hasKey(d as Record<string, unknown>, k as string),
       argTypes: ["dict", "string"],
+      arity: { kind: "exact" },
     },
     merge: {
       fn: (d, ...s) => merge(d as Record<string, unknown>, ...(s as Record<string, unknown>[])),
-      argTypes: ["dict"],
+      argTypes: ["dict", "dict"],
+      arity: { kind: "variadic" },
     },
     mergeOverwrite: {
       fn: (d, ...s) =>
         mergeOverwrite(d as Record<string, unknown>, ...(s as Record<string, unknown>[])),
-      argTypes: ["dict"],
+      argTypes: ["dict", "dict"],
+      arity: { kind: "variadic" },
     },
   };
 }

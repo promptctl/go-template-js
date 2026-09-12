@@ -45,7 +45,7 @@ interface TaggedFragment {
 const TAGGED: TaggedFragment = { tag: "color", text: "x" };
 
 // Bodies are never executed by this harness — it inspects argTypes /
-// argTypePattern only, then drives `enforceArgTypes` directly. The
+// arity only, then drives `enforceArgTypes` directly. The
 // `toString` passed here is therefore a stub; the matcher uses the
 // `enforceArgTypes` parameter, which defaults to the engine's real
 // `defaultToString`.
@@ -200,15 +200,7 @@ describe("conformance — no-silent-flatten universal property", () => {
       const values = fn.argTypes.map((t, i) => (i === slot ? TAGGED : fillerFor(t)));
       let caught: unknown;
       try {
-        enforceArgTypes(
-          funcName,
-          fn.argTypes,
-          values,
-          POS,
-          undefined,
-          undefined,
-          fn.argTypePattern,
-        );
+        enforceArgTypes(funcName, fn.argTypes, values, POS, undefined, undefined, fn.arity);
       } catch (err) {
         caught = err;
       }

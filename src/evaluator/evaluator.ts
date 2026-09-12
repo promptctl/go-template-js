@@ -164,6 +164,68 @@ export type ArgType =
   | "value"
   | "serializable";
 
+/**
+ * How many arguments a func accepts, and how `argTypes` covers them.
+ *
+ * [LAW:types-are-the-program] Argument *count* used to live only in the
+ * JS signature, where the gate cannot see it: `enforceArgTypes` iterates
+ * the supplied values, so a missing or surplus argument is not a state
+ * it can represent, let alone reject. Declaring arity alongside
+ * `argTypes` makes the count a fact the gate reads.
+ *
+ * [LAW:one-source-of-truth] No kind carries a count that `argTypes`
+ * already holds. `"exact"` means exactly `argTypes.length`, and
+ * `"variadic"` means at least `argTypes.length - 1` — which is Go's
+ * gate for a variadic signature, always, since its fixed parameters are
+ * every one but the last. A `minimum` field on either would be a second
+ * copy of a number the array carries, and the copy is what drifts:
+ * `minimum` survives here only on `"alternating"`, where `argTypes` is
+ * a cycle length rather than a parameter count and the two are
+ * genuinely unrelated.
+ *
+ * [LAW:one-type-per-behavior] The three kinds are exactly the three
+ * slot-lookup rules, so `makeSlotLookup` switches on this union and
+ * nothing else. Folding the former `argTypePattern` field in here is
+ * what makes "exact yet alternating" unrepresentable rather than merely
+ * unused.
+ *
+ * There is deliberately no `between`/optional-trailing kind: Go's own
+ * `text/template` and `sprig` have no notion of an optional parameter,
+ * so every signature is fixed-arity or variadic. That every declaration
+ * here matches the Go function it mirrors is not a claim — it is
+ * checked by `go-arity.test.ts` against `go-arity.fixture.json`, which
+ * `conformance/gen/arity` extracts from Go. Do not add a fourth kind
+ * without a Go signature that demands it.
+ */
+export type Arity =
+  /** Exactly `argTypes.length` arguments; each slot is declared once. */
+  | { readonly kind: "exact" }
+  /**
+   * At least `argTypes.length - 1` arguments — Go's own gate for a
+   * variadic signature, whose fixed parameters are every one but the
+   * last. The trailing `argTypes` entry is that last, repeating
+   * parameter, so every argument past the declared ones validates
+   * against `argTypes[argTypes.length - 1]`.
+   *
+   * Declare one slot per Go parameter, the repeating one last: `eq` is
+   * `func(reflect.Value, ...reflect.Value)`, so it declares two
+   * `"comparable"` slots and requires one. Collapsing those to a single
+   * slot would render the same verdicts today and quietly lose the
+   * minimum.
+   */
+  | { readonly kind: "variadic" }
+  /**
+   * At least `minimum` arguments — the one kind that needs the number,
+   * because `argTypes` below is a cycle length, not a parameter count.
+   * With `argTypes` read as a *cycle*:
+   * the slot for argument `i` is `argTypes[i % argTypes.length]`. Used
+   * by `dict`'s `string, value, string, value, …` kv pairing — without
+   * it the gate cannot distinguish even-index keys (must be string)
+   * from odd-index values (anything), and the body would re-validate
+   * per key, splitting `[LAW:single-enforcer]` across two layers.
+   */
+  | { readonly kind: "alternating"; readonly minimum: number };
+
 export interface TemplateFunc {
   /**
    * The function body. Parameter types are *contravariant-bottom*
@@ -175,38 +237,37 @@ export interface TemplateFunc {
    * site (`enforceArgTypes`). The compile-time signature does not
    * duplicate that gate — it stays out of the way so consumer
    * implementations can declare the precise types they expect.
+   *
+   * The signature is *not* a source of arity: `fn.length` stops at the
+   * first rest parameter and lies about several registrations (`min`,
+   * `max`, `mul` and friends report 0 while Go requires 1). Arity comes
+   * from `arity`, never from here.
    */
   readonly fn: (...args: never[]) => unknown;
   /**
    * Declared positional parameter types. Required.
    *
-   * For variadic funcs, declare the type of the trailing parameter
-   * once — the no-silent-flatten guard validates every excess argument
-   * against `argTypes[argTypes.length - 1]`. This matches Go's
-   * `text/template` validation against repeated parameter types when
-   * `Variadic`.
+   * How the slots cover the supplied arguments is `arity`'s job: an
+   * `"exact"` func declares one entry per parameter, a `"variadic"` one
+   * declares the repeating slot last, and an `"alternating"` one
+   * declares the cycle.
    *
    * The pipe-fed last argument is appended to the positional list
-   * before validation, so it is checked against the trailing slot.
+   * before validation, so it is checked against the slot its final
+   * position selects.
    */
   readonly argTypes: readonly ArgType[];
   readonly returnType?: ArgType;
   /**
-   * Variadic-position lookup pattern.
+   * Argument count. Required — a func whose arity is undeclared is a
+   * func the gate cannot check, and defaulting to a permissive value
+   * would hide exactly the registrations that most need the
+   * declaration.
    *
-   * Default (omitted): the trailing slot repeats. `["string", "value"]`
-   * means "first arg string, every arg after is value (heterogeneous)".
-   *
-   * `"alternating"`: `argTypes` describes a *cycle*. The slot for arg
-   * index `i` is `argTypes[i % argTypes.length]`. Used by `dict`'s
-   * `string, value, string, value, …` kv pairing — without this the
-   * gate cannot distinguish even-index keys (must be string) from
-   * odd-index values (anything), and the body would re-validate per
-   * key, splitting `[LAW:single-enforcer]` across two layers.
-   *
-   * Added by template-laws-3gt.3.
+   * Minimums mirror Go's *arity gate*, which is not always the same as
+   * the function body's own requirement; see `eq` and `dig`.
    */
-  readonly argTypePattern?: "alternating";
+  readonly arity: Arity;
 }
 
 export type FuncMap = Record<string, TemplateFunc>;
@@ -1063,7 +1124,7 @@ export class Engine<T> {
       cmd.pos,
       ctx.source,
       this.toString,
-      fn.argTypePattern,
+      fn.arity,
       this.fromString as (s: string) => unknown,
       this.isT,
     );
@@ -1126,7 +1187,7 @@ export class Engine<T> {
           node.pos,
           ctx.source,
           this.toString,
-          fn.argTypePattern,
+          fn.arity,
           this.fromString as (s: string) => unknown,
           this.isT,
         );
@@ -1254,6 +1315,14 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 // caller) keeps compiling unchanged. When omitted, the default
 // stringifier is used; that only affects `"stringifiable"` slots, none
 // of which appear in any registration as of template-laws-3gt.1.
+//
+// `arity` defaults for the same reason — TypeScript forbids a required
+// parameter after a defaulted one, and `toString` above is defaulted.
+// The default reproduces the previous `pattern`-less behavior exactly
+// (trailing slot repeats, no upper bound), so this stays a pure
+// refactor for deep-import callers. It is *not* a permissive default
+// for registrations: `TemplateFunc.arity` is required, so a func that
+// declares no arity fails to compile rather than reaching this gate.
 export function enforceArgTypes(
   funcName: string,
   argTypes: readonly ArgType[],
@@ -1261,7 +1330,7 @@ export function enforceArgTypes(
   pos: Pos,
   src: string | undefined,
   toString: (value: unknown) => string = defaultToString,
-  pattern?: "alternating",
+  arity: Arity = { kind: "variadic" },
   fromString: (s: string) => unknown = defaultFromString,
   isT: IsT = DEFAULT_IS_T,
 ): void {
@@ -1272,11 +1341,11 @@ export function enforceArgTypes(
   // validation runs.
   //
   // [LAW:single-enforcer] Slot lookup is a single function — the
-  // variadic-overflow rule (trailing-repeat by default, modulo cycle
-  // when `pattern === "alternating"`) lives here once, not duplicated
-  // at the loop body. See template-laws-3gt.3 for the alternation
-  // motivation (`dict`'s string/value kv pairing).
-  const lookup = makeSlotLookup(argTypes, pattern);
+  // variadic-overflow rule (trailing-repeat, modulo cycle when the
+  // arity is `"alternating"`) lives here once, not duplicated at the
+  // loop body. See template-laws-3gt.3 for the alternation motivation
+  // (`dict`'s string/value kv pairing).
+  const lookup = makeSlotLookup(argTypes, arity);
   let firstOrdered = -1;
   let firstComparable = -1;
   for (let i = 0; i < values.length; i++) {
@@ -1358,10 +1427,7 @@ export function enforceArgTypes(
 // as a function that maps an arg index to its declared kind, picked
 // once per call. The loop in `enforceArgTypes` then has the same shape
 // for every func — no per-iteration `if (pattern === "alternating")`.
-function makeSlotLookup(
-  argTypes: readonly ArgType[],
-  pattern: "alternating" | undefined,
-): (i: number) => ArgType {
+function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number) => ArgType {
   if (argTypes.length === 0) {
     // Funcs registered with `argTypes: []` are zero-arity at the gate.
     // The loop only runs when `values.length > argTypes.length`, which
@@ -1369,10 +1435,20 @@ function makeSlotLookup(
     // does not throw on a stale zero-arity registration.
     return () => "value";
   }
-  if (pattern === "alternating") {
+  if (arity.kind === "alternating") {
     const len = argTypes.length;
     return (i) => argTypes[i % len] as ArgType;
   }
+  // Both remaining kinds read the trailing slot for overflow. For
+  // `"variadic"` that is the rule.
+  //
+  // [LAW:polishing-by-subtraction] exception: kept until .49n/.2fc. For
+  // `"exact"` the repeat is dead weight — an overflowing call is
+  // impossible once the count is enforced, which is .49n's job, and
+  // removing the repeat itself is .2fc's. Deleting it now would change
+  // which error an overflowing call reports before anything rejects the
+  // count, so it stays until the ticket that makes it unreachable.
+  // Declaring arity (this ticket) changes no runtime behavior on its own.
   const trailing = argTypes[argTypes.length - 1] as ArgType;
   return (i) => (i < argTypes.length ? (argTypes[i] as ArgType) : trailing);
 }

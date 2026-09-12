@@ -208,7 +208,7 @@ describe("public API — generic-T parameterization", () => {
 describe("public API — funcs registry composition", () => {
   it("merges sprig categories with user-defined funcs", () => {
     const myFuncs: Record<string, TemplateFunc> = {
-      bang: { fn: (s: unknown) => `${String(s)}!`, argTypes: ["string"] },
+      bang: { fn: (s: unknown) => `${String(s)}!`, argTypes: ["string"], arity: { kind: "exact" } },
     };
     const engine = createEngine<string>({
       fromString: (s) => s,
@@ -216,6 +216,20 @@ describe("public API — funcs registry composition", () => {
     });
     const result = engine.parse("{{ .name | upper | bang }}").evaluate({ name: "go" });
     expect(result.join("")).toBe("GO!");
+  });
+
+  // [LAW:types-are-the-program] `arity` is required, so a registration
+  // that omits it is rejected by the compiler rather than defaulting to
+  // a permissive value the gate could never check. `@ts-expect-error`
+  // fails the typecheck if the omission ever starts compiling, which
+  // makes "every registered func declares an arity" a machine-checked
+  // property of the public type and not a convention.
+  it("rejects a registration that declares no arity", () => {
+    const missingArity: Record<string, TemplateFunc> = {
+      // @ts-expect-error — `arity` is required on TemplateFunc.
+      bang: { fn: (s: unknown) => `${String(s)}!`, argTypes: ["string"] },
+    };
+    expect(Object.keys(missingArity)).toEqual(["bang"]);
   });
 });
 

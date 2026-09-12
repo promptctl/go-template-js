@@ -20,6 +20,7 @@ describe("funcmap composition", () => {
       shout: {
         fn: (s: unknown) => `${String(s).toUpperCase()}!`,
         argTypes: ["string"],
+        arity: { kind: "exact" },
       },
     };
     const engine = createEngine<string>({
@@ -37,7 +38,7 @@ describe("funcmap composition", () => {
 
   it("consumer funcs override sprig on name collision (escape hatch)", () => {
     const overrides: Record<string, TemplateFunc> = {
-      upper: { fn: () => "OVERRIDE", argTypes: ["value"] },
+      upper: { fn: () => "OVERRIDE", argTypes: ["value"], arity: { kind: "exact" } },
     };
     const engine = createEngine<string>({
       fromString: (s) => s,

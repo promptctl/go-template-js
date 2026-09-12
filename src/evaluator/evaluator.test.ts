@@ -436,7 +436,7 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
 
   it('a "T" ArgType slot accepts exactly what isT says', () => {
     const funcs: FuncMap = {
-      id: { fn: (v: unknown) => v, argTypes: ["T"], returnType: "T" },
+      id: { fn: (v: unknown) => v, argTypes: ["T"], arity: { kind: "exact" }, returnType: "T" },
     };
     const withFuncs = createEngine<Rich>({
       fromString: (s) => new Rich(s),
@@ -450,7 +450,12 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
 
   it('a "liftable" slot reads the same isT: a T or a string, never a non-T object', () => {
     const funcs: FuncMap = {
-      id: { fn: (v: unknown) => v, argTypes: ["liftable"], returnType: "T" },
+      id: {
+        fn: (v: unknown) => v,
+        argTypes: ["liftable"],
+        arity: { kind: "exact" },
+        returnType: "T",
+      },
     };
     const withFuncs = createEngine<Rich>({
       fromString: (s) => new Rich(s),
