@@ -13,11 +13,18 @@ conformance/
 │   └── main.go
 └── fixtures/
     └── <name>/
-        ├── template.tmpl        Source template
-        ├── scope.json           JSON-encoded scope value (optional; defaults to null)
-        ├── config.json          Per-fixture engine config (optional; e.g. delims override)
-        └── expected.txt         Reference output (regenerated, do not edit by hand)
+        ├── template.tmpl            Source template
+        ├── scope.json               JSON-encoded scope value (optional; defaults to null)
+        ├── config.json              Per-fixture engine config (optional; e.g. delims override)
+        ├── expected.txt             Reference output (regenerated, do not edit by hand)
+        └── expected-go-error.txt    Reference refusal message, for a template Go
+                                     declines to execute (regenerated; create it
+                                     empty to declare the fixture, never fill it in)
 ```
+
+A fixture carries exactly one expected-outcome file. See
+`fixtures/README.md` for the full set, including the two JS-only
+variants.
 
 ## Adding a fixture
 
@@ -28,10 +35,12 @@ conformance/
    custom action delimiters), add `fixtures/<name>/config.json`. The
    schema is `{ "delims": ["<left>", "<right>"] }` — both engines read
    the same file so neither can drift from the other.
-4. Run `pnpm conformance:regen` to populate `expected.txt` from Go's reference
-   implementation.
-5. Add a TS test under `test/conformance/` that asserts the engine's output
-   matches `expected.txt`.
+4. If the point of the fixture is that Go *refuses* the template, create an
+   empty `fixtures/<name>/expected-go-error.txt` to declare that.
+5. Run `pnpm conformance:regen` to populate the expected-outcome file from
+   Go's reference implementation.
+6. Nothing else. The harnesses under `test/conformance/` pick fixtures up by
+   which expected-outcome file they carry — no test code change required.
 
 ## Regenerating reference outputs
 
