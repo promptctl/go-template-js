@@ -161,14 +161,16 @@ Every registration declares an `arity`, which says how many arguments the func t
 | `arity` | Meaning |
 | --- | --- |
 | `{ kind: "exact" }` | Exactly `argTypes.length` arguments; each slot is declared once. |
-| `{ kind: "variadic", minimum: n }` | At least `n` arguments. The trailing `argTypes` entry is the repeating slot, so every excess argument is validated against it. |
+| `{ kind: "variadic" }` | At least `argTypes.length - 1` arguments. One slot per Go parameter, the repeating one last, so every excess argument is validated against it. |
 | `{ kind: "alternating", minimum: n }` | At least `n` arguments, with `argTypes` read as a *cycle*: the slot for argument `i` is `argTypes[i % argTypes.length]`. |
 
-`"exact"` carries no count — the count *is* `argTypes.length`, and a second copy of it could only disagree. `minimum` appears on the variadic kinds alone, where it is genuinely independent of the slot count: `merge` declares one slot and requires it, while `dict` declares a two-slot cycle and requires nothing.
+Today the engine reads `arity` only to choose each argument's slot: the counts above are pinned against Go's real signatures by `go-arity.test.ts` but not yet enforced at runtime — rejecting a wrong argument count at the gate is `template-arity-n2j.49n`.
+
+Neither `"exact"` nor `"variadic"` carries a count — it *is* `argTypes.length` and `argTypes.length - 1` respectively, and a second copy could only disagree. `minimum` survives on `"alternating"` alone, where `argTypes` is a cycle length rather than a parameter count: `merge` declares `["dict", "dict"]` and requires one, while `dict` declares a two-slot cycle and requires nothing.
 
 Alternation is what lets `dict "k1" v1 "k2" v2 …` be checked at the gate: `dict` declares `argTypes: ["string", "value"]` with `{ kind: "alternating", minimum: 0 }`, and the gate enforces "string at even index, anything at odd index" without per-key revalidation in the body.
 
-Minimums mirror Go's *arity gate*, which is not always the same as the function body's own requirement. Go's `eq` is `eq(arg1, arg2 ...)`, so its gate wants at least one argument; the familiar "missing argument for comparison" comes from eq's body and is a different error.
+A declared minimum mirrors Go's *arity gate*, which is not always the same as the function body's own requirement. Go's `eq` is `eq(arg1, arg2 ...)`, so its gate wants at least one argument; the familiar "missing argument for comparison" comes from Go's `eq` body and is a different error.
 
 ## Syntax and built-ins
 

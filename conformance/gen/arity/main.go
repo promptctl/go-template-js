@@ -76,9 +76,19 @@ func run() error {
 		return err
 	}
 
+	goVersion, err := goEnv("GOVERSION")
+	if err != nil {
+		return err
+	}
+
+	sprigMod, err := sprigModule()
+	if err != nil {
+		return err
+	}
+
 	out := fixture{
-		GoVersion:   strings.TrimPrefix(runtimeVersion(), "go"),
-		SprigModule: sprigModule(),
+		GoVersion:   strings.TrimPrefix(goVersion, "go"),
+		SprigModule: sprigMod,
 		Funcs:       funcs,
 	}
 
@@ -274,18 +284,14 @@ func goEnv(key string) (string, error) {
 
 // sprigModule reports the exact sprig version this extraction read, from
 // the build's own module graph rather than go.mod's text.
-func sprigModule() string {
+func sprigModule() (string, error) {
 	out, err := exec.Command("go", "list", "-m", "github.com/Masterminds/sprig/v3").Output()
 	if err != nil {
-		return "unknown"
+		return "", fmt.Errorf("go list -m sprig: %w", err)
 	}
-	return strings.TrimSpace(string(out))
-}
-
-func runtimeVersion() string {
-	out, err := exec.Command("go", "env", "GOVERSION").Output()
-	if err != nil {
-		return "unknown"
+	value := strings.TrimSpace(string(out))
+	if value == "" {
+		return "", fmt.Errorf("go list -m sprig: empty")
 	}
-	return strings.TrimSpace(string(out))
+	return value, nil
 }

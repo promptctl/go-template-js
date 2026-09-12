@@ -8,8 +8,6 @@
  * of what lives below.
  *
  * Exposed:
- * - Engine API: createEngine, Engine, Template, EngineConfig, FuncMap,
- *   TemplateFunc, ArgType, MissingKeyOption.
  * - Error hierarchy: TemplateError → ParseError, EvalError; EvalError
  *   → FuncNotFoundError, TypeMismatchError, MissingFieldError; the
  *   ErrorKind discriminator string union.
@@ -18,9 +16,6 @@
  *   staticDictEntries, the literal-`(dict …)` argument reader.
  * - Sub-template inheritance: Defines, the opaque set a parse can invoke
  *   (Template.defines, Engine.parse's `inherit` parameter).
- * - Sprig category factories: sprigDefaults, sprigStrings, sprigMath,
- *   sprigLists, sprigDicts, sprigRegex, sprigTypes, sprigConversions,
- *   sprigSemver, sprigFlow, sprigRandom, sprigHash, sprigDatetime.
  * - Error classes: FailError (thrown by sprig `fail`).
  *
  * Hidden (intentionally): the parser/lexer/walker/stringifier modules,

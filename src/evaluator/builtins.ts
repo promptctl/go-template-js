@@ -41,10 +41,9 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     eq: {
       fn: (a: unknown, ...rest: unknown[]) => rest.some((r) => goEqPair(a, r)),
       // Go: `eq(arg1 reflect.Value, arg2 ...reflect.Value)` — two
-      // parameters, so one is required. The *two*-argument requirement
-      // is `errNoComparison`, raised by eq's own body with different
-      // text; a second slot here declares Go's gate, not that rule, and
-      // the two stay distinguishable.
+      // parameters, so Go's gate requires one. Go's own body separately
+      // rejects a lone argument with `errNoComparison`; this body does
+      // neither yet and returns false (template-conformance-3ds).
       argTypes: ["comparable", "comparable"],
       arity: { kind: "variadic" },
     },

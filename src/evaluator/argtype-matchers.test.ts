@@ -582,7 +582,7 @@ describe("matchesArgType — liftable", () => {
             return { kind: "frag", text: "ok" } as Frag;
           },
           argTypes: ["liftable"],
-          arity: { kind: "exact" },
+          arity: { kind: "variadic" },
         },
       },
     });

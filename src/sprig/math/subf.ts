@@ -1,3 +1,3 @@
-export function subf(a: number, b: number): number {
-  return a - b;
+export function subf(a: number, ...rest: number[]): number {
+  return rest.reduce((acc, v) => acc - v, a);
 }

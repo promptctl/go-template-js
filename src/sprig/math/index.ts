@@ -110,7 +110,7 @@ export function sprigMath(): FuncMap {
     // argument, unlike the integer `sub`, which Go declares with two
     // fixed parameters.
     subf: {
-      fn: (a, b) => subf(a as number, b as number),
+      fn: (a, ...rest) => subf(a as number, ...(rest as number[])),
       argTypes: ["float", "float"],
       arity: { kind: "variadic" },
     },
@@ -122,7 +122,7 @@ export function sprigMath(): FuncMap {
     // Go: `divf(a interface{}, v ...interface{})` — folds over every
     // argument, unlike the integer `div`.
     divf: {
-      fn: (a, b) => divf(a as number, b as number),
+      fn: (a, ...rest) => divf(a as number, ...(rest as number[])),
       argTypes: ["float", "float"],
       arity: { kind: "variadic" },
     },
