@@ -1538,31 +1538,30 @@ function acceptedArgCount(argTypes: readonly ArgType[], arity: Arity): ArgCount 
   }
 }
 
-// [LAW:dataflow-not-control-flow] The variadic-overflow rule is encoded
-// as a function that maps an arg index to its declared kind, picked
-// once per call. The loop in `enforceArgTypes` then has the same shape
-// for every func — no per-iteration `if (pattern === "alternating")`.
+// [LAW:dataflow-not-control-flow] The overflow rule is picked once per
+// call as an index→slot map, so the loop in `enforceArgTypes` has the
+// same shape for every func — no per-iteration branch on the kind, and
+// none inside an arm either: `"variadic"` clamps to its trailing slot
+// rather than testing for the end of the declared ones.
+//
+// [LAW:one-type-per-behavior] One arm per `Arity` kind, because the
+// three kinds *are* the three slot-lookup rules.
+//
+// Every read is total on an upstream guarantee, which is why none is
+// guarded here: `"exact"` is never asked for a slot past the end, since
+// the count check in `enforceArgTypes` pinned `values.length ===
+// argTypes.length`; `"variadic"` and `"alternating"` always have a slot
+// to index, since `validateArities` rejects either kind with none.
 function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number) => ArgType {
-  if (argTypes.length === 0) {
-    // [LAW:polishing-by-subtraction] exception: dead, kept until .2fc.
-    // `argTypes: []` pairs only with `"exact"`, so the gate accepts no
-    // arguments and never invokes this lookup.
-    return () => "value";
+  const len = argTypes.length;
+  switch (arity.kind) {
+    case "exact":
+      return (i) => argTypes[i] as ArgType;
+    case "variadic":
+      return (i) => argTypes[Math.min(i, len - 1)] as ArgType;
+    case "alternating":
+      return (i) => argTypes[i % len] as ArgType;
   }
-  if (arity.kind === "alternating") {
-    const len = argTypes.length;
-    return (i) => argTypes[i % len] as ArgType;
-  }
-  // Both remaining kinds read the trailing slot for overflow. For
-  // `"variadic"` that is the rule.
-  //
-  // [LAW:polishing-by-subtraction] exception: kept until .2fc. For
-  // `"exact"` the repeat is now unreachable — template-arity-n2j.49n
-  // made `acceptedArgCount` reject an overflowing call before the loop
-  // that consumes this lookup can run — and deleting the dead half is
-  // template-arity-n2j.2fc's job, not a drive-by here.
-  const trailing = argTypes[argTypes.length - 1] as ArgType;
-  return (i) => (i < argTypes.length ? (argTypes[i] as ArgType) : trailing);
 }
 
 function matchesArgType(
