@@ -19,10 +19,9 @@
  * No shipped registration declares `"liftable"` yet, so the hole never
  * fired; a `Record` makes the next one impossible instead of unlucky.
  *
- * Witnesses are chosen against the engine's *default* `isT`
- * (`DEFAULT_IS_T`: a non-null object that is not an array or a Map) and
- * default `toString` (passes strings through, throws on everything
- * else), because that is what both harnesses run under.
+ * Witnesses are chosen against the engine's *default* `isT` and
+ * `toString`, because that is what both harnesses run under. Where a
+ * witness turns on what those admit, the entry says so.
  */
 
 import type { ArgType } from "../../src/evaluator/evaluator.js";
