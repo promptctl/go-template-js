@@ -15,4 +15,9 @@ describe("sprig.substr", () => {
   it("clamps negative start to 0", () => {
     expect(substr(-2, 3, "abcdef")).toBe("abc");
   });
+  it("counts code points, so an astral char is never split", () => {
+    // Go slices by BYTE and yields the invalid "\xf0" here. Intended divergence.
+    expect(substr(0, 1, "\u{10348}x")).toBe("\u{10348}");
+    expect(substr(1, 2, "\u{10348}x")).toBe("x");
+  });
 });
