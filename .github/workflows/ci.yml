@@ -52,6 +52,14 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # The generator decides what each fixture means and what Go actually
+      # said. Both are places it can be wrong in a way the corpus would
+      # then enforce on the engine, and the regen step below cannot catch
+      # either: it only proves regen is a no-op on a corpus that is
+      # already correct.
+      - name: Conformance generator tests
+        run: cd conformance/gen && go test ./...
+
       # Conformance fixtures are byte-for-byte Go-reference outputs.
       # `pnpm conformance:regen` is supposed to be a no-op on a fresh
       # tree; if it isn't, something drifted. Asserting tree-cleanliness

@@ -8,11 +8,16 @@
  * different derivation of the same rule would have to pass these
  * tests unchanged.
  *
- * The expected message text in `GO_VERIFIED` was produced by running
- * the same templates through Go 1.25.7's `text/template`, not written
- * from memory. Pinning it against Go as *fixtures* is
- * template-arity-n2j.jln; these are the eight cases that fit in a unit
- * test.
+ * Go's message *text* is not pinned here. It is pinned by the
+ * conformance corpus, where `pnpm conformance:regen` generates it from
+ * the reference implementation — see the `negative-arity-*` fixtures and
+ * `test/conformance/string-mode.test.ts`. A hand-transcribed copy of
+ * that text beside the generated one would be a second clock, and the
+ * hand-written one is the one that goes stale. [LAW:one-source-of-truth]
+ *
+ * What stays here is everything the corpus cannot say: which counts are
+ * rejected at all, the structured fields a consumer branches on, and
+ * where the error points.
  */
 
 import { describe, expect, it } from "vitest";
@@ -61,28 +66,10 @@ const engine = createEngine<string>({ fromString: (s) => s, funcs: allSprig() })
 const render = (src: string): string => engine.parse(src).evaluate(null).join("");
 
 // ---------------------------------------------------------------------------
-// Rejection — the message is Go's, verbatim.
+// Rejection — what the error carries, and where it points.
 // ---------------------------------------------------------------------------
 
-const GO_VERIFIED: ReadonlyArray<readonly [string, string]> = [
-  ['{{ upper "a" "b" }}', "wrong number of args for upper: want 1 got 2"],
-  ["{{ upper }}", "wrong number of args for upper: want 1 got 0"],
-  ['{{ trim " a " " b " }}', "wrong number of args for trim: want 1 got 2"],
-  ['{{ substr "a" }}', "wrong number of args for substr: want 3 got 1"],
-  ['{{ trunc "abc" }}', "wrong number of args for trunc: want 2 got 1"],
-  ["{{ min }}", "wrong number of args for min: want at least 1 got 0"],
-  ["{{ printf }}", "wrong number of args for printf: want at least 1 got 0"],
-  ["{{ index }}", "wrong number of args for index: want at least 1 got 0"],
-];
-
 describe("arity gate — rejects the counts Go rejects", () => {
-  for (const [src, message] of GO_VERIFIED) {
-    it(`${src} → ${message}`, () => {
-      expect(() => render(src)).toThrow(ArgCountError);
-      expect(() => render(src)).toThrow(message);
-    });
-  }
-
   it("reports the count as structured fields, not only in the message", () => {
     let caught: unknown;
     try {
@@ -128,13 +115,20 @@ describe("arity gate — rejects the counts Go rejects", () => {
 // Acceptance — the gate must not reject what Go accepts.
 // ---------------------------------------------------------------------------
 
+// sprig's `add` is `func(i ...interface{})`: numIn 1, variadic, so its
+// gate wants at least 0, and Go renders `{{ add }}` as 0 and `{{ add 1 }}`
+// as 1. Those values are pinned by the `sprig-arity-add-variadic-from-zero`
+// fixture, where `pnpm conformance:regen` generates them from Go, and are
+// deliberately not repeated here. [LAW:one-source-of-truth]
+//
+// They belong somewhere, because the epic's description and the closed
+// .49n both carry a false criterion claiming `add 1` should raise a
+// positioned TemplateError — it should not, and the pin is what makes
+// that "fix" fail. Reach for the fixture rather than re-adding literals
+// here: it fails the same "fix" citing the reference implementation,
+// where a literal could only cite a comment claiming what Go does.
 describe("arity gate — accepts the counts Go accepts", () => {
   it.each([
-    // sprig's `add` is `func(i ...interface{})`: numIn 1, variadic, so
-    // its gate wants at least 0. Go renders both of these.
-    ["{{ add }}", "0"],
-    ["{{ add 1 }}", "1"],
-    ["{{ add 1 2 3 }}", "6"],
     // Go's `eq` is `func(reflect.Value, ...reflect.Value)`: the gate
     // wants one argument. The two-argument requirement is eq's *body*,
     // a different error — so the gate must let this through.
