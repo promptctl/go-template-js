@@ -3,7 +3,13 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022"],
+    // ES2024.String, not ES2024: `isWellFormed` is the oracle the
+    // lone-surrogate sweep asserts with, and node 20.0 has it — but
+    // full ES2024 would also admit `Object.groupBy` (node 21) and
+    // `Promise.withResolvers` (node 22), above this package's declared
+    // `engines.node` floor of 20.19.0. Component-level libs keep the
+    // set of callable APIs a true map of the supported runtime.
+    "lib": ["ES2022", "ES2024.String"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
