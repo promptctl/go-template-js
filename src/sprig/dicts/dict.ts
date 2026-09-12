@@ -2,7 +2,7 @@
  * `dict k1 v1 k2 v2 …` — builds a record from alternating key/value pairs.
  *
  * [LAW:single-enforcer] The boundary gate (`enforceArgTypes`) validates
- * the kv cycle via `argTypePattern: "alternating"` against
+ * the kv cycle via `arity: { kind: "alternating" }` against
  * `argTypes: ["string", "value"]`, so every key position is a string by
  * the time the body runs. The body trusts the gate; no per-key probe.
  *

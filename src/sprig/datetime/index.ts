@@ -50,46 +50,57 @@ export function sprigDatetime(clock: Clock = () => new Date()): FuncMap {
     now: {
       fn: () => now(clock),
       argTypes: [],
+      arity: { kind: "exact" },
     },
     date: {
       fn: (format, t) => date(format as string, t),
       argTypes: ["string", "value"],
+      arity: { kind: "exact" },
     },
     dateInZone: {
       fn: (format, t, zone) => dateInZone(format as string, t, zone as string),
       argTypes: ["string", "value", "string"],
+      arity: { kind: "exact" },
     },
     dateModify: {
       fn: (dur, t) => dateModify(dur as string, t),
       argTypes: ["string", "value"],
+      arity: { kind: "exact" },
     },
     htmlDate: {
       fn: (t) => htmlDate(t),
       argTypes: ["value"],
+      arity: { kind: "exact" },
     },
     htmlDateInZone: {
       fn: (t, zone) => htmlDateInZone(t, zone as string),
       argTypes: ["value", "string"],
+      arity: { kind: "exact" },
     },
     duration: {
       fn: (sec) => duration(sec),
       argTypes: ["value"],
+      arity: { kind: "exact" },
     },
     durationRound: {
       fn: (d) => durationRound(d),
       argTypes: ["value"],
+      arity: { kind: "exact" },
     },
     toDate: {
       fn: (format, s) => toDate(format as string, s as string),
       argTypes: ["string", "string"],
+      arity: { kind: "exact" },
     },
     ago: {
       fn: (t) => ago(t, clock),
       argTypes: ["value"],
+      arity: { kind: "exact" },
     },
     unixEpoch: {
       fn: (t) => unixEpoch(t),
       argTypes: ["value"],
+      arity: { kind: "exact" },
     },
   };
 }

@@ -63,7 +63,7 @@ describe("sprig dicts — integration", () => {
   });
 
   // [LAW:single-enforcer] dict's variadic kv pairing is enforced by the
-  // gate via argTypePattern: "alternating" (template-laws-3gt.3). A
+  // gate via arity: { kind: "alternating" } (template-laws-3gt.3). A
   // non-string in any even-index slot throws TypeMismatchError naming
   // that slot — the body never validates per-key.
   describe("dict alternating kv pattern (template-laws-3gt.3)", () => {

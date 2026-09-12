@@ -27,18 +27,30 @@ export function sprigConversions(): FuncMap {
   //                     circular refs so the body never silently
   //                     emits "null"
   const map: FuncMap = {
-    atoi: { fn: (s) => atoi(s as string), argTypes: ["string"], returnType: "int" },
-    int: { fn: (v) => int(v), argTypes: ["value"], returnType: "int" },
-    int64: { fn: (v) => int64(v), argTypes: ["value"] },
-    float64: { fn: (v) => float64(v), argTypes: ["value"], returnType: "float" },
+    atoi: {
+      fn: (s) => atoi(s as string),
+      argTypes: ["string"],
+      arity: { kind: "exact" },
+      returnType: "int",
+    },
+    int: { fn: (v) => int(v), argTypes: ["value"], arity: { kind: "exact" }, returnType: "int" },
+    int64: { fn: (v) => int64(v), argTypes: ["value"], arity: { kind: "exact" } },
+    float64: {
+      fn: (v) => float64(v),
+      argTypes: ["value"],
+      arity: { kind: "exact" },
+      returnType: "float",
+    },
     toDecimal: {
       fn: (s) => toDecimal(s as string),
       argTypes: ["string"],
+      arity: { kind: "exact" },
       returnType: "int",
     },
     toRawJson: {
       fn: (v) => toRawJson(v),
       argTypes: ["serializable"],
+      arity: { kind: "exact" },
       returnType: "string",
     },
   };

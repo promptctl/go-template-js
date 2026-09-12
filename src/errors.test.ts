@@ -46,9 +46,9 @@ describe("FuncNotFoundError suggestions", () => {
     const engine = createEngine<string>({
       fromString: (s) => s,
       funcs: {
-        myFunc: { fn: () => "", argTypes: ["value"] },
-        anotherOne: { fn: () => "", argTypes: ["value"] },
-        unrelated: { fn: () => "", argTypes: ["value"] },
+        myFunc: { fn: () => "", argTypes: ["value"], arity: { kind: "exact" } },
+        anotherOne: { fn: () => "", argTypes: ["value"], arity: { kind: "exact" } },
+        unrelated: { fn: () => "", argTypes: ["value"], arity: { kind: "exact" } },
       },
     });
     let err: unknown;

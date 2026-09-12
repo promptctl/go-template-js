@@ -27,15 +27,36 @@ export function sprigDefaults(): FuncMap {
   //                     so toJson/toPrettyJson never silently emit
   //                     "null" or throw deep inside the body.
   return {
-    default: { fn: (a, b) => defaultFn(a, b), argTypes: ["value", "truthy"] },
-    empty: { fn: (v) => empty(v), argTypes: ["truthy"] },
-    coalesce: { fn: (...vs) => coalesce(...vs), argTypes: ["truthy"] },
-    ternary: { fn: (a, b, c) => ternary(a, b, c), argTypes: ["value", "value", "truthy"] },
-    fromJson: { fn: (s) => fromJson(s as string), argTypes: ["string"] },
-    toJson: { fn: (v) => toJson(v), argTypes: ["serializable"], returnType: "string" },
+    // Go: `dfault(d interface{}, given ...interface{})` — the value to
+    // test is variadic, so `default "fallback"` with nothing to test is
+    // a legal call that yields the fallback.
+    default: {
+      fn: (a, b) => defaultFn(a, b),
+      argTypes: ["value", "truthy"],
+      arity: { kind: "variadic" },
+    },
+    empty: { fn: (v) => empty(v), argTypes: ["truthy"], arity: { kind: "exact" } },
+    coalesce: {
+      fn: (...vs) => coalesce(...vs),
+      argTypes: ["truthy"],
+      arity: { kind: "variadic" },
+    },
+    ternary: {
+      fn: (a, b, c) => ternary(a, b, c),
+      argTypes: ["value", "value", "truthy"],
+      arity: { kind: "exact" },
+    },
+    fromJson: { fn: (s) => fromJson(s as string), argTypes: ["string"], arity: { kind: "exact" } },
+    toJson: {
+      fn: (v) => toJson(v),
+      argTypes: ["serializable"],
+      arity: { kind: "exact" },
+      returnType: "string",
+    },
     toPrettyJson: {
       fn: (v) => toPrettyJson(v),
       argTypes: ["serializable"],
+      arity: { kind: "exact" },
       returnType: "string",
     },
   };

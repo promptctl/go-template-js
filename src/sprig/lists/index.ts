@@ -55,40 +55,63 @@ export function sprigLists(): FuncMap {
   // gate. `list` (constructor) declares "value" (template-laws-3gt.8)
   // — heterogeneous-by-intent.
   return {
-    list: { fn: (...a) => list(...a), argTypes: ["value"] },
-    first: { fn: (l) => first(l as unknown[]), argTypes: ["list"] },
-    last: { fn: (l) => last(l as unknown[]), argTypes: ["list"] },
-    rest: { fn: (l) => rest(l as unknown[]), argTypes: ["list"] },
-    initial: { fn: (l) => initial(l as unknown[]), argTypes: ["list"] },
-    len: { fn: (l) => len(l), argTypes: ["sized"] },
-    reverse: { fn: (l) => reverse(l as unknown[]), argTypes: ["list"] },
-    uniq: { fn: (l) => uniq(l as unknown[]), argTypes: ["list"] },
+    list: {
+      fn: (...a) => list(...a),
+      argTypes: ["value"],
+      arity: { kind: "variadic" },
+    },
+    first: { fn: (l) => first(l as unknown[]), argTypes: ["list"], arity: { kind: "exact" } },
+    last: { fn: (l) => last(l as unknown[]), argTypes: ["list"], arity: { kind: "exact" } },
+    rest: { fn: (l) => rest(l as unknown[]), argTypes: ["list"], arity: { kind: "exact" } },
+    initial: { fn: (l) => initial(l as unknown[]), argTypes: ["list"], arity: { kind: "exact" } },
+    len: { fn: (l) => len(l), argTypes: ["sized"], arity: { kind: "exact" } },
+    reverse: { fn: (l) => reverse(l as unknown[]), argTypes: ["list"], arity: { kind: "exact" } },
+    uniq: { fn: (l) => uniq(l as unknown[]), argTypes: ["list"], arity: { kind: "exact" } },
     without: {
       fn: (l, ...e) => without(l as unknown[], ...e),
       argTypes: ["list", "value"],
+      arity: { kind: "variadic" },
     },
-    has: { fn: (i, l) => has(i, l as unknown[]), argTypes: ["value", "list"] },
-    compact: { fn: (l) => compact(l as unknown[]), argTypes: ["list"] },
+    has: {
+      fn: (i, l) => has(i, l as unknown[]),
+      argTypes: ["value", "list"],
+      arity: { kind: "exact" },
+    },
+    compact: { fn: (l) => compact(l as unknown[]), argTypes: ["list"], arity: { kind: "exact" } },
+    // Go: `slice(list interface{}, indices ...interface{})` — one
+    // required list and any number of indices, so `slice .l 1` and
+    // `slice .l` are both legal. Declaring three fixed slots would
+    // reject them once .49n gates the count, inventing a divergence.
+    // The repeating "int" slot covers both indices.
     slice: {
       fn: (l, i, j) => slice(l as unknown[], i as number | undefined, j as number | undefined),
-      argTypes: ["list", "int", "int"],
+      argTypes: ["list", "int"],
+      arity: { kind: "variadic" },
     },
-    concat: { fn: (...l) => concat(...(l as unknown[][])), argTypes: ["list"] },
+    concat: {
+      fn: (...l) => concat(...(l as unknown[][])),
+      argTypes: ["list"],
+      arity: { kind: "variadic" },
+    },
     chunk: {
       fn: (s, l) => chunk(s as number, l as unknown[]),
       argTypes: ["int", "list"],
+      arity: { kind: "exact" },
     },
     prepend: {
       fn: (l, i) => prepend(l as unknown[], i),
       argTypes: ["list", "value"],
+      arity: { kind: "exact" },
     },
     append: {
       fn: (l, i) => append(l as unknown[], i),
       argTypes: ["list", "value"],
+      arity: { kind: "exact" },
     },
     sortAlpha: {
       fn: (l) => sortAlpha(l as unknown[]),
       argTypes: ["list"],
+      arity: { kind: "exact" },
       returnType: "list",
     },
     // [LAW:one-source-of-truth] `push` is Go sprig's deprecated alias for
@@ -97,15 +120,39 @@ export function sprigLists(): FuncMap {
     push: {
       fn: (l, i) => append(l as unknown[], i),
       argTypes: ["list", "value"],
+      arity: { kind: "exact" },
     },
     // [LAW:one-source-of-truth] `tuple` is Go sprig's alias for `list`.
-    tuple: { fn: (...a) => list(...a), argTypes: ["value"] },
+    tuple: {
+      fn: (...a) => list(...a),
+      argTypes: ["value"],
+      arity: { kind: "variadic" },
+    },
     // [LAW:single-enforcer] exception: `dig`'s "...keys, default, dict"
     // shape is positional from the *end* — the gate's positional-from-the-
     // start + trailing-repeat model can't express it. Body-side validation
     // surfaces failures via `bodyTypeMismatch` so call-site pos is preserved.
-    dig: { fn: (...a) => dig(...a), argTypes: ["value"] },
-    all: { fn: (...a) => all(...a), argTypes: ["truthy"], returnType: "bool" },
-    any: { fn: (...a) => any(...a), argTypes: ["truthy"], returnType: "bool" },
+    // Go: `dig(ps ...interface{})` — the arity gate requires nothing.
+    // Sprig's own "dig needs at least three arguments" is a body-side
+    // panic, not an arity error, and `dig`'s body already reproduces it.
+    // Declaring a minimum of 3 here would move that failure to the gate
+    // and change its message away from Go's.
+    dig: {
+      fn: (...a) => dig(...a),
+      argTypes: ["value"],
+      arity: { kind: "variadic" },
+    },
+    all: {
+      fn: (...a) => all(...a),
+      argTypes: ["truthy"],
+      arity: { kind: "variadic" },
+      returnType: "bool",
+    },
+    any: {
+      fn: (...a) => any(...a),
+      argTypes: ["truthy"],
+      arity: { kind: "variadic" },
+      returnType: "bool",
+    },
   };
 }

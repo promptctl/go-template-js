@@ -11,6 +11,6 @@ export { fail };
 
 export function sprigFlow(): FuncMap {
   return {
-    fail: { fn: (msg) => fail(msg as string), argTypes: ["string"] },
+    fail: { fn: (msg) => fail(msg as string), argTypes: ["string"], arity: { kind: "exact" } },
   };
 }

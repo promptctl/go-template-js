@@ -31,6 +31,7 @@ describe("typed-fragment integration", () => {
       red: {
         fn: (s: unknown) => ({ color: "red", text: String(s) }),
         argTypes: ["string"],
+        arity: { kind: "exact" },
         returnType: "T",
       },
     };

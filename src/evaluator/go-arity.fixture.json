@@ -1,0 +1,918 @@
+{
+  "goVersion": "1.25.7",
+  "sprigModule": "github.com/Masterminds/sprig/v3 v3.2.3",
+  "funcs": {
+    "abbrev": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "abbrevboth": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "add": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "add1": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "add1f": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "addf": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "adler32sum": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "ago": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "all": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "and": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "any": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "append": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "atoi": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "b32dec": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "b32enc": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "b64dec": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "b64enc": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "base": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "bcrypt": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "biggest": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "buildCustomCert": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "call": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "camelcase": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "cat": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "ceil": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "chunk": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "clean": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "coalesce": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "compact": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "concat": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "contains": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "date": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "dateInZone": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "dateModify": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "date_in_zone": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "date_modify": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "decryptAES": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "deepCopy": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "deepEqual": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "default": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "derivePassword": {
+      "numIn": 5,
+      "variadic": false
+    },
+    "dict": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "dig": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "dir": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "div": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "divf": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "duration": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "durationRound": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "empty": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "encryptAES": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "env": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "eq": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "expandenv": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "ext": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "fail": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "first": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "float64": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "floor": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "fromJson": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "ge": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "genCA": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "genCAWithKey": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "genPrivateKey": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "genSelfSignedCert": {
+      "numIn": 4,
+      "variadic": false
+    },
+    "genSelfSignedCertWithKey": {
+      "numIn": 5,
+      "variadic": false
+    },
+    "genSignedCert": {
+      "numIn": 5,
+      "variadic": false
+    },
+    "genSignedCertWithKey": {
+      "numIn": 6,
+      "variadic": false
+    },
+    "get": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "getHostByName": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "gt": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "has": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "hasKey": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "hasPrefix": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "hasSuffix": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "hello": {
+      "numIn": 0,
+      "variadic": false
+    },
+    "html": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "htmlDate": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "htmlDateInZone": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "htpasswd": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "indent": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "index": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "initial": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "initials": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "int": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "int64": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "isAbs": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "join": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "js": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "kebabcase": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "keys": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "kindIs": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "kindOf": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "last": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "le": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "len": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "list": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "lower": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "lt": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "max": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "maxf": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "merge": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "mergeOverwrite": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "min": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "minf": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "mod": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mul": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "mulf": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "mustAppend": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustChunk": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustCompact": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustDateModify": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustDeepCopy": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustFirst": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustFromJson": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustHas": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustInitial": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustLast": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustMerge": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "mustMergeOverwrite": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "mustPrepend": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustPush": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustRegexFind": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustRegexFindAll": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "mustRegexMatch": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustRegexReplaceAll": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "mustRegexReplaceAllLiteral": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "mustRegexSplit": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "mustRest": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustReverse": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustSlice": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "mustToDate": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "mustToJson": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustToPrettyJson": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustToRawJson": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustUniq": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "mustWithout": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "must_date_modify": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "ne": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "nindent": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "nospace": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "not": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "now": {
+      "numIn": 0,
+      "variadic": false
+    },
+    "omit": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "or": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "osBase": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "osClean": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "osDir": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "osExt": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "osIsAbs": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "pick": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "pluck": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "plural": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "prepend": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "print": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "printf": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "println": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "push": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "quote": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "randAlpha": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "randAlphaNum": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "randAscii": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "randBytes": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "randInt": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "randNumeric": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "regexFind": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "regexFindAll": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "regexMatch": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "regexQuoteMeta": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "regexReplaceAll": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "regexReplaceAllLiteral": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "regexSplit": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "repeat": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "replace": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "rest": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "reverse": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "round": {
+      "numIn": 3,
+      "variadic": true
+    },
+    "semver": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "semverCompare": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "seq": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "set": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "sha1sum": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "sha256sum": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "shuffle": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "slice": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "snakecase": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "sortAlpha": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "split": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "splitList": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "splitn": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "squote": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "sub": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "subf": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "substr": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "swapcase": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "ternary": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "title": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "toDate": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "toDecimal": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "toJson": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "toPrettyJson": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "toRawJson": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "toString": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "toStrings": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "trim": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "trimAll": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "trimPrefix": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "trimSuffix": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "trimall": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "trunc": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "tuple": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "typeIs": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "typeIsLike": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "typeOf": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "uniq": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "unixEpoch": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "unset": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "until": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "untilStep": {
+      "numIn": 3,
+      "variadic": false
+    },
+    "untitle": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "upper": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "urlJoin": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "urlParse": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "urlquery": {
+      "numIn": 1,
+      "variadic": true
+    },
+    "uuidv4": {
+      "numIn": 0,
+      "variadic": false
+    },
+    "values": {
+      "numIn": 1,
+      "variadic": false
+    },
+    "without": {
+      "numIn": 2,
+      "variadic": true
+    },
+    "wrap": {
+      "numIn": 2,
+      "variadic": false
+    },
+    "wrapWith": {
+      "numIn": 3,
+      "variadic": false
+    }
+  }
+}

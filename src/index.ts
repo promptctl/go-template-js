@@ -41,6 +41,7 @@ export {
 } from "./errors.js";
 export {
   type ArgType,
+  type Arity,
   createEngine,
   type Delims,
   Engine,

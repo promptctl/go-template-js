@@ -18,12 +18,28 @@ export function sprigTypes(): FuncMap {
   // name* arguments stay "string" — they exist to be compared against
   // typeOf's string output.
   return {
-    kindOf: { fn: (v) => kindOf(v), argTypes: ["reflective"] },
-    kindIs: { fn: (k, v) => kindIs(k as string, v), argTypes: ["string", "reflective"] },
-    typeOf: { fn: (v) => typeOf(v), argTypes: ["reflective"] },
-    typeIs: { fn: (t, v) => typeIs(t as string, v), argTypes: ["string", "reflective"] },
-    typeIsLike: { fn: (t, v) => typeIsLike(t as string, v), argTypes: ["string", "reflective"] },
-    deepEqual: { fn: (a, b) => deepEqual(a, b), argTypes: ["value", "value"] },
-    deepCopy: { fn: (v) => deepCopy(v), argTypes: ["value"] },
+    kindOf: { fn: (v) => kindOf(v), argTypes: ["reflective"], arity: { kind: "exact" } },
+    kindIs: {
+      fn: (k, v) => kindIs(k as string, v),
+      argTypes: ["string", "reflective"],
+      arity: { kind: "exact" },
+    },
+    typeOf: { fn: (v) => typeOf(v), argTypes: ["reflective"], arity: { kind: "exact" } },
+    typeIs: {
+      fn: (t, v) => typeIs(t as string, v),
+      argTypes: ["string", "reflective"],
+      arity: { kind: "exact" },
+    },
+    typeIsLike: {
+      fn: (t, v) => typeIsLike(t as string, v),
+      argTypes: ["string", "reflective"],
+      arity: { kind: "exact" },
+    },
+    deepEqual: {
+      fn: (a, b) => deepEqual(a, b),
+      argTypes: ["value", "value"],
+      arity: { kind: "exact" },
+    },
+    deepCopy: { fn: (v) => deepCopy(v), argTypes: ["value"], arity: { kind: "exact" } },
   };
 }

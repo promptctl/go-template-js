@@ -26,26 +26,32 @@ export function sprigRegex(): FuncMap {
     regexMatch: {
       fn: (p, s) => regexMatch(p as string, s as string),
       argTypes: ["string", "string"],
+      arity: { kind: "exact" },
     },
     regexFind: {
       fn: (p, s) => regexFind(p as string, s as string),
       argTypes: ["string", "string"],
+      arity: { kind: "exact" },
     },
     regexFindAll: {
       fn: (p, s, n) => regexFindAll(p as string, s as string, n as number),
       argTypes: ["string", "string", "int"],
+      arity: { kind: "exact" },
     },
     regexReplaceAll: {
       fn: (p, s, r) => regexReplaceAll(p as string, s as string, r as string),
       argTypes: ["string", "string", "string"],
+      arity: { kind: "exact" },
     },
     regexReplaceAllLiteral: {
       fn: (p, s, r) => regexReplaceAllLiteral(p as string, s as string, r as string),
       argTypes: ["string", "string", "string"],
+      arity: { kind: "exact" },
     },
     regexSplit: {
       fn: (p, s, n) => regexSplit(p as string, s as string, n as number),
       argTypes: ["string", "string", "int"],
+      arity: { kind: "exact" },
     },
   };
 }

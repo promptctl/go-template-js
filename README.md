@@ -88,6 +88,7 @@ const engine = createEngine<Frag>({
     red: {
       fn: (s: unknown) => ({ color: "red", text: String(s) }),
       argTypes: ["string"],
+      arity: { kind: "exact" },
       returnType: "T",
     },
   },
@@ -102,7 +103,7 @@ tpl.evaluate({ label: "warn", value: "ALERT" });
 // ]
 ```
 
-Functions have optional `argTypes`. The engine uses them to enforce one architectural commitment: **a non-string `T` value will never silently flatten into a `string` parameter**. If you try to pipe a styled fragment into a function declared with `argTypes: ["string"]`, you get a `TypeMismatchError` naming the function, the argument index, and a suggestion to call your `unstyled` (or equivalent) flatten helper.
+Functions declare `argTypes` and `arity`, both required. The engine uses `argTypes` to enforce one architectural commitment: **a non-string `T` value will never silently flatten into a `string` parameter**. If you try to pipe a styled fragment into a function declared with `argTypes: ["string"]`, you get a `TypeMismatchError` naming the function, the argument index, and a suggestion to call your `unstyled` (or equivalent) flatten helper.
 
 ### Lifting and stringification: the boundary bridges
 
@@ -153,11 +154,21 @@ Every entry in `argTypes` is one of:
 
 The legacy `"any"` kind was removed in epic `template-laws-3gt`. Slots that genuinely accept anything now declare their *intent* (`"truthy"` / `"reflective"` / `"value"` / `"serializable"`); slots that did not are pinned to their precise kind so the gate enforces the constraint instead of leaking it into func bodies.
 
-### Variadic patterns
+### Arity
 
-For variadic funcs, declare the trailing slot's type once — every excess argument is validated against it.
+Every registration declares an `arity`, which says how many arguments the func takes and how `argTypes` covers them:
 
-For funcs whose variadic tail *cycles* (e.g. `dict "k1" v1 "k2" v2 …`), set `argTypePattern: "alternating"` on the registration. The slot for arg index `i` becomes `argTypes[i % argTypes.length]`, so `dict` declares `argTypes: ["string", "value"]` and the gate enforces "string at even index, anything at odd index" without per-key revalidation in the body.
+| `arity` | Meaning |
+| --- | --- |
+| `{ kind: "exact" }` | Exactly `argTypes.length` arguments; each slot is declared once. |
+| `{ kind: "variadic", minimum: n }` | At least `n` arguments. The trailing `argTypes` entry is the repeating slot, so every excess argument is validated against it. |
+| `{ kind: "alternating", minimum: n }` | At least `n` arguments, with `argTypes` read as a *cycle*: the slot for argument `i` is `argTypes[i % argTypes.length]`. |
+
+`"exact"` carries no count — the count *is* `argTypes.length`, and a second copy of it could only disagree. `minimum` appears on the variadic kinds alone, where it is genuinely independent of the slot count: `merge` declares one slot and requires it, while `dict` declares a two-slot cycle and requires nothing.
+
+Alternation is what lets `dict "k1" v1 "k2" v2 …` be checked at the gate: `dict` declares `argTypes: ["string", "value"]` with `{ kind: "alternating", minimum: 0 }`, and the gate enforces "string at even index, anything at odd index" without per-key revalidation in the body.
+
+Minimums mirror Go's *arity gate*, which is not always the same as the function body's own requirement. Go's `eq` is `eq(arg1, arg2 ...)`, so its gate wants at least one argument; the familiar "missing argument for comparison" comes from eq's body and is a different error.
 
 ## Syntax and built-ins
 
@@ -279,7 +290,7 @@ Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` p
 
 The package exports exactly the following from `"@promptctl/go-template-js"` — anything else is internal and may change at any time:
 
-- Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`, `MissingKeyOption`, `Delims`.
+- Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`, `Arity`, `MissingKeyOption`, `Delims`.
 - Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
 - Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`, `sprigRandom`, `sprigHash`, `sprigDatetime`.
 

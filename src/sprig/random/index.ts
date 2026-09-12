@@ -28,26 +28,32 @@ export function sprigRandom(random: () => number = Math.random): FuncMap {
     randInt: {
       fn: (min, max) => randInt(min as number, max as number, random),
       argTypes: ["int", "int"],
+      arity: { kind: "exact" },
     },
     randAlpha: {
       fn: (n) => randAlpha(n as number, random),
       argTypes: ["int"],
+      arity: { kind: "exact" },
     },
     randAlphaNum: {
       fn: (n) => randAlphaNum(n as number, random),
       argTypes: ["int"],
+      arity: { kind: "exact" },
     },
     randNumeric: {
       fn: (n) => randNumeric(n as number, random),
       argTypes: ["int"],
+      arity: { kind: "exact" },
     },
     randAscii: {
       fn: (n) => randAscii(n as number, random),
       argTypes: ["int"],
+      arity: { kind: "exact" },
     },
     shuffle: {
       fn: (s) => shuffle(s as string, random),
       argTypes: ["string"],
+      arity: { kind: "exact" },
     },
   };
 }
