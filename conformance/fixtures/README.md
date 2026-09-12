@@ -74,6 +74,12 @@ shape).
    - For typed-fragment fixtures: hand-author `expected-fragments.json`.
    - For error-parity fixtures: hand-author `expected-error.json`.
 
+Changing which outcome an existing fixture is about — a template edit that
+makes Go start or stop refusing it — means **deleting the old
+expected-outcome file**, not just adding the new one. Regen refuses a
+fixture that declares two, naming both, so this is caught rather than
+left on disk for a harness to trip over later.
+
 Never hand-write the content of `expected.txt` or `expected-go-error.txt`.
 Go is the only authority on both, and the generator is how it speaks; a
 hand-typed expected value is a second clock that only ever drifts.

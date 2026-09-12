@@ -84,20 +84,77 @@ func findFixturesRoot() (string, error) {
 	}
 }
 
+// outcome is what a fixture has declared itself to be about. Which one a
+// fixture declares decides what this program records for it, or that it
+// records nothing at all.
+type outcome int
+
+const (
+	// outcomeRender — Go executes the template and its bytes are the reference.
+	outcomeRender outcome = iota
+	// outcomeRefusal — Go declines the template and its message is the reference.
+	outcomeRefusal
+	// outcomeJSOnly — asserted against the TS engine alone. Typed-fragment
+	// and no-silent-flatten fixtures reference `tagAs`, which has no
+	// counterpart in Go's text/template + sprig, so there is nothing here
+	// to compare against.
+	outcomeJSOnly
+)
+
+// The corpus's expected-outcome files, and what each one declares. This
+// is the whole set; adding a fifth means adding it here, which is what
+// makes the rule below enforceable rather than remembered.
+var outcomeFiles = []struct {
+	file string
+	kind outcome
+}{
+	{"expected.txt", outcomeRender},
+	{"expected-go-error.txt", outcomeRefusal},
+	{"expected-fragments.json", outcomeJSOnly},
+	{"expected-error.json", outcomeJSOnly},
+}
+
+// declaredOutcome reads the one thing a fixture directory says about
+// itself. [LAW:parse-dont-validate] The corpus's rule is that a fixture
+// carries exactly one expected-outcome file, and this is the single place
+// that rule is enforced — a directory that breaks it stops the line here
+// rather than reaching the harnesses as a fixture belonging to two of
+// them at once.
+//
+// Declaring nothing is not ambiguity: a render fixture is authored as a
+// bare template.tmpl and has no outcome file until this program writes
+// one, so silence means render.
+func declaredOutcome(dir string) (outcome, error) {
+	kind := outcomeRender
+	var declared []string
+	for _, candidate := range outcomeFiles {
+		present, err := exists(filepath.Join(dir, candidate.file))
+		if err != nil {
+			return 0, err
+		}
+		if present {
+			declared = append(declared, candidate.file)
+			kind = candidate.kind
+		}
+	}
+	if len(declared) > 1 {
+		return 0, fmt.Errorf(
+			"declares %d expected-outcome files (%s) — a fixture carries exactly one, "+
+				"so the harnesses cannot tell which outcome it is about; "+
+				"delete the one that no longer applies",
+			len(declared), strings.Join(declared, ", "))
+	}
+	return kind, nil
+}
+
 // generate records Go's outcome for one fixture, reporting whether that
 // outcome was a refusal.
 func generate(dir string) (bool, error) {
-	// Typed-fragment fixtures (those that supply expected-fragments.json)
-	// are meaningful only for the TS engine's generic-T harness — they
-	// reference funcs that don't exist in Go's text/template + sprig.
-	// Skip them in the Go reference generator.
-	if _, err := os.Stat(filepath.Join(dir, "expected-fragments.json")); err == nil {
-		return false, nil
+	kind, err := declaredOutcome(dir)
+	if err != nil {
+		return false, err
 	}
-	// Error-parity fixtures (those that supply expected-error.json) are
-	// JS-side behavioral assertions for the no-silent-flatten guard;
-	// they reference `tagAs` and have no Go counterpart. Skip them.
-	if _, err := os.Stat(filepath.Join(dir, "expected-error.json")); err == nil {
+	if kind == outcomeJSOnly {
 		return false, nil
 	}
 
@@ -106,12 +163,6 @@ func generate(dir string) (bool, error) {
 	configPath := filepath.Join(dir, "config.json")
 	expectedPath := filepath.Join(dir, "expected.txt")
 	refusalPath := filepath.Join(dir, "expected-go-error.txt")
-
-	// The fixture's own declaration of which outcome it is about.
-	wantRefusal, err := exists(refusalPath)
-	if err != nil {
-		return false, err
-	}
 
 	tplBytes, err := os.ReadFile(templatePath)
 	if err != nil {
@@ -160,7 +211,7 @@ func generate(dir string) (bool, error) {
 	var rendered bytes.Buffer
 	execErr := tpl.Execute(&rendered, scope)
 
-	if !wantRefusal {
+	if kind == outcomeRender {
 		if execErr != nil {
 			return false, fmt.Errorf(
 				"execute template: %w\n"+
@@ -197,7 +248,15 @@ func generate(dir string) (bool, error) {
 // [LAW:no-silent-failure] An unrecognised shape stops the line; half a
 // stripped sentence recorded as Go's message is the kind of wrong that
 // would then be enforced on the engine forever.
+//
+// The node context is closed by `contextEnd`, which can appear a second
+// time — inside the node text (`{{ trim ">: oops" }}`) or inside the
+// message. When it does, the boundary is genuinely ambiguous and neither
+// the first nor the last occurrence is right in general, so this refuses
+// to guess rather than picking the likelier branch and being quietly
+// wrong in the other case.
 func goErrorCore(name string, execErr error) (string, error) {
+	const contextEnd = ">: "
 	full := execErr.Error()
 	marker := fmt.Sprintf("executing %q at <", name)
 	start := strings.Index(full, marker)
@@ -205,11 +264,13 @@ func goErrorCore(name string, execErr error) (string, error) {
 		return "", fmt.Errorf("execution error has no recognisable context prefix: %q", full)
 	}
 	rest := full[start+len(marker):]
-	end := strings.Index(rest, ">: ")
-	if end < 0 {
-		return "", fmt.Errorf("execution error context is unterminated: %q", full)
+	if n := strings.Count(rest, contextEnd); n != 1 {
+		return "", fmt.Errorf(
+			"cannot tell where the node context ends: expected exactly one %q after the "+
+				"marker, found %d, so the wrapper boundary is not determinable in %q",
+			contextEnd, n, full)
 	}
-	core := rest[end+len(">: "):]
+	core := rest[strings.Index(rest, contextEnd)+len(contextEnd):]
 	if core == "" {
 		return "", fmt.Errorf("execution error carries an empty message: %q", full)
 	}
