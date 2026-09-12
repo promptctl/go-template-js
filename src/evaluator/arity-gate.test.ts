@@ -338,3 +338,43 @@ describe("arity gate — malformed declarations fail at construct time", () => {
     ).toThrow(/upper/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The alternating lower bound, which no shipped registration exercises.
+// `dict` is the only `"alternating"` func and declares `minimum: 0`, a
+// value that satisfies `values.length < minimum` whatever the gate read —
+// so a nonzero minimum is the only case that proves `acceptedArgCount`
+// reads `arity.minimum` rather than assuming a zero floor.
+// ---------------------------------------------------------------------------
+
+describe("arity gate — an alternating func with a nonzero minimum", () => {
+  const eng = createEngine<string>({
+    fromString: (s) => s,
+    funcs: {
+      pairs: {
+        fn: (...args: unknown[]) => String(args.length),
+        argTypes: ["string", "value"],
+        arity: { kind: "alternating", minimum: 2 },
+      },
+    },
+  });
+  const run = (src: string): string => eng.parse(src).evaluate(null).join("");
+
+  it.each([0, 1])("rejects %i arguments, below the declared minimum of 2", (count) => {
+    let caught: unknown;
+    try {
+      run(callWith("pairs", count));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ArgCountError);
+    expect((caught as ArgCountError).accepted).toEqual({ minimum: 2, maximum: Infinity });
+    expect((caught as ArgCountError).got).toBe(count);
+    expect((caught as ArgCountError).message).toContain("want at least 2 got");
+  });
+
+  it("accepts the minimum and every count above it", () => {
+    expect(run('{{ pairs "a" 1 }}')).toBe("2");
+    expect(run('{{ pairs "a" 1 "b" 2 }}')).toBe("4");
+  });
+});
