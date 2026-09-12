@@ -9,6 +9,7 @@
  *   ├── ParseError
  *   └── EvalError
  *       ├── FuncNotFoundError
+ *       ├── ArgCountError
  *       ├── TypeMismatchError
  *       └── MissingFieldError
  *
@@ -24,6 +25,7 @@ export type ErrorKind =
   | "ParseError"
   | "EvalError"
   | "FuncNotFoundError"
+  | "ArgCountError"
   | "TypeMismatchError"
   | "MissingFieldError"
   | "FailError";
@@ -112,6 +114,55 @@ export class FuncNotFoundError extends EvalError {
     super(`function ${JSON.stringify(funcName)} is not registered${tail}`, pos, ctx);
     this.funcName = funcName;
     this.suggestions = suggestions;
+  }
+}
+
+/**
+ * The argument counts a func accepts — a closed interval, with
+ * `maximum: Infinity` for the variadic and alternating kinds.
+ *
+ * [LAW:one-source-of-truth] Nothing declares these numbers. They are
+ * derived from `TemplateFunc.arity` and `argTypes.length` by
+ * `acceptedArgCount` in the evaluator, which is the only producer; a
+ * registration that stored its own minimum would be a second copy of a
+ * number the declaration already carries.
+ */
+export interface ArgCount {
+  readonly minimum: number;
+  readonly maximum: number;
+}
+
+/**
+ * Thrown when a func is called with a number of arguments its declared
+ * arity does not accept — `{{ upper "a" "b" }}`, `{{ min }}`.
+ *
+ * The message mirrors Go's `text/template`, which reports a fixed-arity
+ * signature as `want N` and a variadic one as `want at least N`. That
+ * distinction is read off `accepted`, not passed in, so the two phrasings
+ * cannot disagree about which one a given func gets.
+ */
+export class ArgCountError extends EvalError {
+  override readonly name = "ArgCountError";
+  override readonly kind: ErrorKind = "ArgCountError";
+  readonly funcName: string;
+  readonly accepted: ArgCount;
+  readonly got: number;
+
+  constructor(
+    funcName: string,
+    accepted: ArgCount,
+    got: number,
+    pos: Pos,
+    ctx: TemplateErrorContext = {},
+  ) {
+    const want =
+      accepted.minimum === accepted.maximum
+        ? `${accepted.minimum}`
+        : `at least ${accepted.minimum}`;
+    super(`wrong number of args for ${funcName}: want ${want} got ${got}`, pos, ctx);
+    this.funcName = funcName;
+    this.accepted = accepted;
+    this.got = got;
   }
 }
 

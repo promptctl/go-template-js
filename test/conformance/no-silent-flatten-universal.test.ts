@@ -200,7 +200,10 @@ describe("conformance — no-silent-flatten universal property", () => {
       const values = fn.argTypes.map((t, i) => (i === slot ? TAGGED : fillerFor(t)));
       let caught: unknown;
       try {
-        enforceArgTypes(funcName, fn.argTypes, values, POS, undefined, undefined, fn.arity);
+        // One value per declared slot, so the count the gate derives
+        // from `fn.arity` is always satisfied and the slot-type verdict
+        // below is what the probe actually measures.
+        enforceArgTypes(funcName, fn, values, POS, undefined);
       } catch (err) {
         caught = err;
       }
@@ -432,7 +435,14 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
 
 function probe(declared: ArgType, value: unknown, toString?: (v: unknown) => string): boolean {
   try {
-    enforceArgTypes("__probe__", [declared], [value], POS, undefined, toString, undefined);
+    enforceArgTypes(
+      "__probe__",
+      { argTypes: [declared], arity: { kind: "exact" } },
+      [value],
+      POS,
+      undefined,
+      toString,
+    );
     return true;
   } catch (err) {
     if (err instanceof TypeMismatchError) return false;
@@ -504,11 +514,9 @@ describe("conformance — per-kind positive/negative fixtures", () => {
     try {
       enforceArgTypes(
         "__probe__",
-        ["comparable", "comparable"],
+        { argTypes: ["comparable", "comparable"], arity: { kind: "exact" } },
         [1, "x"],
         POS,
-        undefined,
-        undefined,
         undefined,
       );
     } catch (err) {
