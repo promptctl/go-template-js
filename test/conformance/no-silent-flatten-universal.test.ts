@@ -36,6 +36,7 @@ import {
   TypeMismatchError,
 } from "../../src/index.js";
 import { pos } from "../../src/parser/pos.js";
+import { ACCEPTED } from "../support/arg-type-witnesses.js";
 
 interface TaggedFragment {
   readonly tag: string;
@@ -65,52 +66,18 @@ const allRegisteredFuncs = (): FuncMap => ({
   ...sprigConversions(),
 });
 
-// Sane filler value for a slot that's NOT under test. Picks a value
-// that satisfies the slot's declared type so the per-slot gate passes
-// for all slots except the one carrying the TaggedFragment.
+// Filler for a slot that is NOT under test: a value its declared type
+// admits, so the per-slot gate passes everywhere except the slot
+// carrying the TaggedFragment.
 //
-// New ArgType kinds (template-laws-3gt.1) get fillers here so the
-// exhaustive switch typechecks; no registration uses them yet, so the
-// fillers will not actually be exercised until .2–.8 land.
-function fillerFor(slot: ArgType): unknown {
-  switch (slot) {
-    case "string":
-      return "x";
-    case "int":
-    case "float":
-      return 0;
-    case "bool":
-      return false;
-    case "ordered":
-      return 0;
-    case "T":
-      return TAGGED;
-    case "truthy":
-    case "reflective":
-    case "value":
-      return "x";
-    case "list":
-      return [];
-    case "dict":
-      return {};
-    case "sized":
-      return "";
-    case "comparable":
-      return 0;
-    case "stringifiable":
-      return "x";
-    case "callable":
-      return () => undefined;
-    case "collection":
-      return [];
-    case "index-key":
-      return 0;
-    case "sliceable":
-      return "";
-    case "serializable":
-      return 0;
-  }
-}
+// [LAW:one-source-of-truth] The table is shared with the arity-gate
+// hierarchy sweep (template-arity-n2j.7ve) rather than restated here.
+// It is a `Record` over the kind union, so a new ArgType cannot reach a
+// registration without a witness — the switch this replaced had no
+// `"liftable"` arm and filled that slot with `undefined`, a value the
+// matcher rejects, which would have mis-attributed a rejection to the
+// wrong slot the first time a registration declared one.
+const fillerFor = (slot: ArgType): unknown => ACCEPTED[slot];
 
 const POS = pos(1, 1, 0);
 

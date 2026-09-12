@@ -53,6 +53,64 @@ import { isTruthy } from "./truthy.js";
 // ---------------------------------------------------------------------------
 
 /**
+ * Every kind a slot may declare.
+ *
+ * [LAW:one-source-of-truth] The kinds are a *list* first and a type
+ * second. `validateArgSpecs` must reject a declaration naming a kind
+ * that does not exist, and a runtime check needs a runtime list; writing
+ * that list out beside a hand-maintained union would be the second
+ * clock. So the array is authoritative and `ArgType` is derived from it
+ * — one edit adds a kind to the type, to the construct-time check, and
+ * to the two exhaustive switches that must then grow an arm.
+ *
+ * The per-kind semantics live on `ArgType` below, where a consumer
+ * hovering the exported name finds them.
+ */
+const ARG_TYPES = [
+  "string",
+  // [LAW:types-are-the-program] "int" and "float" are validate-AND-parse
+  // numeric carriers. The matcher's membership predicate IS the body's
+  // contract — neither slot accepts "anything `typeof number|bigint`":
+  //   - "int" admits only carriers that survive normalization as a
+  //     finite integer-valued `number`: finite numbers, and bigints
+  //     whose `Number()` conversion is safe-integer-representable.
+  //     NaN, Infinity, and precision-losing bigints are rejected at
+  //     the gate so the body's "I receive an integer" assumption is
+  //     a theorem, not a defense.
+  //   - "float" admits any number (NaN/Infinity are legitimate IEEE
+  //     754 floats; Go's float64 has them too) and bigints whose
+  //     `Number()` is finite. The only rejected bigint is one whose
+  //     conversion overflows to Infinity.
+  // After membership is proven the gate mutates `values[i]` to a
+  // `number` carrier ("int": `Math.trunc(Number(v))`; "float":
+  // `Number(v)`). Mirrors the "liftable" precedent: the slot is both
+  // the membership rule and the parse step. Added by epic
+  // template-variance-num-carrier-hfv.1; tightened by .1.1; the legacy
+  // permissive "number" slot was retired in .4 once all consumers
+  // migrated (.2/.3) — every numeric slot now picks the integer-or-
+  // float carrier explicitly.
+  "int",
+  "float",
+  "bool",
+  "T",
+  "ordered",
+  "list",
+  "dict",
+  "sized",
+  "comparable",
+  "stringifiable",
+  "liftable",
+  "callable",
+  "collection",
+  "index-key",
+  "sliceable",
+  "truthy",
+  "reflective",
+  "value",
+  "serializable",
+] as const;
+
+/**
  * Declared parameter type for a registered template function. Used by
  * the no-silent-flatten guard to detect unsafe T-into-string flows.
  *
@@ -123,48 +181,7 @@ import { isTruthy } from "./truthy.js";
  * `"callable"`). The history for this decision lives in epic
  * template-laws-3gt.
  */
-export type ArgType =
-  | "string"
-  // [LAW:types-are-the-program] "int" and "float" are validate-AND-parse
-  // numeric carriers. The matcher's membership predicate IS the body's
-  // contract — neither slot accepts "anything `typeof number|bigint`":
-  //   - "int" admits only carriers that survive normalization as a
-  //     finite integer-valued `number`: finite numbers, and bigints
-  //     whose `Number()` conversion is safe-integer-representable.
-  //     NaN, Infinity, and precision-losing bigints are rejected at
-  //     the gate so the body's "I receive an integer" assumption is
-  //     a theorem, not a defense.
-  //   - "float" admits any number (NaN/Infinity are legitimate IEEE
-  //     754 floats; Go's float64 has them too) and bigints whose
-  //     `Number()` is finite. The only rejected bigint is one whose
-  //     conversion overflows to Infinity.
-  // After membership is proven the gate mutates `values[i]` to a
-  // `number` carrier ("int": `Math.trunc(Number(v))`; "float":
-  // `Number(v)`). Mirrors the "liftable" precedent: the slot is both
-  // the membership rule and the parse step. Added by epic
-  // template-variance-num-carrier-hfv.1; tightened by .1.1; the legacy
-  // permissive "number" slot was retired in .4 once all consumers
-  // migrated (.2/.3) — every numeric slot now picks the integer-or-
-  // float carrier explicitly.
-  | "int"
-  | "float"
-  | "bool"
-  | "T"
-  | "ordered"
-  | "list"
-  | "dict"
-  | "sized"
-  | "comparable"
-  | "stringifiable"
-  | "liftable"
-  | "callable"
-  | "collection"
-  | "index-key"
-  | "sliceable"
-  | "truthy"
-  | "reflective"
-  | "value"
-  | "serializable";
+export type ArgType = (typeof ARG_TYPES)[number];
 
 /**
  * How many arguments a func accepts, and how `argTypes` covers them.
@@ -408,8 +425,38 @@ function readsSlotsFromArgTypes(arity: Arity): boolean {
   }
 }
 
-function validateArities(funcs: FuncMap): FuncMap {
+// [LAW:parse-dont-validate] The one checkpoint for a declaration. It
+// runs at construct time, which is the only moment at which a malformed
+// `TemplateFunc` can be reported against the line that wrote it, and it
+// fails loudly — so the gate downstream may assume every `ArgSpec` it
+// reads is well-formed and never re-checks one.
+//
+// `argTypes` membership is checked here rather than at the gate for the
+// same reason arity well-formedness is (template-arity-n2j.7ve). A
+// declaration that casts past `ArgType` (`["number" as ArgType]`, a
+// stale registration, a JS caller with no compile-time guard) used to
+// construct cleanly and then raw-throw `Error("invalid ArgType: number")`
+// out of `matchesArgType` mid-render: outside the TemplateError
+// hierarchy, with no position, no caret, and no func name — from inside
+// the gate, which is exactly the failure shape this epic exists to
+// remove. The kind a slot declares is a fact about the *declaration*,
+// knowable before any template is parsed, so this is where it is known.
+//
+// The `default` arms in `matchesArgType` and `humanArgType` stay: their
+// `never` assignment is the compile-time guardrail that forces an arm
+// per kind, and their throw is now unreachable by construction rather
+// than a live path a consumer can reach.
+function validateArgSpecs(funcs: FuncMap): FuncMap {
+  const legal: ReadonlySet<string> = new Set(ARG_TYPES);
   for (const [name, fn] of Object.entries(funcs)) {
+    fn.argTypes.forEach((declared, slot) => {
+      if (!legal.has(declared)) {
+        throw new Error(
+          `EngineConfig.funcs.${name}: argTypes[${slot}] is ${JSON.stringify(declared)}, ` +
+            `which is not an ArgType; declare one of ${ARG_TYPES.join(", ")}`,
+        );
+      }
+    });
     if (readsSlotsFromArgTypes(fn.arity) && fn.argTypes.length === 0) {
       throw new Error(
         `EngineConfig.funcs.${name}: arity ${JSON.stringify(fn.arity.kind)} needs at ` +
@@ -859,7 +906,7 @@ export class Engine<T> {
     // here, on the merged map — after overrides, so a consumer cannot
     // shadow a built-in with a malformed declaration. The gate then
     // derives counts from these declarations without re-checking them.
-    this.funcs = validateArities({
+    this.funcs = validateArgSpecs({
       ...defaultBuiltins(this.toString, this.isT),
       ...(config.funcs ?? {}),
     });
@@ -1393,8 +1440,11 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 //
 // `toString` is optional so the harness (and any other deep-import
 // caller) keeps compiling unchanged. When omitted, the default
-// stringifier is used; that only affects `"stringifiable"` slots, none
-// of which appear in any registration as of template-laws-3gt.1.
+// stringifier is used; that only affects `"stringifiable"` slots, whose
+// verdict then follows `defaultToString` — every scalar flattens, only
+// structures are refused. The print family and the escapers declare
+// those slots, so a deep-import caller passing no `toString` is probing
+// a stricter engine than one a consumer configured with its own.
 export function enforceArgTypes(
   funcName: string,
   spec: ArgSpec,
@@ -1526,7 +1576,7 @@ export function enforceArgTypes(
 //
 // No `Math.max(0, …)` floor is needed for the `"variadic"` subtraction:
 // a variadic registration declaring no slots is rejected at construct
-// time by `validateArities`, so `argTypes.length` is at least 1 here.
+// time by `validateArgSpecs`, so `argTypes.length` is at least 1 here.
 function acceptedArgCount(argTypes: readonly ArgType[], arity: Arity): ArgCount {
   switch (arity.kind) {
     case "exact":
@@ -1551,7 +1601,7 @@ function acceptedArgCount(argTypes: readonly ArgType[], arity: Arity): ArgCount 
 // guarded here: `"exact"` is never asked for a slot past the end, since
 // the count check in `enforceArgTypes` pinned `values.length ===
 // argTypes.length`; `"variadic"` and `"alternating"` always have a slot
-// to index, since `validateArities` rejects either kind with none.
+// to index, since `validateArgSpecs` rejects either kind with none.
 function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number) => ArgType {
   const len = argTypes.length;
   switch (arity.kind) {
@@ -1706,12 +1756,13 @@ function matchesArgType(
       // — or, equivalently, reintroducing the retired `"number"` —
       // a tsc error: a fresh union member is no longer assignable to
       // `never`, so the editor sees the missed case at compile time.
-      // The `throw` covers the only escape from the type system —
-      // callers that cast past `ArgType` at runtime (e.g. a stale
-      // `argTypes: ["number" as ArgType]` registration) get a clear
-      // "invalid ArgType" diagnostic instead of a silent `undefined`-
-      // returning matcher that would surface later as a confusing
-      // "expected undefined" TypeMismatchError.
+      // The `throw` is unreachable from an engine: a declaration that
+      // casts past `ArgType` is rejected at construct time by
+      // `validateArgSpecs`, so no template can drive an unknown kind
+      // here (template-arity-n2j.7ve moved that check off the render
+      // path, where it escaped as a raw, positionless `Error`). It
+      // stays as the runtime floor for a direct deep-import caller,
+      // which is the only remaining way in.
       const _exhaustive: never = declared;
       throw new Error(`invalid ArgType: ${String(_exhaustive)}`);
     }

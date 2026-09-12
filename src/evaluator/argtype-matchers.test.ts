@@ -15,8 +15,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { pos } from "../parser/pos.js";
 import { TypeMismatchError } from "./errors.js";
-import { createEngine, type FuncMap, type TemplateFunc } from "./evaluator.js";
+import { createEngine, enforceArgTypes, type FuncMap, type TemplateFunc } from "./evaluator.js";
 
 // Build a string-output engine with one synthetic func registered
 // against the kind under test. The body is a constant returning the
@@ -891,23 +892,41 @@ describe("matchesArgType — invalid ArgType (assertNever default arm)", () => {
   // template-variance-num-carrier-hfv.4 has two jobs: a compile-time
   // `never` assignment that errors at tsc if a future ArgType is
   // added (or `"number"` is reintroduced), and a runtime `throw` for
-  // callers that cast past the type system. This regression pins the
-  // runtime arm so a stale `argTypes: ["number" as ArgType]`
-  // registration fails loudly with the offending kind in the message,
-  // not silently with the legacy "expected undefined" TypeMismatchError.
+  // callers that cast past the type system.
+  //
+  // Only the second half is asserted here, and only through a deep
+  // import, because template-arity-n2j.7ve moved the membership check
+  // to construct time: an *engine* can no longer carry a slot declaring
+  // a kind that does not exist, so the arm is unreachable from a
+  // template. That is the point of the move — the old behavior this
+  // test used to pin was a raw, positionless `Error` escaping the
+  // TemplateError hierarchy mid-render. The construct-time refusal that
+  // replaced it is asserted in `arity-gate.test.ts`; what remains here
+  // is the floor under the one caller still able to reach the arm.
   it("throws 'invalid ArgType: <kind>' for a slot cast past the union", () => {
-    const eng = createEngine<string>({
-      fromString: (s) => s,
+    const spec = {
       // Cast through `unknown` so the cast survives
       // `exactOptionalPropertyTypes` and the readonly-tuple inference.
-      funcs: {
-        f: {
-          fn: () => "ok",
-          argTypes: ["number"] as unknown as TemplateFunc["argTypes"],
-          arity: { kind: "exact" },
+      argTypes: ["number"] as unknown as TemplateFunc["argTypes"],
+      arity: { kind: "exact" },
+    } as const;
+    expect(() => enforceArgTypes("f", spec, [1], pos(1, 1, 0), undefined)).toThrow(
+      /invalid ArgType: number/,
+    );
+  });
+
+  it("refuses to build an engine carrying that slot in the first place", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        funcs: {
+          f: {
+            fn: () => "ok",
+            argTypes: ["number"] as unknown as TemplateFunc["argTypes"],
+            arity: { kind: "exact" },
+          },
         },
-      },
-    });
-    expect(() => eng.parse("{{ f . }}").evaluate(1)).toThrow(/invalid ArgType: number/);
+      }),
+    ).toThrow(/argTypes\[0\] is "number", which is not an ArgType/);
   });
 });

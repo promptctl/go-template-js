@@ -16,8 +16,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { ACCEPTED, hasRejectWitness, REJECTED } from "../../test/support/arg-type-witnesses.js";
 import {
   ArgCountError,
+  type ArgType,
   createEngine,
   type FuncMap,
   sprigConversions,
@@ -33,7 +35,9 @@ import {
   sprigSemver,
   sprigStrings,
   sprigTypes,
+  TemplateError,
   type TemplateFunc,
+  TypeMismatchError,
 } from "../index.js";
 import { defaultBuiltins } from "./builtins.js";
 
@@ -240,6 +244,99 @@ describe("arity gate — universal property over every registration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The hierarchy property (template-arity-n2j.7ve): nothing the function
+// gate raises escapes `TemplateError`.
+//
+// The gate has two arms and this file now sweeps both. The count arm is
+// swept above — every shipped registration, every count it must reject,
+// asserted `instanceof ArgCountError`. This is the type arm: a legal
+// *count* of arguments, one of which is a value the declared slot
+// refuses, for every slot of every shipped registration that refuses
+// anything. A raw JS `TypeError` reaching a consumer from either arm is
+// what this epic exists to make impossible, and a sweep is the only
+// thing that can say "no registration" rather than "not these eight".
+//
+// The boundary, recorded so it is not re-litigated: the property is
+// about what the *gate* raises. Two neighbours are deliberately outside
+// it, and neither is an arity failure wearing a disguise —
+//
+//  - **Func bodies.** A count and a set of types Go accepts can still
+//    fail inside the body: `{{ keys }}` is legal in Go (numIn 1,
+//    variadic, so the gate's minimum is 0) and still raw-throws
+//    "Cannot convert undefined or null to object". That is a body gap,
+//    recorded on template-conformance-3ds, and widening this sweep to
+//    legal calls would dress it up as an arity failure. The gate's job
+//    is to guarantee the body is entered with a count and shapes the
+//    signature admits; what the body then does with them is the body's
+//    contract.
+//  - **Consumer callbacks the gate invokes.** `fromString` (the
+//    "liftable" lift) and `isT` are consumer code running at the gate,
+//    the same category as a body: if a consumer's `fromString` throws,
+//    the throw is theirs. The existing `"stringifiable"` probe already
+//    reads a consumer `toString` throw as *data* ("cannot flatten")
+//    rather than as an error, which is the same line drawn from the
+//    other side.
+//
+// Each case asserts the func name and the 1-based slot as well as the
+// class, because `evalCommand` re-emits a body-thrown TypeMismatchError
+// with call-site position — so the class alone cannot distinguish "the
+// gate refused slot i" from "a stale filler slipped past and the body's
+// own nested check caught it". Pinning the slot turns a stale witness
+// into a red test instead of a silent pass.
+// ---------------------------------------------------------------------------
+
+const witnessCall = (name: string, count: number): string =>
+  `{{ ${name}${Array.from({ length: count }, (_, i) => ` .a${i}`).join("")} }}`;
+
+const witnessScope = (values: readonly unknown[]): Record<string, unknown> =>
+  Object.fromEntries(values.map((v, i) => [`a${i}`, v]));
+
+describe("arity gate — no type rejection escapes the TemplateError hierarchy", () => {
+  const cases = everyRegistration.flatMap(([name, fn]) =>
+    fn.argTypes.flatMap((declared, slot) =>
+      hasRejectWitness(declared) ? [{ name, fn, slot, declared }] : [],
+    ),
+  );
+
+  it("sweeps a slot of most shipped registrations, builtins included", () => {
+    const names = new Set(cases.map((c) => c.name));
+    // Canaries from both halves, picked so a sweep that silently
+    // generated nothing would fail here rather than pass vacuously.
+    expect([...names]).toEqual(
+      expect.arrayContaining(["upper", "substr", "index", "len", "b64enc"]),
+    );
+    expect(cases.length).toBeGreaterThan(150);
+  });
+
+  for (const { name, fn, slot, declared } of cases) {
+    it(`${name}: a value slot ${slot + 1} refuses (declared ${declared}) is a TemplateError`, () => {
+      // One value per declared slot. That count is legal for all three
+      // arities — `documentedBounds` is asserted rather than assumed, so
+      // a future registration whose minimum outruns its declared slots
+      // reddens here instead of quietly turning this case into a count
+      // rejection that would pass for the wrong reason.
+      const values = fn.argTypes.map((t, i) => (i === slot ? REJECTED[declared] : ACCEPTED[t]));
+      expect(
+        documentedBounds(fn).minimum,
+        `${name} declares fewer slots than its minimum`,
+      ).toBeLessThanOrEqual(values.length);
+
+      let caught: unknown;
+      try {
+        engine.parse(witnessCall(name, values.length)).evaluate(witnessScope(values));
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught, `${name} slot ${slot + 1} was not refused`).toBeInstanceOf(TemplateError);
+      expect(caught).toBeInstanceOf(TypeMismatchError);
+      const err = caught as TypeMismatchError;
+      expect(err.funcName).toBe(name);
+      expect(err.argIndex).toBe(slot + 1);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Registration-time well-formedness.
 // ---------------------------------------------------------------------------
 
@@ -326,6 +423,30 @@ describe("arity gate — malformed declarations fail at construct time", () => {
     });
     expect(eng.parse("{{ pi }}").evaluate(null).join("")).toBe("3");
     expect(() => eng.parse('{{ pi "x" }}').evaluate(null)).toThrow(ArgCountError);
+  });
+
+  // A declaration that casts past `ArgType` used to construct cleanly
+  // and then raw-throw `Error("invalid ArgType: number")` out of the
+  // matcher mid-render — outside the TemplateError hierarchy, with no
+  // position, no caret and no func name, which is the very shape
+  // template-arity-n2j.7ve exists to remove. The kind a slot declares is
+  // a fact about the declaration, so it is known here, before any
+  // template is parsed.
+  it("rejects a slot declaring a kind that is not an ArgType", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        funcs: {
+          stale: {
+            fn: () => "x",
+            // The retired permissive kind, exactly as a stale
+            // registration would still spell it.
+            argTypes: ["string", "number" as ArgType],
+            arity: { kind: "exact" },
+          },
+        },
+      }),
+    ).toThrow(/funcs\.stale: argTypes\[1\] is "number", which is not an ArgType/);
   });
 
   it("checks consumer overrides too, not only built-ins", () => {

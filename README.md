@@ -154,6 +154,8 @@ Every entry in `argTypes` is one of:
 
 The legacy `"any"` kind was removed in epic `template-laws-3gt`. Slots that genuinely accept anything now declare their *intent* (`"truthy"` / `"reflective"` / `"value"` / `"serializable"`); slots that did not are pinned to their precise kind so the gate enforces the constraint instead of leaking it into func bodies.
 
+A slot naming a kind that is not in this table — a stale `["number" as ArgType]`, or any registration from a JS caller with no compile-time guard — is rejected by `createEngine`, naming the func and the slot. That check is at construct time rather than at the gate on purpose: the kind a slot declares is a fact about the declaration, so it is knowable before a template is ever parsed, and reporting it there means a consumer sees it against the line that wrote it instead of mid-render.
+
 ### Arity
 
 Every registration declares an `arity`, which says how many arguments the func takes and how `argTypes` covers them:
