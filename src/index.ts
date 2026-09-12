@@ -9,8 +9,8 @@
  *
  * Exposed:
  * - Error hierarchy: TemplateError → ParseError, EvalError; EvalError
- *   → FuncNotFoundError, TypeMismatchError, MissingFieldError; the
- *   ErrorKind discriminator string union.
+ *   → FuncNotFoundError, ArgCountError, TypeMismatchError,
+ *   MissingFieldError; the ErrorKind discriminator string union.
  * - Static introspection: ReferencedCall / ReferencedArg /
  *   ReferencedLiteral (see Template.referencedCalls) and
  *   staticDictEntries, the literal-`(dict …)` argument reader.
@@ -25,6 +25,8 @@
  */
 
 export {
+  type ArgCount,
+  ArgCountError,
   type ErrorKind,
   EvalError,
   FailError,

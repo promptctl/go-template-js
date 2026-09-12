@@ -80,9 +80,9 @@ export function sprigLists(): FuncMap {
     compact: { fn: (l) => compact(l as unknown[]), argTypes: ["list"], arity: { kind: "exact" } },
     // Go: `slice(list interface{}, indices ...interface{})` — one
     // required list and any number of indices, so `slice .l 1` and
-    // `slice .l` are both legal. Declaring three fixed slots would
-    // reject them once .49n gates the count, inventing a divergence.
-    // The repeating "int" slot covers both indices.
+    // `slice .l` are both legal. Declaring three fixed slots would make
+    // the gate reject them, inventing a divergence. The repeating "int"
+    // slot covers both indices.
     slice: {
       fn: (l, i, j) => slice(l as unknown[], i as number | undefined, j as number | undefined),
       argTypes: ["list", "int"],

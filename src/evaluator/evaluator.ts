@@ -17,6 +17,8 @@
  */
 
 import {
+  type ArgCount,
+  ArgCountError,
   EvalError,
   FailError,
   FuncNotFoundError,
@@ -168,10 +170,12 @@ export type ArgType =
  * How many arguments a func accepts, and how `argTypes` covers them.
  *
  * [LAW:types-are-the-program] Argument *count* used to live only in the
- * JS signature, where the gate cannot see it: `enforceArgTypes` iterates
- * the supplied values, so a missing or surplus argument is not a state
- * it can represent, let alone reject. Declaring arity alongside
- * `argTypes` makes the count a fact the gate reads.
+ * JS signature, where the gate could not see it: `enforceArgTypes`
+ * iterated the supplied values, so a missing or surplus argument was
+ * not a state it could represent, let alone reject. Declaring arity
+ * alongside `argTypes` makes the count a fact the gate reads —
+ * `acceptedArgCount` projects this union into the counts a declaration
+ * admits and rejects the rest before the slot loop.
  *
  * [LAW:one-source-of-truth] No kind carries a count that `argTypes`
  * already holds. `"exact"` means exactly `argTypes.length`, and
@@ -273,6 +277,20 @@ export interface TemplateFunc {
 export type FuncMap = Record<string, TemplateFunc>;
 
 /**
+ * Everything the argument gate reads off a registration.
+ *
+ * [LAW:types-are-the-program] `argTypes` and `arity` answer one
+ * question between them — which arguments are legal — and neither
+ * answers it alone: `argTypes` says what each slot holds, `arity` says
+ * how many slots there are and how they cover the supplied values.
+ * Passing them as one value is what makes "types without their arity"
+ * unrepresentable at the gate; when they were two positional
+ * parameters, the second one defaulted and the count check could be
+ * skipped by omission.
+ */
+export type ArgSpec = Pick<TemplateFunc, "argTypes" | "arity">;
+
+/**
  * Policy for missing field/map-key access — mirrors Go's
  * `text/template` `Option("missingkey=...")`:
  *
@@ -355,6 +373,62 @@ function validateDelims(value: Delims | undefined): Delims | undefined {
     );
   }
   return { left: value.left, right: value.right };
+}
+
+// [LAW:types-are-the-program] The strongest theorem the gate needs is
+// that every registration's declared arity actually covers its declared
+// slots. TypeScript carries most of it — `arity` is required, and the
+// three kinds are a closed union — but not this last correlation: only
+// `"exact"` may declare zero slots. `"variadic"` reads its repeating
+// slot off the end of `argTypes`, so with none declared its minimum
+// derives to -1 and the gate accepts any count; `"alternating"` indexes
+// `i % argTypes.length`, so with none declared every slot lookup is
+// NaN. Both silently disable the gate for that func rather than failing
+// — [LAW:no-silent-failure] — which is why this is a construct-time
+// error and not a permissive fallback.
+//
+// Expressing it in the type would mean splitting `TemplateFunc` into a
+// union discriminated on `arity.kind`, with the variadic arm requiring
+// a non-empty `argTypes` tuple. That correlation does not survive the
+// `Pick` the gate takes (`ArgSpec`), so it would buy a compile-time
+// check for registrations and lose one at the gate. This is the same
+// JS-boundary mirror `validateMissingKey` and `validateDelims` are.
+//
+// The predicate is a returning switch rather than `kind !== "exact"` so
+// that adding a fourth `Arity` kind fails to compile until someone says
+// which side of this line it falls on.
+function readsSlotsFromArgTypes(arity: Arity): boolean {
+  switch (arity.kind) {
+    case "exact":
+      return false;
+    case "variadic":
+      return true;
+    case "alternating":
+      return true;
+  }
+}
+
+function validateArities(funcs: FuncMap): FuncMap {
+  for (const [name, fn] of Object.entries(funcs)) {
+    if (readsSlotsFromArgTypes(fn.arity) && fn.argTypes.length === 0) {
+      throw new Error(
+        `EngineConfig.funcs.${name}: arity ${JSON.stringify(fn.arity.kind)} needs at ` +
+          `least one declared argType (it reads its repeating slot from the end of ` +
+          `argTypes); declare the slots the Go signature has, or use { kind: "exact" }`,
+      );
+    }
+    if (
+      fn.arity.kind === "alternating" &&
+      (!Number.isSafeInteger(fn.arity.minimum) || fn.arity.minimum < 0)
+    ) {
+      throw new Error(
+        `EngineConfig.funcs.${name}: arity "alternating" needs a non-negative integer ` +
+          `minimum, got ${String(fn.arity.minimum)}; the gate rejects every count below ` +
+          `it, so a negative or non-finite minimum would disable the lower bound`,
+      );
+    }
+  }
+  return funcs;
 }
 
 export interface EngineConfig<T> {
@@ -780,7 +854,15 @@ export class Engine<T> {
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
-    this.funcs = { ...defaultBuiltins(this.toString, this.isT), ...(config.funcs ?? {}) };
+    //
+    // [LAW:parse-dont-validate] Arity well-formedness is checked once,
+    // here, on the merged map — after overrides, so a consumer cannot
+    // shadow a built-in with a malformed declaration. The gate then
+    // derives counts from these declarations without re-checking them.
+    this.funcs = validateArities({
+      ...defaultBuiltins(this.toString, this.isT),
+      ...(config.funcs ?? {}),
+    });
   }
 
   /**
@@ -1119,12 +1201,11 @@ export class Engine<T> {
 
     enforceArgTypes(
       head.ident,
-      fn.argTypes,
+      fn,
       args,
       cmd.pos,
       ctx.source,
       this.toString,
-      fn.arity,
       this.fromString as (s: string) => unknown,
       this.isT,
     );
@@ -1182,12 +1263,11 @@ export class Engine<T> {
           });
         enforceArgTypes(
           node.ident,
-          fn.argTypes,
+          fn,
           [],
           node.pos,
           ctx.source,
           this.toString,
-          fn.arity,
           this.fromString as (s: string) => unknown,
           this.isT,
         );
@@ -1315,25 +1395,33 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 // caller) keeps compiling unchanged. When omitted, the default
 // stringifier is used; that only affects `"stringifiable"` slots, none
 // of which appear in any registration as of template-laws-3gt.1.
-//
-// `arity` defaults for the same reason — TypeScript forbids a required
-// parameter after a defaulted one, and `toString` above is defaulted.
-// The default reproduces the previous `pattern`-less behavior exactly
-// (trailing slot repeats, no upper bound), so this stays a pure
-// refactor for deep-import callers. It is *not* a permissive default
-// for registrations: `TemplateFunc.arity` is required, so a func that
-// declares no arity fails to compile rather than reaching this gate.
 export function enforceArgTypes(
   funcName: string,
-  argTypes: readonly ArgType[],
+  spec: ArgSpec,
   values: unknown[],
   pos: Pos,
   src: string | undefined,
   toString: (value: unknown) => string = defaultToString,
-  arity: Arity = { kind: "variadic" },
   fromString: (s: string) => unknown = defaultFromString,
   isT: IsT = DEFAULT_IS_T,
 ): void {
+  const { argTypes, arity } = spec;
+  // [LAW:parse-dont-validate] The count check is the first leg of this
+  // checkpoint and it fails loudly: a call whose argument count the
+  // declared arity does not accept never reaches the slot loop, and
+  // never reaches the body. Everything below this line — and every
+  // func body downstream of it — may assume `values.length` is one the
+  // signature admits, so nothing inland counts arguments again.
+  //
+  // It runs *before* the slot loop deliberately. Too few arguments
+  // shifts the remaining ones into the wrong slots, so checking types
+  // first reports a missing argument as a type error: `substr "a"`
+  // used to complain that a string flowed into an integer slot, which
+  // is confidently wrong about which mistake the author made.
+  const accepted = acceptedArgCount(argTypes, arity);
+  if (values.length < accepted.minimum || values.length > accepted.maximum) {
+    throw new ArgCountError(funcName, accepted, values.length, pos, { source: src });
+  }
   // [LAW:dataflow-not-control-flow] No short-circuit. The shape of work
   // is fixed: validate every positional value against its declared
   // type. Variability lives in `argTypes` (use intent-named kinds like
@@ -1423,16 +1511,42 @@ export function enforceArgTypes(
   }
 }
 
+// The counts a declaration accepts. Sibling projection to
+// `makeSlotLookup` below: both read the same `Arity` union, this one
+// for how many arguments are legal, that one for what each is. Neither
+// duplicates the other's rule.
+//
+// [LAW:one-source-of-truth] Every number here is derived. `"exact"`
+// accepts exactly as many arguments as it declares slots; `"variadic"`
+// requires all but the repeating one, which is Go's own gate for a
+// variadic signature; only `"alternating"` supplies a number, because
+// there `argTypes` is a cycle length and carries no count. Storing a
+// minimum on the other two kinds would be a second copy of
+// `argTypes.length`, and the copy is what drifts.
+//
+// No `Math.max(0, …)` floor is needed for the `"variadic"` subtraction:
+// a variadic registration declaring no slots is rejected at construct
+// time by `validateArities`, so `argTypes.length` is at least 1 here.
+function acceptedArgCount(argTypes: readonly ArgType[], arity: Arity): ArgCount {
+  switch (arity.kind) {
+    case "exact":
+      return { minimum: argTypes.length, maximum: argTypes.length };
+    case "variadic":
+      return { minimum: argTypes.length - 1, maximum: Infinity };
+    case "alternating":
+      return { minimum: arity.minimum, maximum: Infinity };
+  }
+}
+
 // [LAW:dataflow-not-control-flow] The variadic-overflow rule is encoded
 // as a function that maps an arg index to its declared kind, picked
 // once per call. The loop in `enforceArgTypes` then has the same shape
 // for every func — no per-iteration `if (pattern === "alternating")`.
 function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number) => ArgType {
   if (argTypes.length === 0) {
-    // Funcs registered with `argTypes: []` are zero-arity at the gate.
-    // The loop only runs when `values.length > argTypes.length`, which
-    // is itself a registration bug — fall back to "value" so the loop
-    // does not throw on a stale zero-arity registration.
+    // [LAW:polishing-by-subtraction] exception: dead, kept until .2fc.
+    // `argTypes: []` pairs only with `"exact"`, so the gate accepts no
+    // arguments and never invokes this lookup.
     return () => "value";
   }
   if (arity.kind === "alternating") {
@@ -1442,13 +1556,11 @@ function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number)
   // Both remaining kinds read the trailing slot for overflow. For
   // `"variadic"` that is the rule.
   //
-  // [LAW:polishing-by-subtraction] exception: kept until .49n/.2fc. For
-  // `"exact"` the repeat is dead weight — an overflowing call is
-  // impossible once the count is enforced, which is .49n's job, and
-  // removing the repeat itself is .2fc's. Deleting it now would change
-  // which error an overflowing call reports before anything rejects the
-  // count, so it stays until the ticket that makes it unreachable.
-  // Declaring arity (this ticket) changes no runtime behavior on its own.
+  // [LAW:polishing-by-subtraction] exception: kept until .2fc. For
+  // `"exact"` the repeat is now unreachable — template-arity-n2j.49n
+  // made `acceptedArgCount` reject an overflowing call before the loop
+  // that consumes this lookup can run — and deleting the dead half is
+  // template-arity-n2j.2fc's job, not a drive-by here.
   const trailing = argTypes[argTypes.length - 1] as ArgType;
   return (i) => (i < argTypes.length ? (argTypes[i] as ArgType) : trailing);
 }

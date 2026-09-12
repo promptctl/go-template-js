@@ -164,7 +164,9 @@ Every registration declares an `arity`, which says how many arguments the func t
 | `{ kind: "variadic" }` | At least `argTypes.length - 1` arguments. One slot per Go parameter, the repeating one last, so every excess argument is validated against it. |
 | `{ kind: "alternating", minimum: n }` | At least `n` arguments, with `argTypes` read as a *cycle*: the slot for argument `i` is `argTypes[i % argTypes.length]`. |
 
-Today the engine reads `arity` only to choose each argument's slot: the counts above are pinned against Go's real signatures by `go-arity.test.ts` but not yet enforced at runtime — rejecting a wrong argument count at the gate is `template-arity-n2j.49n`.
+The gate enforces those counts before the func body runs, and rejects a call it does not accept with an `ArgCountError` carrying the position and a source caret. The message mirrors Go's: `wrong number of args for upper: want 1 got 2` for a fixed-arity signature, `want at least 1 got 0` for a variadic one. The counts themselves are pinned against Go's real signatures by `go-arity.test.ts`, so the gate rejects exactly what Go rejects — note that `add` is `func(i ...interface{})` in sprig, so `{{ add 1 }}` and even `{{ add }}` are legal calls there and here.
+
+A func body therefore never sees a wrong argument count, and never needs to check for one.
 
 Neither `"exact"` nor `"variadic"` carries a count — it *is* `argTypes.length` and `argTypes.length - 1` respectively, and a second copy could only disagree. `minimum` survives on `"alternating"` alone, where `argTypes` is a cycle length rather than a parameter count: `merge` declares `["dict", "dict"]` and requires one, while `dict` declares a two-slot cycle and requires nothing.
 
@@ -274,6 +276,7 @@ TemplateError
 ├── ParseError
 └── EvalError
     ├── FuncNotFoundError    (with did-you-mean suggestions)
+    ├── ArgCountError        (wrong number of args, Go's own message)
     ├── TypeMismatchError    (no-silent-flatten violation)
     └── MissingFieldError    (named field path failure)
 ```
@@ -293,7 +296,7 @@ Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` p
 The package exports exactly the following from `"@promptctl/go-template-js"` — anything else is internal and may change at any time:
 
 - Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`, `Arity`, `MissingKeyOption`, `Delims`.
-- Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
+- Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `ArgCountError`, `ArgCount`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
 - Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`, `sprigRandom`, `sprigHash`, `sprigDatetime`.
 
 Reaching into `dist/` subpaths or `src/` deep imports is unsupported.

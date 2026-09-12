@@ -9,6 +9,8 @@
 import { TypeMismatchError } from "../errors.js";
 
 export {
+  type ArgCount,
+  ArgCountError,
   EvalError,
   FuncNotFoundError,
   MissingFieldError,
