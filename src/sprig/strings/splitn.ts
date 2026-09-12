@@ -18,6 +18,8 @@
  * explicitly to recover the Go behavior.
  */
 
+import { goSplit } from "./runes.js";
+
 // [LAW:single-enforcer] Slot kinds (`["string", "int", "string"]`)
 // validate and normalize the inputs at the dispatch gate — `n` arrives
 // as an integer-valued `number`. Safe-integer bigints (|n| ≤ 2^53)
@@ -37,11 +39,9 @@ export function splitn(sep: string, n: number, s: string): Record<string, string
 //   n > 0  → at most n substrings; last is unsplit remainder
 //   n == 0 → empty list
 //   n < 0  → all substrings (== Split)
-// Empty `sep` splits after each rune; for ASCII inputs the JS code-
-// unit split matches.
 function goSplitN(s: string, sep: string, n: number): string[] {
   if (n === 0) return [];
-  const all = sep === "" ? Array.from(s) : s.split(sep);
+  const all = goSplit(sep, s);
   if (n < 0 || all.length <= n) return all;
   const head = all.slice(0, n - 1);
   const tail = all.slice(n - 1).join(sep);

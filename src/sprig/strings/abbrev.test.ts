@@ -11,4 +11,8 @@ describe("sprig.abbrev", () => {
   it("returns input unchanged when width < 4", () => {
     expect(abbrev(2, "hello")).toBe("hello");
   });
+  it("counts code points, so an astral char is never split", () => {
+    // Go measures and cuts by BYTE, yielding "\xf0...". Intended divergence.
+    expect(abbrev(4, "\u{10348}abcdef")).toBe("\u{10348}...");
+  });
 });

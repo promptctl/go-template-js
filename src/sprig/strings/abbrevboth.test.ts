@@ -8,4 +8,7 @@ describe("sprig.abbrevboth", () => {
   it("returns ...slice... around a window when valid", () => {
     expect(abbrevboth(2, 9, "hello world")).toBe("...llo...");
   });
+  it("counts code points, so an astral char is never split", () => {
+    expect(abbrevboth(5, 10, "abcde\u{10348}ghijklmnop")).toBe("...\u{10348}ghi...");
+  });
 });

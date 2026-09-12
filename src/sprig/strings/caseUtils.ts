@@ -10,20 +10,21 @@
  *
  * ## Port notes
  *
- * Go iterates UTF-8 bytes via `utf8.DecodeRuneInString`. JS strings
- * are UTF-16; iterating with `for…of` (or `Array.from(s)`) yields
- * code points the same way Go yields runes, so the rune-level logic
- * carries over. We intentionally do NOT attempt to mirror xstrings'
- * `isAlphabet` CJK-exclusion table — for ASCII/Latin templates, which
- * are what real users feed sprig, the simpler `isLetter` test
- * matches Go's output. The fixture suite pins the cases consumers
- * actually exercise.
+ * Go iterates UTF-8 bytes via `utf8.DecodeRuneInString`. The `runes`
+ * seam yields code points the same way Go yields runes, so the
+ * rune-level logic carries over. We intentionally do NOT attempt to
+ * mirror xstrings' `isAlphabet` CJK-exclusion table — for ASCII/Latin
+ * templates, which are what real users feed sprig, the simpler
+ * `isLetter` test matches Go's output. The fixture suite pins the
+ * cases consumers actually exercise.
  *
  * `unicode.ToTitle` from Go has no JS equivalent for ASCII letters
  * (Title and Upper coincide for code points without a separate Title
  * mapping), so we use `String.toUpperCase()` everywhere xstrings would
  * have used either.
  */
+
+import { runes } from "./runes.js";
 
 // [LAW:types-are-the-program] WordType is the discriminator the
 // state machine routes on. Object-frozen literal keeps the same
@@ -185,7 +186,7 @@ function pushLowered(buf: string[], word: Word, connector: string): void {
  */
 export function camelCaseToLowerCase(s: string, connector: string): string {
   if (s.length === 0) return "";
-  const cps = Array.from(s);
+  const cps = runes(s);
   const buf: string[] = [];
 
   let { word, next: i } = nextWord(cps, 0);
@@ -273,7 +274,7 @@ export function camelCaseToLowerCase(s: string, connector: string): string {
  */
 export function camelCase(s: string): string {
   if (s.length === 0) return "";
-  const cps = Array.from(s);
+  const cps = runes(s);
   const buf: string[] = [];
 
   let i = 0;

@@ -1,3 +1,5 @@
+import { goSplit } from "./runes.js";
+
 export function splitList(sep: string, s: string): string[] {
-  return s.split(sep);
+  return goSplit(sep, s);
 }
