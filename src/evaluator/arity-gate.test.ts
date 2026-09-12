@@ -115,13 +115,20 @@ describe("arity gate — rejects the counts Go rejects", () => {
 // Acceptance — the gate must not reject what Go accepts.
 // ---------------------------------------------------------------------------
 
+// sprig's `add` is `func(i ...interface{})`: numIn 1, variadic, so its
+// gate wants at least 0, and Go renders `{{ add }}` as 0 and `{{ add 1 }}`
+// as 1. Those values are pinned by the `sprig-arity-add-variadic-from-zero`
+// fixture, where `pnpm conformance:regen` generates them from Go, and are
+// deliberately not repeated here. [LAW:one-source-of-truth]
+//
+// They belong somewhere, because the epic's description and the closed
+// .49n both carry a false criterion claiming `add 1` should raise a
+// positioned TemplateError — it should not, and the pin is what makes
+// that "fix" fail. Reach for the fixture rather than re-adding literals
+// here: it fails the same "fix" citing the reference implementation,
+// where a literal could only cite a comment claiming what Go does.
 describe("arity gate — accepts the counts Go accepts", () => {
   it.each([
-    // sprig's `add` is `func(i ...interface{})`: numIn 1, variadic, so
-    // its gate wants at least 0. Go renders both of these.
-    ["{{ add }}", "0"],
-    ["{{ add 1 }}", "1"],
-    ["{{ add 1 2 3 }}", "6"],
     // Go's `eq` is `func(reflect.Value, ...reflect.Value)`: the gate
     // wants one argument. The two-argument requirement is eq's *body*,
     // a different error — so the gate must let this through.

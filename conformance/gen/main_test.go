@@ -98,6 +98,94 @@ func TestDeclaredOutcome(t *testing.T) {
 	}
 }
 
+// fixtureWith builds a fixture directory holding a template and whatever
+// outcome file it declares.
+func fixtureWith(t *testing.T, template string, declared ...string) string {
+	t.Helper()
+	dir := writeFixture(t, declared...)
+	if err := os.WriteFile(filepath.Join(dir, "template.tmpl"), []byte(template), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// generate's four cases are every combination of what a fixture declared
+// and what Go then did. The two disagreements have to stop the line: the
+// declared-refusal arm in particular is what keeps a nil execErr away
+// from goErrorCore, which would dereference it.
+func TestGenerateOnDeclaredRefusal(t *testing.T) {
+	t.Run("Go refuses: records the stripped message", func(t *testing.T) {
+		dir := fixtureWith(t, `{{ upper "a" "b" }}`, "expected-go-error.txt")
+
+		refused, err := generate(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !refused {
+			t.Error("refused = false, want true — the regen summary counts this")
+		}
+		got := readBack(t, dir, "expected-go-error.txt")
+		if want := "wrong number of args for upper: want 1 got 2\n"; got != want {
+			t.Errorf("recorded %q, want %q", got, want)
+		}
+	})
+
+	t.Run("Go renders: refuses rather than recording nothing", func(t *testing.T) {
+		dir := fixtureWith(t, `{{ upper "a" }}`, "expected-go-error.txt")
+
+		_, err := generate(dir)
+		if err == nil {
+			t.Fatal("expected an error when Go renders a fixture that declared a refusal")
+		}
+		// The rendered output belongs in the message: it is what the
+		// author needs to see to know which side is wrong.
+		if !strings.Contains(err.Error(), `"A"`) {
+			t.Errorf("error %q does not quote what Go rendered", err)
+		}
+	})
+}
+
+func TestGenerateOnDeclaredRender(t *testing.T) {
+	t.Run("Go renders: records the bytes", func(t *testing.T) {
+		dir := fixtureWith(t, `{{ upper "a" }}`)
+
+		refused, err := generate(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if refused {
+			t.Error("refused = true, want false")
+		}
+		if got := readBack(t, dir, "expected.txt"); got != "A" {
+			t.Errorf("recorded %q, want %q", got, "A")
+		}
+	})
+
+	t.Run("Go refuses: refuses, and says how to declare it", func(t *testing.T) {
+		dir := fixtureWith(t, `{{ upper }}`)
+
+		_, err := generate(dir)
+		if err == nil {
+			t.Fatal("expected an error when Go refuses a fixture that declared a render")
+		}
+		if !strings.Contains(err.Error(), "expected-go-error.txt") {
+			t.Errorf("error %q does not say how to declare the refusal", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, "expected.txt")); statErr == nil {
+			t.Error("a refused template left an expected.txt behind")
+		}
+	})
+}
+
+func readBack(t *testing.T, dir, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 func TestDeclaredOutcomeRefusesTwoDeclarations(t *testing.T) {
 	// The state the docs forbid and nothing used to catch: a render
 	// fixture converted to a refusal fixture without retiring the old
