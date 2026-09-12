@@ -417,6 +417,16 @@ function validateArities(funcs: FuncMap): FuncMap {
           `argTypes); declare the slots the Go signature has, or use { kind: "exact" }`,
       );
     }
+    if (
+      fn.arity.kind === "alternating" &&
+      (!Number.isSafeInteger(fn.arity.minimum) || fn.arity.minimum < 0)
+    ) {
+      throw new Error(
+        `EngineConfig.funcs.${name}: arity "alternating" needs a non-negative integer ` +
+          `minimum, got ${String(fn.arity.minimum)}; the gate rejects every count below ` +
+          `it, so a negative or non-finite minimum would disable the lower bound`,
+      );
+    }
   }
   return funcs;
 }
@@ -1534,10 +1544,9 @@ function acceptedArgCount(argTypes: readonly ArgType[], arity: Arity): ArgCount 
 // for every func — no per-iteration `if (pattern === "alternating")`.
 function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number) => ArgType {
   if (argTypes.length === 0) {
-    // Funcs registered with `argTypes: []` are zero-arity at the gate.
-    // The loop only runs when `values.length > argTypes.length`, which
-    // is itself a registration bug — fall back to "value" so the loop
-    // does not throw on a stale zero-arity registration.
+    // [LAW:polishing-by-subtraction] exception: dead, kept until .2fc.
+    // `argTypes: []` pairs only with `"exact"`, so the gate accepts no
+    // arguments and never invokes this lookup.
     return () => "value";
   }
   if (arity.kind === "alternating") {

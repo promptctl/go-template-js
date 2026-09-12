@@ -257,6 +257,59 @@ describe("arity gate — malformed declarations fail at construct time", () => {
     ).toThrow(/needs at least one declared argType/);
   });
 
+  // A minimum that is negative or non-finite makes `values.length <
+  // accepted.minimum` unsatisfiable, so the func ships with no lower
+  // bound at all rather than a wrong one — silent, which is why it is
+  // rejected here and not floored downstream.
+  it.each([
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    1.5,
+  ])("rejects an alternating func whose minimum is %p", (minimum) => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        funcs: {
+          broken: {
+            fn: () => "x",
+            argTypes: ["value"],
+            arity: { kind: "alternating", minimum },
+          },
+        },
+      }),
+    ).toThrow(/needs a non-negative integer minimum/);
+  });
+
+  it("names the func whose alternating minimum is malformed", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        funcs: {
+          myBadCycle: {
+            fn: () => "x",
+            argTypes: ["value"],
+            arity: { kind: "alternating", minimum: -1 },
+          },
+        },
+      }),
+    ).toThrow(/myBadCycle/);
+  });
+
+  it("accepts an alternating func whose minimum is zero", () => {
+    const eng = createEngine<string>({
+      fromString: (s) => s,
+      funcs: {
+        pairs: {
+          fn: (...a: unknown[]) => String(a.length),
+          argTypes: ["string", "value"],
+          arity: { kind: "alternating", minimum: 0 },
+        },
+      },
+    });
+    expect(eng.parse("{{ pairs }}").evaluate(null).join("")).toBe("0");
+  });
+
   it("names the offending func so the message locates the bug", () => {
     expect(() =>
       createEngine<string>({
