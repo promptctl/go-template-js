@@ -102,8 +102,8 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // [LAW:single-enforcer] `slice x i j` — array/slice/string slicing.
     // First slot declares "sliceable" (string|array) so the gate
     // rejects non-sliceable receivers once; index slots declare "int"
-    // so the gate normalizes `number|bigint` to a finite-integer
-    // `number` carrier before the body runs. Body trusts both kinds
+    // (Go refuses a non-integer index) so the gate normalizes
+    // `number|bigint` to an integer `number` carrier before the body runs. Body trusts both kinds
     // and only routes the slice op — no defensive `Number(...)`.
     slice: {
       fn: (collection: unknown, ...indices: unknown[]) => {

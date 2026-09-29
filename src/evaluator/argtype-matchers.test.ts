@@ -598,10 +598,9 @@ describe("matchesArgType — liftable", () => {
 
 describe("matchesArgType — int", () => {
   // [LAW:single-enforcer] "int" is validate-AND-parse: the matcher
-  // accepts `number | bigint`, the gate then mutates `values[i]` to a
-  // truncated `number`. Bodies see `number`, full stop. These tests
-  // pin both halves so the .2/.3 consumer migrations can delete their
-  // `Math.trunc(Number(v))` coercions without losing coverage.
+  // accepts an integer-valued `number | bigint`, the gate then mutates
+  // `values[i]` to a `number`. Bodies see `number`, full stop. These
+  // tests pin both halves.
   const intEngine = (recordArg: (v: unknown) => void) =>
     createEngine<string>({
       fromString: (s) => s,
@@ -637,13 +636,10 @@ describe("matchesArgType — int", () => {
     expect(received).toBe(7);
   });
 
-  it("truncates fractional number inputs (Go int-conversion semantics)", () => {
-    let received: unknown;
-    const eng = intEngine((v) => {
-      received = v;
-    });
-    eng.parse("{{ f . }}").evaluate(3.7);
-    expect(received).toBe(3);
+  it("rejects fractional number inputs (a Go `int` parameter refuses 2.7)", () => {
+    const eng = intEngine(() => undefined);
+    expect(() => eng.parse("{{ f . }}").evaluate(3.7)).toThrow(TypeMismatchError);
+    expect(() => eng.parse("{{ f 3.7 }}").evaluate(null)).toThrow(TypeMismatchError);
   });
 
   it("rejects strings", () => {
@@ -709,6 +705,40 @@ describe("matchesArgType — int", () => {
     expect(received).toBe(Number.MAX_SAFE_INTEGER);
     eng.parse("{{ f . }}").evaluate(BigInt(Number.MIN_SAFE_INTEGER));
     expect(received).toBe(Number.MIN_SAFE_INTEGER);
+  });
+});
+
+describe("matchesArgType — truncating-int", () => {
+  // [LAW:single-enforcer] "truncating-int" is sprig's `cast.ToInt64`: a
+  // fractional is admitted and arrives truncated toward zero, so a body
+  // still sees an integer `number`.
+  const received: unknown[] = [];
+  const eng = createEngine<string>({
+    fromString: (s) => s,
+    funcs: {
+      f: {
+        fn: (v: unknown) => {
+          received.push(v);
+          return "ok";
+        },
+        argTypes: ["truncating-int"],
+        arity: { kind: "exact" },
+      },
+    },
+  });
+
+  it("truncates fractional numbers toward zero", () => {
+    received.length = 0;
+    eng.parse("{{ f . }}").evaluate(3.7);
+    eng.parse("{{ f . }}").evaluate(-3.7);
+    eng.parse("{{ f . }}").evaluate(42n);
+    expect(received).toEqual([3, -3, 42]);
+  });
+
+  it("rejects NaN, Infinity, and non-numbers", () => {
+    for (const v of [NaN, Infinity, "3", true, null]) {
+      expect(() => eng.parse("{{ f . }}").evaluate(v)).toThrow(TypeMismatchError);
+    }
   });
 });
 

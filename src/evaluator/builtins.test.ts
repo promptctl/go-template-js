@@ -188,9 +188,10 @@ describe("builtins — len / index / slice", () => {
   // `Number(idx)` coercions — bodies now trust that the gate already
   // normalized the index to a JS `number`. These regressions cover
   // the discriminants integer-literal tests can't reach: scope-
-  // provided bigint and fractional indices both flow through the
-  // gate's `Math.trunc(Number(v))` normalization, while non-finite
-  // indices are rejected at the gate before the body sees them.
+  // provided bigint indices flow through the gate's `Number(v)`
+  // normalization, while fractional and non-finite indices are
+  // rejected at the gate before the body sees them — Go refuses a
+  // non-integer index ("cannot index slice/array with type float64").
   it("slice accepts scope-provided bigint indices via the int gate", () => {
     expect(render("{{ slice .s .i .j }}", { s: "abcdef", i: 1n, j: 4n })).toBe("bcd");
     expect(render("{{ slice .s .i .j }}", { s: [10, 20, 30, 40, 50], i: 1n, j: 3n })).toBe(
@@ -198,10 +199,10 @@ describe("builtins — len / index / slice", () => {
     );
   });
 
-  it("slice truncates scope-provided fractional indices via the int gate", () => {
-    // The gate's int normalizer is Math.trunc(Number(v)) — fractional
-    // numbers are accepted (finite) and truncated toward zero.
-    expect(render("{{ slice .s .i .j }}", { s: "abcdef", i: 1.7, j: 4.9 })).toBe("bcd");
+  it("slice rejects scope-provided fractional indices at the gate", () => {
+    expect(() => render("{{ slice .s .i .j }}", { s: "abcdef", i: 1.7, j: 4 })).toThrow(
+      TypeMismatchError,
+    );
   });
 
   it("slice rejects non-finite indices at the gate", () => {

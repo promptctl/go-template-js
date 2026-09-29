@@ -132,7 +132,8 @@ Every entry in `argTypes` is one of:
 | Kind | Accepts at runtime | Used by (examples) |
 | --- | --- | --- |
 | `"string"` | JS `string` | `upper`, `lower`, `trim`, `printf` format string |
-| `"int"` | finite `number` or safe-integer-range `bigint`; gate normalizes to `number` via `Math.trunc(Number(v))` so the body sees `number` | `add`, `sub`, `mul`, `mod`, `max`, `min`, `slice` indices, `chunk`, `splitn`, `repeat` |
+| `"int"` | integer-valued `number` or safe-integer-range `bigint` — a Go `int` parameter, so a fractional is refused as Go refuses `repeat 2.7 "x"`; gate normalizes to `number` | built-in `slice` indices, `repeat`, `substr`, `trunc`, `until`, `seq`, `chunk`, `splitn`, `round`'s precision |
+| `"truncating-int"` | finite `number` or safe-integer-range `bigint` — sprig's `cast.ToInt64` read of an `interface{}` parameter; gate truncates toward zero (`max 1.5 2.5` → `2`, as in Go) | `add`, `add1`, `sub`, `mul`, `div`, `mod`, `max`, `min`, sprig's list `slice` |
 | `"float"` | any `number` (including `NaN`/`±Infinity` — legitimate IEEE-754 floats) or `bigint` whose `Number()` is finite; gate normalizes to `number` via `Number(v)` | `addf`, `subf`, `mulf`, `divf`, `maxf`, `minf` |
 | `"bool"` | `typeof === "boolean"` | (rare; most boolean slots use `"truthy"`) |
 | `"T"` | Any non-primitive (consumer-defined fragment) | consumer-defined typed funcs returning `T` |

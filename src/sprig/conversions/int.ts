@@ -14,7 +14,7 @@ import { parseBase0 } from "./parseBase0.js";
 // `Number.isSafeInteger` is this converter's *output-precision
 // policy*, not the gate's input predicate. The `"int"` ArgType
 // matcher is looser for `number`-discriminant inputs at the gate —
-// it accepts any finite number, including unsafe ones like 2^60,
+// it accepts any integer-valued number, including unsafe ones like 2^60,
 // because callers passing a number are trusted to mean it. This
 // converter accepts heterogeneous input (`"value"` slot — number,
 // bigint, string, boolean, anything) and produces a number, so it

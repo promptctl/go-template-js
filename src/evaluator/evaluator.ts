@@ -68,28 +68,30 @@ import { isTruthy } from "./truthy.js";
  */
 const ARG_TYPES = [
   "string",
-  // [LAW:types-are-the-program] "int" and "float" are validate-AND-parse
-  // numeric carriers. The matcher's membership predicate IS the body's
-  // contract — neither slot accepts "anything `typeof number|bigint`":
-  //   - "int" admits only carriers that survive normalization as a
-  //     finite integer-valued `number`: finite numbers, and bigints
-  //     whose `Number()` conversion is safe-integer-representable.
-  //     NaN, Infinity, and precision-losing bigints are rejected at
-  //     the gate so the body's "I receive an integer" assumption is
-  //     a theorem, not a defense.
+  // [LAW:types-are-the-program] "int", "truncating-int" and "float" are
+  // validate-AND-parse numeric carriers. The matcher's membership
+  // predicate IS the body's contract. Go has two integer semantics, and
+  // each gets its own kind so a slot declares which one it has:
+  //   - "int" is a Go `int` parameter (`repeat`, `substr`, `until`, the
+  //     built-in `slice`'s indices …): Go refuses a fractional there
+  //     ("expected integer; found 2.7"), so the matcher admits only
+  //     integer-valued numbers and bigints whose `Number()` is a safe
+  //     integer. NaN, Infinity, fractionals, and precision-losing
+  //     bigints are rejected at the gate.
+  //   - "truncating-int" is sprig's `interface{}` parameter read through
+  //     `cast.ToInt64` (`add`, `sub`, `max` …): Go truncates a
+  //     fractional toward zero, so the matcher admits any finite number
+  //     and the gate truncates it.
   //   - "float" admits any number (NaN/Infinity are legitimate IEEE
   //     754 floats; Go's float64 has them too) and bigints whose
   //     `Number()` is finite. The only rejected bigint is one whose
   //     conversion overflows to Infinity.
   // After membership is proven the gate mutates `values[i]` to a
-  // `number` carrier ("int": `Math.trunc(Number(v))`; "float":
-  // `Number(v)`). Mirrors the "liftable" precedent: the slot is both
-  // the membership rule and the parse step. Added by epic
-  // template-variance-num-carrier-hfv.1; tightened by .1.1; the legacy
-  // permissive "number" slot was retired in .4 once all consumers
-  // migrated (.2/.3) — every numeric slot now picks the integer-or-
-  // float carrier explicitly.
+  // `number` carrier ("int"/"float": `Number(v)`; "truncating-int":
+  // `Math.trunc(Number(v))`). Mirrors the "liftable" precedent: the
+  // slot is both the membership rule and the parse step.
   "int",
+  "truncating-int",
   "float",
   "bool",
   "T",
@@ -117,13 +119,19 @@ const ARG_TYPES = [
  * - "string" — must be a JS string. Non-string values raise
  *   TypeMismatchError. This is the **architectural commitment**: T
  *   never silently flattens into a string parameter.
- * - "int"    — validate-AND-parse integer carrier. Accepts any finite
- *   `number` and any `bigint` whose `Number()` is safe-integer-
- *   representable; rejects `NaN`, `±Infinity`, and precision-losing
- *   bigints. The gate normalizes `values[i]` to `Math.trunc(Number(v))`
- *   so bodies see `number`. Used by `add`, `sub`, `mul`, `mod`, `max`,
- *   `min`, the built-in `slice`'s index slots, `chunk`, `splitn`,
- *   `repeat`. Added by epic template-variance-num-carrier-hfv.
+ * - "int"    — validate-AND-parse integer carrier: a Go `int`
+ *   parameter. Accepts any integer-valued `number` and any `bigint`
+ *   whose `Number()` is safe-integer-representable; rejects
+ *   fractionals, `NaN`, `±Infinity`, and precision-losing bigints, as
+ *   Go refuses `repeat 2.7 "x"`. The gate normalizes `values[i]` to
+ *   `Number(v)` so bodies see `number`. Used by every slot Go declares
+ *   `int`: the built-in `slice`'s indices, `repeat`, `substr`, `trunc`,
+ *   `until`, `seq`, `chunk`, `splitn`, `round`'s precision ….
+ * - "truncating-int" — sprig's `cast.ToInt64` read of an `interface{}`
+ *   parameter. Accepts what "int" accepts plus any finite fractional
+ *   `number`, which the gate truncates toward zero (`max 1.5 2.5` is
+ *   `2` in Go). Used by `add`, `add1`, `sub`, `mul`, `div`, `mod`,
+ *   `max`, `min`, `biggest`, and sprig's list `slice`.
  * - "float"  — validate-AND-parse float carrier. Accepts any `number`
  *   (including `NaN`/`±Infinity` — legitimate IEEE-754 floats) and any
  *   `bigint` whose `Number()` is finite (overflow-to-Infinity rejected
@@ -1516,9 +1524,9 @@ export function enforceArgTypes(
     // template-variance-num-carrier-hfv.1; consumers migrated in .2/.3;
     // the transitional "number" kind was retired in .4 so this gate is
     // the only normalization site.
-    if (declared === "int") {
+    if (declared === "truncating-int") {
       values[i] = Math.trunc(Number(value));
-    } else if (declared === "float") {
+    } else if (declared === "int" || declared === "float") {
       values[i] = Number(value);
     }
     // [LAW:single-enforcer] The cross-slot ordering rule lives here,
@@ -1634,12 +1642,19 @@ function matchesArgType(
       return typeof value === "string";
     case "int":
       // [LAW:types-are-the-program] Strongest true theorem for an "int"
-      // slot: the value is a finite integer-valued carrier. The matcher
-      // is what makes this a theorem the body can assume, not a comment
-      // it has to defend with re-checks. NaN and Infinity have no
-      // integer interpretation (`Math.trunc(NaN) === NaN`); bigints
+      // slot: the value is an integer-valued carrier. `Number.isInteger`
+      // refuses NaN, Infinity, and fractionals in one predicate; bigints
       // outside `Number.MAX_SAFE_INTEGER` lose precision under
       // `Number()` and would silently propagate corrupted values.
+      return (
+        (typeof value === "number" && Number.isInteger(value)) ||
+        (typeof value === "bigint" && Number.isSafeInteger(Number(value)))
+      );
+    case "truncating-int":
+      // [LAW:types-are-the-program] sprig's cast admits a fractional and
+      // truncates it, so this slot admits every finite number; NaN and
+      // Infinity have no integer interpretation (`Math.trunc(NaN)` is
+      // NaN) and are refused like "int" refuses them.
       return (
         (typeof value === "number" && Number.isFinite(value)) ||
         (typeof value === "bigint" && Number.isSafeInteger(Number(value)))
@@ -1849,7 +1864,9 @@ function comparableKind(v: unknown): string {
 function humanArgType(t: ArgType): string {
   switch (t) {
     case "int":
-      return "integer (finite number or safe-integer bigint)";
+      return "integer (integer-valued number or safe-integer bigint)";
+    case "truncating-int":
+      return "integer (finite number, truncated toward zero, or safe-integer bigint)";
     case "float":
       return "float (number, including NaN/Infinity, or finite-convertible bigint)";
     case "T":

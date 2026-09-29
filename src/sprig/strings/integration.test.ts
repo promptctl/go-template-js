@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TypeMismatchError } from "../../errors.js";
 import { createEngine } from "../../evaluator/evaluator.js";
 import { sprigStrings } from "./index.js";
 
@@ -35,8 +36,11 @@ describe("sprig strings — integration", () => {
     expect(render('{{ plural "apple" "apples" .n }}', { n: 1n })).toBe("apple");
   });
 
-  it("'int' slot truncates fractional scope values for string ops", () => {
-    expect(render('{{ repeat .n "x" }}', { n: 3.7 })).toBe("xxx");
-    expect(render('{{ trunc .n "abcdef" }}', { n: 3.9 })).toBe("abc");
+  // Go declares these counts `int` and refuses a fractional ("wrong type
+  // for value; expected int; got float64"), so the gate refuses it too.
+  it("'int' slot refuses fractional scope values for string ops", () => {
+    expect(() => render('{{ repeat .n "x" }}', { n: 3.7 })).toThrow(TypeMismatchError);
+    expect(() => render('{{ trunc .n "abcdef" }}', { n: 3.9 })).toThrow(TypeMismatchError);
+    expect(render('{{ repeat .n "x" }}', { n: 3 })).toBe("xxx");
   });
 });
