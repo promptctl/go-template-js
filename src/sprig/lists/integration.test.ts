@@ -23,7 +23,7 @@ describe("sprig lists — integration", () => {
     expect(render("{{ if has 2 . }}YES{{ else }}NO{{ end }}", [1, 2, 3])).toBe("YES");
   });
 
-  it("'int' slot normalizes bigint scope values for slice/chunk", () => {
+  it("integer slots normalize bigint scope values for slice/chunk", () => {
     expect(render("{{ slice .list .i .j }}", { list: [10, 20, 30, 40], i: 1n, j: 3n })).toBe(
       "[20 30]",
     );
@@ -32,9 +32,15 @@ describe("sprig lists — integration", () => {
     );
   });
 
-  it("'int' slot truncates fractional scope values for slice/chunk", () => {
+  it("sprig's slice truncates fractional scope values, as cast.ToInt does", () => {
     expect(render("{{ slice .list .i .j }}", { list: [10, 20, 30, 40], i: 1.7, j: 3.4 })).toBe(
       "[20 30]",
+    );
+  });
+
+  it("chunk refuses a fractional size, as Go's int parameter does", () => {
+    expect(() => render("{{ chunk .n .list }}", { list: [1, 2, 3], n: 1.5 })).toThrow(
+      "expected integer; found 1.5",
     );
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TypeMismatchError } from "../../errors.js";
 import { createEngine } from "../../evaluator/evaluator.js";
 import { sprigMath } from "./index.js";
 
@@ -27,10 +28,14 @@ describe("sprig math — integration", () => {
     expect(render("{{ add1f .n }}", { n: 7n })).toBe("8");
     expect(render("{{ maxf 1 .n 3 }}", { n: 2n })).toBe("3");
   });
-  it("'int' slot truncates fractional scope values at the gate (Go int64 semantics)", () => {
+  // Sprig reads `add`/`max` arguments through `cast.ToInt64`, which
+  // truncates; `until`'s count is a Go `int` parameter, which refuses.
+  it("'truncating-int' slot truncates fractional scope values (sprig's cast.ToInt64)", () => {
     expect(render("{{ add .a .b }}", { a: 1.9, b: 2.1 })).toBe("3");
     expect(render("{{ max .a .b .c }}", { a: 1.5, b: 2.5, c: 3.5 })).toBe("3");
-    expect(render("{{ until .n }}", { n: 3.7 })).toBe("[0 1 2]");
+  });
+  it("'int' slot refuses fractional scope values (a Go int parameter)", () => {
+    expect(() => render("{{ until .n }}", { n: 3.7 })).toThrow(TypeMismatchError);
   });
   it("'float' slot does not truncate fractional scope values", () => {
     expect(render("{{ addf .a .b }}", { a: 1.5, b: 2.5 })).toBe("4");

@@ -208,13 +208,17 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: "object", value: {}, pass: false },
     { label: "array", value: [], pass: false },
   ],
-  // "int" matcher: finite number OR safe-integer-range bigint. NaN,
-  // ±Infinity, and bigints outside Number.MAX_SAFE_INTEGER are
-  // rejected — the body's "I receive an integer" assumption is the
-  // theorem the matcher proves.
+  // "int" matcher (a Go `int` parameter): integer-valued number OR
+  // safe-integer-range bigint. Fractionals, NaN, ±Infinity, and integers
+  // past Number.MAX_SAFE_INTEGER in either carrier are rejected — the
+  // body's "I receive an integer" assumption is the theorem the matcher
+  // proves.
   int: [
     { label: "number", value: 0, pass: true },
-    { label: "negative", value: -1.5, pass: true },
+    { label: "negative", value: -2, pass: true },
+    { label: "fractional", value: -1.5, pass: false },
+    { label: "MAX_SAFE_INTEGER number", value: Number.MAX_SAFE_INTEGER, pass: true },
+    { label: "unsafe-integer number", value: 1e20, pass: false },
     { label: "bigint", value: 1n, pass: true },
     { label: "MAX_SAFE_INTEGER bigint", value: BigInt(Number.MAX_SAFE_INTEGER), pass: true },
     { label: "NaN", value: NaN, pass: false },
@@ -224,6 +228,24 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: "string", value: "1", pass: false },
     { label: "bool", value: true, pass: false },
     { label: "null", value: null, pass: false },
+  ],
+  // "truncating-int" matcher (the numeric half of sprig's cast.ToInt64):
+  // what "int" admits plus finite fractionals, which the gate truncates.
+  "truncating-int": [
+    { label: "number", value: 0, pass: true },
+    { label: "negative", value: -2, pass: true },
+    { label: "fractional", value: -1.5, pass: true },
+    { label: "bigint", value: 1n, pass: true },
+    { label: "MAX_SAFE_INTEGER bigint", value: BigInt(Number.MAX_SAFE_INTEGER), pass: true },
+    { label: "NaN", value: NaN, pass: false },
+    { label: "Infinity", value: Infinity, pass: false },
+    { label: "-Infinity", value: -Infinity, pass: false },
+    { label: "unsafe-integer bigint", value: 2n ** 100n, pass: false },
+    { label: "string", value: "1", pass: false },
+    { label: "bool", value: true, pass: false },
+    { label: "null", value: null, pass: false },
+    { label: "object", value: {}, pass: false },
+    { label: "array", value: [], pass: false },
   ],
   // "float" matcher: any number (NaN/Infinity legitimate IEEE 754) OR
   // bigint whose Number() conversion is finite (rejects overflow-to-

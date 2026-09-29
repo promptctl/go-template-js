@@ -81,11 +81,12 @@ export function sprigLists(): FuncMap {
     // Go: `slice(list interface{}, indices ...interface{})` — one
     // required list and any number of indices, so `slice .l 1` and
     // `slice .l` are both legal. Declaring three fixed slots would make
-    // the gate reject them, inventing a divergence. The repeating "int"
-    // slot covers both indices.
+    // the gate reject them, inventing a divergence. The repeating
+    // "truncating-int" slot covers both indices: sprig reads them through
+    // `cast.ToInt`, which truncates a fractional.
     slice: {
       fn: (l, i, j) => slice(l as unknown[], i as number | undefined, j as number | undefined),
-      argTypes: ["list", "int"],
+      argTypes: ["list", "truncating-int"],
       arity: { kind: "variadic" },
     },
     concat: {

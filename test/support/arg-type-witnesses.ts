@@ -38,6 +38,7 @@ export type PermissiveArgType = "truthy" | "reflective" | "value";
 export const ACCEPTED: Readonly<Record<ArgType, unknown>> = {
   string: "x",
   int: 0,
+  "truncating-int": 0,
   float: 0,
   bool: false,
   // A plain object is a T under DEFAULT_IS_T.
@@ -70,6 +71,7 @@ export const ACCEPTED: Readonly<Record<ArgType, unknown>> = {
 export const REJECTED: Readonly<Record<Exclude<ArgType, PermissiveArgType>, unknown>> = {
   string: 1,
   int: "x",
+  "truncating-int": "x",
   float: "x",
   bool: "x",
   // Not a string and not an object, so neither a T nor liftable.

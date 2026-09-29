@@ -48,44 +48,47 @@ export {
 };
 
 export function sprigMath(): FuncMap {
-  // [LAW:single-enforcer] enforceArgTypes normalizes "int"/"float" slots
-  // to plain `number` before dispatch — "int" arrives truncated toward zero
-  // (Go int64 semantics); "float" arrives coerced (IEEE-754 semantics).
+  // [LAW:single-enforcer] enforceArgTypes normalizes numeric slots to
+  // plain `number` before dispatch. Sprig reads its `interface{}` math
+  // arguments through `cast.ToInt64`, so those slots are
+  // "truncating-int" (`max 1.5 2.5` is 2); `seq`/`until`/`untilStep` and
+  // `round`'s precision are Go `int` parameters, so they are "int" and
+  // refuse a fractional. "float" arrives coerced (IEEE-754 semantics).
   // Bodies receive `number`, never `bigint`.
   return {
     add: {
       fn: (...a) => add(...(a as number[])),
-      argTypes: ["int"],
+      argTypes: ["truncating-int"],
       arity: { kind: "variadic" },
     },
     sub: {
       fn: (a, b) => sub(a as number, b as number),
-      argTypes: ["int", "int"],
+      argTypes: ["truncating-int", "truncating-int"],
       arity: { kind: "exact" },
     },
     mul: {
       fn: (...a) => mul(...(a as number[])),
-      argTypes: ["int", "int"],
+      argTypes: ["truncating-int", "truncating-int"],
       arity: { kind: "variadic" },
     },
     div: {
       fn: (a, b) => div(a as number, b as number),
-      argTypes: ["int", "int"],
+      argTypes: ["truncating-int", "truncating-int"],
       arity: { kind: "exact" },
     },
     mod: {
       fn: (a, b) => mod(a as number, b as number),
-      argTypes: ["int", "int"],
+      argTypes: ["truncating-int", "truncating-int"],
       arity: { kind: "exact" },
     },
     min: {
       fn: (...a) => min(...(a as number[])),
-      argTypes: ["int", "int"],
+      argTypes: ["truncating-int", "truncating-int"],
       arity: { kind: "variadic" },
     },
     max: {
       fn: (...a) => max(...(a as number[])),
-      argTypes: ["int", "int"],
+      argTypes: ["truncating-int", "truncating-int"],
       arity: { kind: "variadic" },
     },
     floor: { fn: (a) => floor(a as number), argTypes: ["float"], arity: { kind: "exact" } },
@@ -126,7 +129,7 @@ export function sprigMath(): FuncMap {
       argTypes: ["float", "float"],
       arity: { kind: "variadic" },
     },
-    add1: { fn: (n) => add1(n as number), argTypes: ["int"], arity: { kind: "exact" } },
+    add1: { fn: (n) => add1(n as number), argTypes: ["truncating-int"], arity: { kind: "exact" } },
     add1f: { fn: (n) => add1f(n as number), argTypes: ["float"], arity: { kind: "exact" } },
     maxf: {
       fn: (...a) => maxf(...(a as number[])),
@@ -142,7 +145,7 @@ export function sprigMath(): FuncMap {
     // directly against the same function so divergence is impossible.
     biggest: {
       fn: (...a) => max(...(a as number[])),
-      argTypes: ["int", "int"],
+      argTypes: ["truncating-int", "truncating-int"],
       arity: { kind: "variadic" },
     },
     seq: {

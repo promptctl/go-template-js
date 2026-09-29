@@ -19,11 +19,9 @@
 //     round on the way through JS — returning them would silently
 //     hand the caller a different integer than the string named.
 //     Collapsing the whole range to 0 is the precision-safe choice.
-//   - The "int" ArgType matcher is looser than this guard for
-//     `number`-discriminant inputs (accepts any finite number, even
-//     unsafe ones — callers passing a number are trusted to mean it).
-//     This guard is stricter because atoi's input is a string, not a
-//     trusted JS number, so the strictness applies at the parse step.
+//   - The "int" ArgType matcher holds the same safe-integer bound at
+//     the gate; this guard applies it at the parse step, because
+//     atoi's input is a string the gate cannot see as a number.
 // Runaway-to-Infinity collapse falls out of the same predicate as a
 // free side effect.
 export function atoi(s: string): number {

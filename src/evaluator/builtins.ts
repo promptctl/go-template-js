@@ -102,17 +102,12 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // [LAW:single-enforcer] `slice x i j` — array/slice/string slicing.
     // First slot declares "sliceable" (string|array) so the gate
     // rejects non-sliceable receivers once; index slots declare "int"
-    // so the gate normalizes `number|bigint` to a finite-integer
-    // `number` carrier before the body runs. Body trusts both kinds
-    // and only routes the slice op — no defensive `Number(...)`.
+    // (Go refuses a non-integer index) so the gate normalizes
+    // `number|bigint` to an integer `number` carrier before the body
+    // runs; the body checks the bounds Go checks (`goSlice`).
     slice: {
-      fn: (collection: unknown, ...indices: unknown[]) => {
-        const i = indices.length >= 1 ? (indices[0] as number) : 0;
-        const j = indices.length >= 2 ? (indices[1] as number) : undefined;
-        return typeof collection === "string"
-          ? collection.slice(i, j)
-          : (collection as unknown[]).slice(i, j);
-      },
+      fn: (collection: string | readonly unknown[], ...indices: number[]) =>
+        goSlice(collection, indices),
       argTypes: ["sliceable", "int"],
       arity: { kind: "variadic" },
     },
@@ -309,21 +304,13 @@ function goIndex(collection: unknown, key: unknown): unknown {
   // step returned — so the body keeps a "cannot index" defense for
   // intermediate non-collection values (e.g., a leaf number). The nil
   // case is folded into that catch-all.
-  if (Array.isArray(collection)) {
-    const i = Number(key);
-    if (!Number.isInteger(i))
-      throw new Error(`index: array index must be integer, got ${describeType(key)}`);
-    if (i < 0 || i >= collection.length) {
-      throw new Error(`index: out of range [${i}] with length ${collection.length}`);
-    }
+  if (Array.isArray(collection) || typeof collection === "string") {
+    const i = indexArg(key, collection.length);
+    if (i === collection.length) throw new Error(`index out of range: ${i}`);
     return collection[i];
   }
   if (collection instanceof Map) {
     return collection.get(key);
-  }
-  if (typeof collection === "string") {
-    const i = Number(key);
-    return collection[i];
   }
   if (collection !== null && typeof collection === "object") {
     // Closes B5: no silent `String(key)`. Object access requires a
@@ -336,6 +323,38 @@ function goIndex(collection: unknown, key: unknown): unknown {
     return (collection as Record<string, unknown>)[key];
   }
   throw new Error(`index: cannot index ${describeType(collection)}`);
+}
+
+// [LAW:one-source-of-truth] Go's `indexArg`: the one rule `index` and
+// `slice` share for a position into a string, slice, or array — an
+// integer in `0..cap`, refused in Go's words otherwise. `cap` itself is
+// admitted because a slice bound may equal the length; `index` refuses
+// it on its own.
+function indexArg(key: unknown, cap: number): number {
+  const x = typeof key === "bigint" ? Number(key) : key;
+  if (typeof x !== "number" || !Number.isInteger(x)) {
+    throw new Error(`cannot index slice/array with type ${goPrintfType(key)}`);
+  }
+  if (x < 0 || x > cap) throw new Error(`index out of range: ${String(key)}`);
+  return x;
+}
+
+// Go's builtin `slice x i j k`: up to three bounds, each checked by
+// `indexArg` and ordered `i <= j <= k`; a string takes at most two.
+function goSlice(collection: string | readonly unknown[], indices: readonly number[]): unknown {
+  if (indices.length > 3) throw new Error(`too many slice indexes: ${indices.length}`);
+  if (typeof collection === "string" && indices.length > 2) {
+    throw new Error("cannot 3-index slice a string");
+  }
+  const cap = collection.length;
+  const bounds = [0, cap, cap];
+  indices.forEach((ix, n) => {
+    bounds[n] = indexArg(ix, cap);
+  });
+  const [i, j, k] = bounds as [number, number, number];
+  if (i > j) throw new Error(`invalid slice index: ${i} > ${j}`);
+  if (j > k) throw new Error(`invalid slice index: ${j} > ${k}`);
+  return collection.slice(i, j);
 }
 
 function describeType(v: unknown): string {

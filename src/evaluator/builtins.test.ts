@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TypeMismatchError } from "./errors.js";
+import { EvalError, TypeMismatchError } from "./errors.js";
 import { createEngine } from "./evaluator.js";
 
 const render = (src: string, scope: unknown = null): string =>
@@ -188,9 +188,10 @@ describe("builtins — len / index / slice", () => {
   // `Number(idx)` coercions — bodies now trust that the gate already
   // normalized the index to a JS `number`. These regressions cover
   // the discriminants integer-literal tests can't reach: scope-
-  // provided bigint and fractional indices both flow through the
-  // gate's `Math.trunc(Number(v))` normalization, while non-finite
-  // indices are rejected at the gate before the body sees them.
+  // provided bigint indices flow through the gate's `Number(v)`
+  // normalization, while fractional and non-finite indices are
+  // rejected at the gate before the body sees them — Go refuses a
+  // non-integer index ("cannot index slice/array with type float64").
   it("slice accepts scope-provided bigint indices via the int gate", () => {
     expect(render("{{ slice .s .i .j }}", { s: "abcdef", i: 1n, j: 4n })).toBe("bcd");
     expect(render("{{ slice .s .i .j }}", { s: [10, 20, 30, 40, 50], i: 1n, j: 3n })).toBe(
@@ -198,10 +199,10 @@ describe("builtins — len / index / slice", () => {
     );
   });
 
-  it("slice truncates scope-provided fractional indices via the int gate", () => {
-    // The gate's int normalizer is Math.trunc(Number(v)) — fractional
-    // numbers are accepted (finite) and truncated toward zero.
-    expect(render("{{ slice .s .i .j }}", { s: "abcdef", i: 1.7, j: 4.9 })).toBe("bcd");
+  it("slice rejects scope-provided fractional indices at the gate", () => {
+    expect(() => render("{{ slice .s .i .j }}", { s: "abcdef", i: 1.7, j: 4 })).toThrow(
+      TypeMismatchError,
+    );
   });
 
   it("slice rejects non-finite indices at the gate", () => {
@@ -234,6 +235,40 @@ describe("builtins — len / index / slice", () => {
   // receiver. Mid-walk nil still surfaces via the catch-all.
   it("index rejects a nil receiver at the gate", () => {
     expect(() => render("{{ index . 0 }}", null)).toThrow(TypeMismatchError);
+  });
+
+  // Go's `index` and `slice` share one position rule (`indexArg`): an
+  // integer within bounds, refused in Go's words otherwise. A string is
+  // held to it exactly as an array is.
+  it("index refuses a fractional or out-of-range position into a string or array", () => {
+    expect(() => render("{{ index .s .i }}", { s: "abc", i: 1.5 })).toThrow(
+      "error calling index: cannot index slice/array with type float64",
+    );
+    expect(() => render("{{ index .s .i }}", { s: [1, 2], i: 1.5 })).toThrow(
+      "cannot index slice/array with type float64",
+    );
+    expect(() => render('{{ index "abc" 3 }}')).toThrow(
+      "error calling index: index out of range: 3",
+    );
+    expect(() => render("{{ index . -1 }}", [1])).toThrow("index out of range: -1");
+  });
+
+  it("slice refuses the bounds Go refuses rather than wrapping or clamping them", () => {
+    expect(() => render('{{ slice "abcdef" -2 }}')).toThrow(
+      "error calling slice: index out of range: -2",
+    );
+    expect(() => render('{{ slice "abc" 1 10 }}')).toThrow("index out of range: 10");
+    expect(() => render('{{ slice "abc" 2 1 }}')).toThrow("invalid slice index: 2 > 1");
+    expect(() => render('{{ slice "abc" 0 1 2 }}')).toThrow("cannot 3-index slice a string");
+    expect(render("{{ slice . 1 2 3 }}", [10, 20, 30])).toBe("[20]");
+    expect(() => render("{{ slice . 1 3 2 }}", [10, 20, 30])).toThrow("invalid slice index: 3 > 2");
+    expect(render('{{ slice "abc" 3 }}')).toBe("");
+  });
+
+  it("an integer slot refuses an integer past 2^53 as out of range, before the body runs", () => {
+    expect(() => render("{{ slice .s .n }}", { s: "abc", n: 1e20 })).toThrow(
+      "integer out of range: 100000000000000000000",
+    );
   });
 
   it("index on object requires a string key (number-on-object body error)", () => {
@@ -559,5 +594,31 @@ describe("builtins — call", () => {
       double: (n: number) => n * 2,
     };
     expect(render("{{ call .double 21 }}", scope)).toBe("42");
+  });
+});
+
+describe("a function body's own error", () => {
+  const boom = {
+    fn: () => {
+      throw new RangeError("kaboom");
+    },
+    argTypes: [],
+    arity: { kind: "exact" },
+  } as const;
+  const engine = createEngine<string>({ fromString: (s) => s, funcs: { boom } });
+
+  it.each([
+    ["as a command", "{{ boom }}"],
+    ["as a bare operand", "{{ print boom }}"],
+  ])("is reported at the call site %s, with the body's error as its cause", (_, src) => {
+    let caught: unknown;
+    try {
+      engine.parse(src).evaluate(null);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect((caught as EvalError).message).toBe("error calling boom: kaboom");
+    expect((caught as EvalError).cause).toBeInstanceOf(RangeError);
   });
 });
