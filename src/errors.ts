@@ -32,6 +32,8 @@ export type ErrorKind =
 
 export interface TemplateErrorContext {
   readonly source?: string | undefined;
+  /** The error a function body threw, when this one reports it at the call site. */
+  readonly cause?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +47,7 @@ export class TemplateError extends Error {
   readonly source: string | undefined;
 
   constructor(message: string, pos: Pos, ctx: TemplateErrorContext = {}) {
-    super(message);
+    super(message, { cause: ctx.cause });
     this.pos = pos;
     this.source = ctx.source;
   }
@@ -194,6 +196,27 @@ export class TypeMismatchError extends EvalError {
     this.argIndex = argIndex;
     this.expected = expected;
     this.receivedSummary = receivedSummary;
+  }
+}
+
+/**
+ * An integer slot refused a number that is not a safe integer —
+ * `{{ repeat 2.7 "x" }}`. Still a `TypeMismatchError` (the slot's
+ * type refused the value), but worded as Go words the same refusal,
+ * value included: `expected integer; found 2.7`. The generic wording
+ * would say a number was expected and a number arrived, and suggest
+ * flattening a styled value that was never there.
+ */
+export class NotIntegerError extends TypeMismatchError {
+  constructor(
+    funcName: string,
+    argIndex: number,
+    value: number | bigint,
+    pos: Pos,
+    ctx: TemplateErrorContext = {},
+  ) {
+    super(funcName, argIndex, "integer", String(value), pos, ctx);
+    this.message = `expected integer; found ${String(value)}`;
   }
 }
 

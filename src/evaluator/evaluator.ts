@@ -23,6 +23,8 @@ import {
   FailError,
   FuncNotFoundError,
   MissingFieldError,
+  NotIntegerError,
+  TemplateError,
   TypeMismatchError,
 } from "../errors.js";
 import {
@@ -75,13 +77,14 @@ const ARG_TYPES = [
   //   - "int" is a Go `int` parameter (`repeat`, `substr`, `until`, the
   //     built-in `slice`'s indices …): Go refuses a fractional there
   //     ("expected integer; found 2.7"), so the matcher admits only
-  //     integer-valued numbers and bigints whose `Number()` is a safe
-  //     integer. NaN, Infinity, fractionals, and precision-losing
-  //     bigints are rejected at the gate.
-  //   - "truncating-int" is sprig's `interface{}` parameter read through
-  //     `cast.ToInt64` (`add`, `sub`, `max` …): Go truncates a
-  //     fractional toward zero, so the matcher admits any finite number
-  //     and the gate truncates it.
+  //     safe integers, in either carrier. NaN, Infinity, fractionals,
+  //     and integers past 2^53 are rejected at the gate.
+  //   - "truncating-int" is the numeric half of sprig's `interface{}`
+  //     parameter read through `cast.ToInt64` (`add`, `sub`, `max` …):
+  //     Go truncates a fractional toward zero, so the matcher admits any
+  //     finite number and the gate truncates it. The cast's string, bool
+  //     and nil conversions are refused, as every slot here refuses a
+  //     kind it would have to flatten.
   //   - "float" admits any number (NaN/Infinity are legitimate IEEE
   //     754 floats; Go's float64 has them too) and bigints whose
   //     `Number()` is finite. The only rejected bigint is one whose
@@ -120,17 +123,18 @@ const ARG_TYPES = [
  *   TypeMismatchError. This is the **architectural commitment**: T
  *   never silently flattens into a string parameter.
  * - "int"    — validate-AND-parse integer carrier: a Go `int`
- *   parameter. Accepts any integer-valued `number` and any `bigint`
+ *   parameter. Accepts any safe-integer `number` and any `bigint`
  *   whose `Number()` is safe-integer-representable; rejects
- *   fractionals, `NaN`, `±Infinity`, and precision-losing bigints, as
+ *   fractionals, `NaN`, `±Infinity`, and integers past 2^53, as
  *   Go refuses `repeat 2.7 "x"`. The gate normalizes `values[i]` to
  *   `Number(v)` so bodies see `number`. Used by every slot Go declares
  *   `int`: the built-in `slice`'s indices, `repeat`, `substr`, `trunc`,
  *   `until`, `seq`, `chunk`, `splitn`, `round`'s precision ….
- * - "truncating-int" — sprig's `cast.ToInt64` read of an `interface{}`
- *   parameter. Accepts what "int" accepts plus any finite fractional
- *   `number`, which the gate truncates toward zero (`max 1.5 2.5` is
- *   `2` in Go). Used by `add`, `add1`, `sub`, `mul`, `div`, `mod`,
+ * - "truncating-int" — the numeric half of sprig's `cast.ToInt64` read
+ *   of an `interface{}` parameter. Accepts what "int" accepts plus any
+ *   finite fractional `number`, which the gate truncates toward zero
+ *   (`max 1.5 2.5` is `2` in Go); refuses the strings, bools and nil
+ *   the cast would convert. Used by `add`, `add1`, `sub`, `mul`, `div`, `mod`,
  *   `max`, `min`, `biggest`, and sprig's list `slice`.
  * - "float"  — validate-AND-parse float carrier. Accepts any `number`
  *   (including `NaN`/`±Infinity` — legitimate IEEE-754 floats) and any
@@ -1289,7 +1293,13 @@ export class Engine<T> {
       if (e instanceof FailError) {
         throw new FailError(e.message, cmd.pos, { source: ctx.source });
       }
-      throw e;
+      if (e instanceof TemplateError) throw e;
+      // Go reports a function's own error as `error calling <name>: <err>`
+      // at the call site; the body's error rides along as the cause.
+      throw new EvalError(`error calling ${head.ident}: ${errorText(e)}`, cmd.pos, {
+        source: ctx.source,
+        cause: e,
+      });
     }
   }
 
@@ -1498,6 +1508,15 @@ export function enforceArgTypes(
     const declared = lookup(i);
     const value = values[i];
     if (!matchesArgType(declared, value, toString, isT)) {
+      // An integer slot refusing a number is Go's `expected integer`
+      // refusal, and says so with the value; every other refusal is a
+      // kind mismatch.
+      if (
+        (declared === "int" || declared === "truncating-int") &&
+        (typeof value === "number" || typeof value === "bigint")
+      ) {
+        throw new NotIntegerError(funcName, i + 1, value, pos, { source: src });
+      }
       throw new TypeMismatchError(
         funcName,
         i + 1,
@@ -1642,12 +1661,12 @@ function matchesArgType(
       return typeof value === "string";
     case "int":
       // [LAW:types-are-the-program] Strongest true theorem for an "int"
-      // slot: the value is an integer-valued carrier. `Number.isInteger`
-      // refuses NaN, Infinity, and fractionals in one predicate; bigints
-      // outside `Number.MAX_SAFE_INTEGER` lose precision under
-      // `Number()` and would silently propagate corrupted values.
+      // slot: the value is a safe integer, whichever carrier holds it.
+      // `Number.isSafeInteger` refuses NaN, Infinity, fractionals, and
+      // integers past 2^53 in one predicate — the same bound the bigint
+      // arm holds, since past it `Number()` silently corrupts the value.
       return (
-        (typeof value === "number" && Number.isInteger(value)) ||
+        (typeof value === "number" && Number.isSafeInteger(value)) ||
         (typeof value === "bigint" && Number.isSafeInteger(Number(value)))
       );
     case "truncating-int":
@@ -1864,7 +1883,7 @@ function comparableKind(v: unknown): string {
 function humanArgType(t: ArgType): string {
   switch (t) {
     case "int":
-      return "integer (integer-valued number or safe-integer bigint)";
+      return "integer (safe-integer number or bigint)";
     case "truncating-int":
       return "integer (finite number, truncated toward zero, or safe-integer bigint)";
     case "float":
@@ -1911,6 +1930,11 @@ function humanArgType(t: ArgType): string {
       throw new Error(`invalid ArgType: ${String(_exhaustive)}`);
     }
   }
+}
+
+// A body may throw anything; Go's `%v` of an error is its message.
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 function describeValue(value: unknown): string {

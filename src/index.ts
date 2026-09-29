@@ -32,6 +32,7 @@ export {
   FailError,
   FuncNotFoundError,
   MissingFieldError,
+  NotIntegerError,
   ParseError,
   TemplateError,
   TypeMismatchError,

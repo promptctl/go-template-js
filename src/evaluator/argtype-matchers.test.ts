@@ -743,8 +743,9 @@ describe("matchesArgType — truncating-int", () => {
 });
 
 describe("matchesArgType — float", () => {
-  // [LAW:single-enforcer] "float" mirrors "int" except the normalizer
-  // is `Number(v)` (no truncation). Bodies see a `number`.
+  // [LAW:single-enforcer] "float" normalizes with `Number(v)`, as "int"
+  // does; it differs in admitting fractionals and non-finite numbers.
+  // Bodies see a `number`.
   const floatEngine = (recordArg: (v: unknown) => void) =>
     createEngine<string>({
       fromString: (s) => s,

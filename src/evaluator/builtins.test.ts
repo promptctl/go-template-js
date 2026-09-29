@@ -237,6 +237,40 @@ describe("builtins — len / index / slice", () => {
     expect(() => render("{{ index . 0 }}", null)).toThrow(TypeMismatchError);
   });
 
+  // Go's `index` and `slice` share one position rule (`indexArg`): an
+  // integer within bounds, refused in Go's words otherwise. A string is
+  // held to it exactly as an array is.
+  it("index refuses a fractional or out-of-range position into a string or array", () => {
+    expect(() => render("{{ index .s .i }}", { s: "abc", i: 1.5 })).toThrow(
+      "error calling index: cannot index slice/array with type float64",
+    );
+    expect(() => render("{{ index .s .i }}", { s: [1, 2], i: 1.5 })).toThrow(
+      "cannot index slice/array with type float64",
+    );
+    expect(() => render('{{ index "abc" 3 }}')).toThrow(
+      "error calling index: index out of range: 3",
+    );
+    expect(() => render("{{ index . -1 }}", [1])).toThrow("index out of range: -1");
+  });
+
+  it("slice refuses the bounds Go refuses rather than wrapping or clamping them", () => {
+    expect(() => render('{{ slice "abcdef" -2 }}')).toThrow(
+      "error calling slice: index out of range: -2",
+    );
+    expect(() => render('{{ slice "abc" 1 10 }}')).toThrow("index out of range: 10");
+    expect(() => render('{{ slice "abc" 2 1 }}')).toThrow("invalid slice index: 2 > 1");
+    expect(() => render('{{ slice "abc" 0 1 2 }}')).toThrow("cannot 3-index slice a string");
+    expect(render("{{ slice . 1 2 3 }}", [10, 20, 30])).toBe("[20]");
+    expect(() => render("{{ slice . 1 3 2 }}", [10, 20, 30])).toThrow("invalid slice index: 3 > 2");
+    expect(render('{{ slice "abc" 3 }}')).toBe("");
+  });
+
+  it("an integer slot refuses a number past 2^53 in Go's words, before the body runs", () => {
+    expect(() => render("{{ slice .s .n }}", { s: "abc", n: 1e20 })).toThrow(
+      "expected integer; found 100000000000000000000",
+    );
+  });
+
   it("index on object requires a string key (number-on-object body error)", () => {
     expect(() => render("{{ index . 0 }}", { a: 1 })).toThrow(/object index must be string/);
   });
