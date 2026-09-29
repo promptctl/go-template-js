@@ -1258,11 +1258,24 @@ export class Engine<T> {
       args.push(lazy ? () => v : v);
     }
 
+    return this.invoke(head.ident, fn, args, cmd.pos, ctx);
+  }
+
+  // [LAW:single-enforcer] Every call of a registered function — a command
+  // head or a bare identifier operand — crosses the gate and has its body's
+  // error reported at the call site here, and nowhere else.
+  private invoke(
+    name: string,
+    fn: TemplateFunc,
+    args: unknown[],
+    pos: Pos,
+    ctx: EvalContext<T>,
+  ): unknown {
     enforceArgTypes(
-      head.ident,
+      name,
       fn,
       args,
-      cmd.pos,
+      pos,
       ctx.source,
       this.toString,
       this.fromString as (s: string) => unknown,
@@ -1281,22 +1294,17 @@ export class Engine<T> {
       // throw TypeMismatchError without pos info; we re-emit with the
       // call-site pos so the snippet points at the failing call.
       if (e instanceof TypeMismatchError) {
-        throw new TypeMismatchError(
-          e.funcName,
-          e.argIndex,
-          e.expected,
-          e.receivedSummary,
-          cmd.pos,
-          { source: ctx.source },
-        );
+        throw new TypeMismatchError(e.funcName, e.argIndex, e.expected, e.receivedSummary, pos, {
+          source: ctx.source,
+        });
       }
       if (e instanceof FailError) {
-        throw new FailError(e.message, cmd.pos, { source: ctx.source });
+        throw new FailError(e.message, pos, { source: ctx.source });
       }
       if (e instanceof TemplateError) throw e;
       // Go reports a function's own error as `error calling <name>: <err>`
       // at the call site; the body's error rides along as the cause.
-      throw new EvalError(`error calling ${head.ident}: ${errorText(e)}`, cmd.pos, {
+      throw new EvalError(`error calling ${name}: ${errorText(e)}`, pos, {
         source: ctx.source,
         cause: e,
       });
@@ -1326,17 +1334,7 @@ export class Engine<T> {
             source: ctx.source,
             available: Object.keys(this.funcs),
           });
-        enforceArgTypes(
-          node.ident,
-          fn,
-          [],
-          node.pos,
-          ctx.source,
-          this.toString,
-          this.fromString as (s: string) => unknown,
-          this.isT,
-        );
-        return (fn.fn as () => unknown)();
+        return this.invoke(node.ident, fn, [], node.pos, ctx);
       }
       case "Chain":
         return this.resolveFieldChain(

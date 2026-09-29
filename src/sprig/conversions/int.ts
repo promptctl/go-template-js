@@ -12,10 +12,8 @@ import { parseBase0 } from "./parseBase0.js";
 // system's discriminator, not an external mode flag.
 //
 // `Number.isSafeInteger` is this converter's *output-precision
-// policy*, not the gate's input predicate. The `"int"` ArgType
-// matcher is looser for `number`-discriminant inputs at the gate —
-// it accepts any integer-valued number, including unsafe ones like 2^60,
-// because callers passing a number are trusted to mean it. This
+// policy*, not the gate's input predicate (the `"int"` ArgType
+// matcher happens to hold the same bound on its inputs). This
 // converter accepts heterogeneous input (`"value"` slot — number,
 // bigint, string, boolean, anything) and produces a number, so it
 // owns precision at the output edge: a returned value is guaranteed

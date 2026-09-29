@@ -200,12 +200,13 @@ export class TypeMismatchError extends EvalError {
 }
 
 /**
- * An integer slot refused a number that is not a safe integer —
- * `{{ repeat 2.7 "x" }}`. Still a `TypeMismatchError` (the slot's
- * type refused the value), but worded as Go words the same refusal,
- * value included: `expected integer; found 2.7`. The generic wording
- * would say a number was expected and a number arrived, and suggest
- * flattening a styled value that was never there.
+ * An integer slot refused a number that is not a safe integer. Still a
+ * `TypeMismatchError` (the slot's type refused the value), but worded
+ * with the value and the reason: a fractional is Go's own refusal,
+ * `expected integer; found 2.7`, and an integer past 2^53 is
+ * `integer out of range: <n>`, since JS cannot carry it exactly. The
+ * generic wording would say a number was expected and a number arrived,
+ * and suggest flattening a styled value that was never there.
  */
 export class NotIntegerError extends TypeMismatchError {
   constructor(
@@ -216,7 +217,9 @@ export class NotIntegerError extends TypeMismatchError {
     ctx: TemplateErrorContext = {},
   ) {
     super(funcName, argIndex, "integer", String(value), pos, ctx);
-    this.message = `expected integer; found ${String(value)}`;
+    this.message = Number.isInteger(Number(value))
+      ? `integer out of range: ${String(value)}`
+      : `expected integer; found ${String(value)}`;
   }
 }
 

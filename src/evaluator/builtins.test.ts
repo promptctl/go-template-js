@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TypeMismatchError } from "./errors.js";
+import { EvalError, TypeMismatchError } from "./errors.js";
 import { createEngine } from "./evaluator.js";
 
 const render = (src: string, scope: unknown = null): string =>
@@ -265,9 +265,9 @@ describe("builtins — len / index / slice", () => {
     expect(render('{{ slice "abc" 3 }}')).toBe("");
   });
 
-  it("an integer slot refuses a number past 2^53 in Go's words, before the body runs", () => {
+  it("an integer slot refuses an integer past 2^53 as out of range, before the body runs", () => {
     expect(() => render("{{ slice .s .n }}", { s: "abc", n: 1e20 })).toThrow(
-      "expected integer; found 100000000000000000000",
+      "integer out of range: 100000000000000000000",
     );
   });
 
@@ -594,5 +594,31 @@ describe("builtins — call", () => {
       double: (n: number) => n * 2,
     };
     expect(render("{{ call .double 21 }}", scope)).toBe("42");
+  });
+});
+
+describe("a function body's own error", () => {
+  const boom = {
+    fn: () => {
+      throw new RangeError("kaboom");
+    },
+    argTypes: [],
+    arity: { kind: "exact" },
+  } as const;
+  const engine = createEngine<string>({ fromString: (s) => s, funcs: { boom } });
+
+  it.each([
+    ["as a command", "{{ boom }}"],
+    ["as a bare operand", "{{ print boom }}"],
+  ])("is reported at the call site %s, with the body's error as its cause", (_, src) => {
+    let caught: unknown;
+    try {
+      engine.parse(src).evaluate(null);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect((caught as EvalError).message).toBe("error calling boom: kaboom");
+    expect((caught as EvalError).cause).toBeInstanceOf(RangeError);
   });
 });
