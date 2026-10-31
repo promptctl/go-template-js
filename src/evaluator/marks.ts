@@ -67,27 +67,6 @@ export function marked(value: unknown, ...marks: unknown[]): Marked {
   return createMarked(value, marks);
 }
 
-/**
- * Per evaluation: the marks every declared write so far has carried.
- *
- * A func can change an object it is handed (sprig `set`, `unset`), so a
- * mark can reach the output through an object no marked binding points
- * at: `{{ $_ := set $d "k" (tween …) }}{{ $d.k }}` reads `$d`, whose
- * binding was made before the write. The engine cannot see where a write
- * landed without walking the host's data — running its getters and
- * missing what an accessor reaches but a walk does not — so it does not
- * try: after a write, every later read through any object depends on it.
- * Coarse, and so early rather than late, and confined to evaluations in
- * which a func that declares writes was handed a marked value.
- */
-export type WrittenMarks = Set<unknown>;
-
-/** A read through `value`: if it is an object, every write so far may be in it. */
-export function readThrough(value: unknown, reads: Set<unknown>, written: WrittenMarks): void {
-  if (typeof value !== "object" || value === null) return;
-  for (const mark of written) reads.add(mark);
-}
-
 /** `a ∪ b`, sharing an operand when the other is empty. */
 export function unionMarks(a: Marks, b: Marks): Marks {
   if (b.size === 0) return a;

@@ -46,14 +46,7 @@ import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
 import { isLazy } from "./lazy.js";
-import {
-  type Marks,
-  NO_MARKS,
-  readCarrier,
-  readThrough,
-  unionMarks,
-  type WrittenMarks,
-} from "./marks.js";
+import { type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
 import { type Binding, declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
@@ -318,11 +311,12 @@ export interface TemplateFunc {
    * handed, which is true of nearly every func.
    *
    * [LAW:types-are-the-program] Whether a call writes is a fact about the
-   * func, so it is declared rather than assumed of every call. After a
-   * declared write whose inputs carry `marked` tokens, every later read
-   * through an object reports them — the engine does not walk the host's
-   * data to find where the write landed. A body that writes without
-   * declaring it reports late.
+   * func, so it is declared rather than assumed of every call. Where a
+   * write lands is beyond what the engine can follow (an object read
+   * later, a fragment already emitted, the host's data for the next
+   * evaluation), so each call of a writing func reports its inputs'
+   * marks through `EngineConfig.decided` as it runs. A body that writes
+   * without declaring it reports late.
    */
   readonly writes?: true;
 }
@@ -607,7 +601,10 @@ export interface EngineConfig<T> {
    * Called once each time an `if`/`with`/`range` pipe is evaluated, with
    * the marks of the values it read, before either arm runs — so a
    * decision whose taken arm emits nothing (or which has no arm to take)
-   * still says what it depended on. Default: does nothing.
+   * still says what it depended on. Also called for each call of a func
+   * that declares `writes`, with the marks of what it stored: the output
+   * may show that write later with no cell to say it on. Default: does
+   * nothing.
    */
   readonly decided?: (marks: ReadonlySet<unknown>) => void;
 }
@@ -620,7 +617,6 @@ interface EvalContext<T> {
   // The control-pipe marks of every arm being evaluated: an emission
   // here depends on the branches that led to it.
   readonly marks: Marks;
-  readonly written: WrittenMarks;
 }
 
 // [LAW:types-are-the-program] Internal control-flow sentinels for
@@ -1025,7 +1021,6 @@ export class Engine<T> {
       defines: parsed.defines,
       source: parsed.source,
       marks: NO_MARKS,
-      written: new Set(),
     };
     this.evalList(parsed.root, root, ctx);
     return out;
@@ -1389,7 +1384,11 @@ export class Engine<T> {
       // [LAW:single-enforcer] A `marked` carrier is unwrapped here and only
       // here, so no template value is ever one.
       const result = readCarrier((fn.fn as (...a: unknown[]) => unknown)(...args), reads);
-      if (fn.writes === true) for (const mark of settle(reads, ctx)) ctx.written.add(mark);
+      // Where a write lands escapes the engine — into
+      // an object read later, into a fragment already emitted, into the
+      // host's data for the next evaluation — so the marks it stored are
+      // reported now, on the channel that needs no cell.
+      if (fn.writes === true) this.decided(settle(reads, ctx));
       return result;
     } catch (e) {
       // [LAW:single-enforcer] The dispatch site is the *one* place that
@@ -1415,14 +1414,7 @@ export class Engine<T> {
     }
   }
 
-  // An operand that is an object may hold anything a write stored.
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
-    const value = this.evalOperand(node, scope, ctx, reads);
-    readThrough(value, reads, ctx.written);
-    return value;
-  }
-
-  private evalOperand(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     switch (node.type) {
       case "Dot":
         return this.readDot(scope, reads);
@@ -1435,13 +1427,7 @@ export class Engine<T> {
       case "String":
         return node.value;
       case "Field":
-        return this.resolveFieldChain(
-          this.readDot(scope, reads),
-          node.idents,
-          node.pos,
-          ctx,
-          reads,
-        );
+        return this.resolveFieldChain(this.readDot(scope, reads), node.idents, node.pos, ctx);
       case "Variable":
         return this.resolveVariable(node.idents, scope, node.pos, ctx, reads);
       case "Identifier": {
@@ -1459,7 +1445,6 @@ export class Engine<T> {
           node.fields,
           node.pos,
           ctx,
-          reads,
         );
       case "Pipe":
         return this.evalPipe(node, scope, ctx, reads);
@@ -1479,11 +1464,8 @@ export class Engine<T> {
     idents: readonly string[],
     pos: Pos,
     ctx: EvalContext<T>,
-    reads: Set<unknown>,
   ): unknown {
-    const result = walkFieldChain(receiver, idents, (step) =>
-      readThrough(step, reads, ctx.written),
-    );
+    const result = walkFieldChain(receiver, idents);
     if (result !== MISSING) return result;
     // [LAW:dataflow-not-control-flow] Single gate, three productions.
     // The policy value (a discriminator already validated by the
@@ -1508,9 +1490,7 @@ export class Engine<T> {
     const head = idents[0] ?? "$";
     if (head === "$") {
       const tail = idents.slice(1);
-      return tail.length === 0
-        ? scope.root
-        : this.resolveFieldChain(scope.root, tail, pos, ctx, reads);
+      return tail.length === 0 ? scope.root : this.resolveFieldChain(scope.root, tail, pos, ctx);
     }
     const binding = lookupVar(scope, head);
     if (binding === undefined) {
@@ -1520,7 +1500,7 @@ export class Engine<T> {
     const tail = idents.slice(1);
     return tail.length === 0
       ? binding.value
-      : this.resolveFieldChain(binding.value, tail, pos, ctx, reads);
+      : this.resolveFieldChain(binding.value, tail, pos, ctx);
   }
 
   private readDot(scope: Scope, reads: Set<unknown>): unknown {

@@ -100,7 +100,6 @@ describe("provenance: a mark bound and never read is reported nowhere", () => {
     `{{ $c := ${STEP} }}{{ if false }}{{ fg $c "x" }}{{ end }}still`,
     `{{ $t := ${TWEEN_CALL} }}still`,
     "{{ $l := loop 2 0 }}still",
-    `{{ $d := dict }}{{ $_ := set $d "k" (${TWEEN_CALL}) }}still`,
   ])("%s", (src) => {
     const { out, decided } = run(src);
     expect(out.map((f) => f.text).join("")).toBe("still");
@@ -161,28 +160,46 @@ describe("provenance: every emission that depends on a marked value carries the 
   });
 });
 
-describe("provenance: a mark written into an object follows the object", () => {
+describe("provenance: a declared write reports what it stored through `decided`", () => {
   it.each([
-    [`{{ $d := dict }}{{ $_ := set $d "k" (${STEP}) }}{{ fg $d.k "x" }}`, {}],
-    [`{{ $_ := set . "k" (${TWEEN_CALL}) }}{{ .k }}`, {}],
-    // An alias bound before the write still sees it.
-    [`{{ $d := dict "a" (dict) }}{{ $a := $d.a }}{{ $_ := set $d.a "k" (${STEP}) }}{{ $a.k }}`, {}],
-    // A write into nested structure of the argument, read through an alias.
-    [`{{ $d := dict "a" (dict) }}{{ $a := $d.a }}{{ $_ := poke $d (${STEP}) }}{{ $a.k }}`, {}],
-    // A container read whole reads what was written inside it.
-    [`{{ $d := dict "a" (dict) }}{{ $_ := set $d.a "k" (${STEP}) }}{{ $d }}`, {}],
-    [`{{ $_ := set .a "k" (${STEP}) }}{{ . }}`, { a: {} }],
-    [`{{ $d := dict "a" (dict) }}{{ $_ := set $d.a "k" (${STEP}) }}{{ toJson $d }}`, {}],
-    // A write inside an arm depends on the branch.
+    [`{{ $d := dict }}{{ $_ := set $d "k" (${STEP}) }}{{ fg $d.k "x" }}`, {}, STEPPED],
+    [`{{ $_ := set . "k" (${TWEEN_CALL}) }}{{ .k }}`, {}, TWEEN],
+    [`{{ $_ := set .a "k" (${STEP}) }}{{ . }}`, { a: {} }, STEPPED],
     [
-      `{{ $d := dict }}{{ if eq (${STEP}) "#ff0000" }}{{ $_ := set $d "k" "red" }}{{ end }}{{ $d.k }}`,
+      `{{ $d := dict "a" (dict) }}{{ $a := $d.a }}{{ $_ := poke $d (${STEP}) }}{{ $a.k }}`,
       {},
+      STEPPED,
     ],
-    // The write lands on an intermediate object of the chain read later.
-    [`{{ $a := .a }}{{ $_ := set $a "k" (${STEP}) }}{{ .a.k }}`, { a: {} }],
-  ])("%s", (src, scope) => {
-    const { out } = run(src, scope);
-    expect(out.at(-1)?.marks?.length).toBe(1);
+    // Nothing reads the write in this evaluation; a later one may.
+    [`{{ $d := dict }}{{ $_ := set $d "k" (${TWEEN_CALL}) }}still`, {}, TWEEN],
+    // The write changes a fragment already in the output.
+    [`{{ $x := dict "text" "a" }}{{ $x }}{{ $_ := set $x "text" (${STEP}) }}`, {}, STEPPED],
+  ])("%s", (src, scope, mark) => {
+    expect(run(src, scope).decided).toEqual([[mark]]);
+  });
+
+  it("a write inside an arm carries the branch's marks", () => {
+    const { decided } = run(
+      `{{ $d := dict }}{{ if eq (${STEP}) "#ff0000" }}{{ $_ := set $d "k" "red" }}{{ end }}{{ $d.k }}`,
+    );
+    expect(decided).toEqual([[STEPPED], [STEPPED]]);
+  });
+
+  it("a write into the host's data reports on every evaluation that makes it", () => {
+    const data = {};
+    const src = `{{ .k }}{{ $_ := set . "k" (${STEP}) }}`;
+    for (let i = 0; i < 2; i++) {
+      const decided: unknown[][] = [];
+      engine({ decided }).parse(src).evaluate(data);
+      expect(decided).toEqual([[STEPPED]]);
+    }
+  });
+
+  it("a write marks no emission: emissions carry only what they read", () => {
+    const { out } = run(`{{ $d := dict }}{{ $_ := set $d "k" (${STEP}) }}{{ .name }}`, {
+      name: "still",
+    });
+    expect(out).toEqual([{ text: "still", marks: [] }]);
   });
 });
 
@@ -206,32 +223,6 @@ describe("provenance: a call's writes depend only on what that call consumed", (
   ])("a call that declares no writes changes nothing a later read sees: %s", (src) => {
     const { out } = run(src, { name: "still" });
     expect(out.at(-1)).toEqual({ text: "still", marks: [] });
-  });
-
-  it("a write reaches what an accessor reaches, and the data's code never runs", () => {
-    const data = { name: "n" } as Record<string, unknown>;
-    Object.defineProperty(data, "a", { value: { k: "x" }, enumerable: false });
-    Object.defineProperty(data, "boom", {
-      enumerable: true,
-      get() {
-        throw new Error("boom");
-      },
-    });
-    for (const src of [
-      `{{ $_ := set .a "k" (${STEP}) }}{{ index . "a" "k" }}`,
-      `{{ $_ := set .a "k" (${STEP}) }}{{ dig "a" "k" "" . }}`,
-      `{{ $_ := set .a "k" (${STEP}) }}{{ $x := . }}{{ .a.k }}`,
-    ]) {
-      expect(run(src, data).out.at(-1)?.marks).toEqual([STEPPED]);
-    }
-  });
-
-  it("a write leaves values that were not read through an object alone", () => {
-    const { out } = run(`{{ $n := .b.k }}{{ $_ := set .a "k" (${STEP}) }}{{ $n }}`, {
-      a: {},
-      b: { k: "y" },
-    });
-    expect(out.at(-1)).toEqual({ text: "y", marks: [] });
   });
 });
 
