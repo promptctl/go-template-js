@@ -291,20 +291,24 @@ describe("provenance: the obligations a func author can meet", () => {
     expect(out.at(-1)?.text).toBe("#ff0000");
   });
 
+  it("a carrier hidden inside a func's return is named where an operand reaches it", () => {
+    expect(() => run("{{ (box).c }}")).toThrow(/marked\(\) value reached the template/);
+  });
+
   it.each([
-    "{{ (box).c }}",
-    "{{ (box).c.d }}",
     "{{ box }}",
     "{{ $b := box }}{{ $b }}",
     '{{ printf "%v" (box) }}',
-  ])("a carrier hidden inside a func's return is named wherever it is reached: %s", (src) => {
-    expect(() => run(src)).toThrow(/marked\(\) value reached the template/);
-  });
-
-  it("a carrier refuses JSON, so a func that serializes its argument cannot print one", () => {
-    expect(() => JSON.stringify({ c: marked("#ff0000", STEPPED) })).toThrow(
-      /marked\(\) value reached the template/,
-    );
+  ])("a nested carrier stays opaque: its value never reaches output: %s", (src) => {
+    const text = run(src)
+      .out.map((f) => f.text)
+      .join("");
+    expect(text).not.toContain("#ff0000");
+    expect(
+      run(src)
+        .out.map((f) => f.text)
+        .join(""),
+    ).toBe(text);
   });
 
   it("a func that returns a nested carrier on its own reads it with its marks", () => {

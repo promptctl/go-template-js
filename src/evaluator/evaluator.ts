@@ -46,7 +46,7 @@ import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
 import { isLazy } from "./lazy.js";
-import { Marked, type Marks, NESTED_CARRIER, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
+import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
 import { type Binding, declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
@@ -1454,7 +1454,12 @@ export class Engine<T> {
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     const value = this.evalOperand(node, scope, ctx, reads);
     if (value instanceof Marked) {
-      throw new EvalError(NESTED_CARRIER, node.pos, { source: ctx.source });
+      throw new EvalError(
+        "a marked() value reached the template from inside a func's return; " +
+          "return marked(...) itself, not a structure containing one",
+        node.pos,
+        { source: ctx.source },
+      );
     }
     return value;
   }

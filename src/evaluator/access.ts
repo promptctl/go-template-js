@@ -20,8 +20,6 @@
  * unconditionally; the policy decision lives at exactly one site.
  */
 
-import { Marked } from "./marks.js";
-
 /** Sentinel returned by `getField` when a field is genuinely absent. */
 export const MISSING: unique symbol = Symbol("go-template-js.MISSING");
 export type Missing = typeof MISSING;
@@ -58,9 +56,7 @@ export function getField(value: unknown, name: string): unknown | Missing {
 export function walkFieldChain(value: unknown, idents: readonly string[]): unknown | Missing {
   let cur: unknown = value;
   for (const id of idents) {
-    // A carrier stops the walk and is returned as found, so the engine
-    // names it rather than reading `.d` of `(box).c.d` as absent.
-    if (cur === MISSING || cur instanceof Marked) return cur;
+    if (cur === MISSING) return MISSING;
     cur = getField(cur, id);
   }
   return cur;
