@@ -168,11 +168,38 @@ describe("provenance: a mark written into an object follows the object", () => {
     [`{{ $d := dict "a" (dict) }}{{ $a := $d.a }}{{ $_ := set $d.a "k" (${STEP}) }}{{ $a.k }}`, {}],
     // A write into nested structure of the argument, read through an alias.
     [`{{ $d := dict "a" (dict) }}{{ $a := $d.a }}{{ $_ := poke $d (${STEP}) }}{{ $a.k }}`, {}],
+    // A container read whole reads what was written inside it.
+    [`{{ $d := dict "a" (dict) }}{{ $_ := set $d.a "k" (${STEP}) }}{{ $d }}`, {}],
+    [`{{ $_ := set .a "k" (${STEP}) }}{{ . }}`, { a: {} }],
+    [`{{ $d := dict "a" (dict) }}{{ $_ := set $d.a "k" (${STEP}) }}{{ toJson $d }}`, {}],
+    // A write inside an arm depends on the branch.
+    [
+      `{{ $d := dict }}{{ if eq (${STEP}) "#ff0000" }}{{ $_ := set $d "k" "red" }}{{ end }}{{ $d.k }}`,
+      {},
+    ],
     // The write lands on an intermediate object of the chain read later.
     [`{{ $a := .a }}{{ $_ := set $a "k" (${STEP}) }}{{ .a.k }}`, { a: {} }],
   ])("%s", (src, scope) => {
     const { out } = run(src, scope);
     expect(out.at(-1)?.marks?.length).toBe(1);
+  });
+});
+
+describe("provenance: a call's writes depend only on what that call consumed", () => {
+  it("handing the data to an unmarked call in a marked action marks nothing in it", () => {
+    const { out } = run(`{{ $c := ${STEP} }}{{ fg $c (get . "label") }}{{ .other }}`, {
+      label: "x",
+      other: "y",
+    });
+    expect(out.map((f) => [f.text, f.marks])).toEqual([
+      ["x", [STEPPED]],
+      ["y", []],
+    ]);
+  });
+
+  it("a write to one object does not reach a read of its sibling", () => {
+    const { out } = run(`{{ $_ := set .a "k" (${STEP}) }}{{ .b.k }}`, { a: {}, b: { k: "y" } });
+    expect(out.at(-1)).toEqual({ text: "y", marks: [] });
   });
 });
 

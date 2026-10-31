@@ -51,7 +51,8 @@ import {
   markWritable,
   NO_MARKS,
   readCarrier,
-  readWritten,
+  readObject,
+  readReachable,
   unionMarks,
   type WrittenMarks,
 } from "./marks.js";
@@ -1013,7 +1014,7 @@ export class Engine<T> {
       defines: parsed.defines,
       source: parsed.source,
       marks: NO_MARKS,
-      written: new WeakMap(),
+      written: new Map(),
     };
     this.evalList(parsed.root, root, ctx);
     return out;
@@ -1233,7 +1234,7 @@ export class Engine<T> {
   // the caller's dot, with what it depends on either way.
   private invocationDot(pipe: PipeNode | undefined, scope: Scope, ctx: EvalContext<T>): Binding {
     const reads = new Set<unknown>();
-    const value = pipe ? this.evalPipe(pipe, scope, ctx, reads) : this.readDot(scope, reads, ctx);
+    const value = pipe ? this.evalPipe(pipe, scope, ctx, reads) : this.readDot(scope, reads);
     return { value, marks: settle(reads, ctx) };
   }
 
@@ -1241,10 +1242,11 @@ export class Engine<T> {
   // Expression-level dispatch (value-producing).
   // -------------------------------------------------------------------
 
-  // `reads` is the evaluating pipe's provenance: every carrier a call
-  // returns and the marks of every variable and dot read land in it, so
-  // the action, decision or binding that owns it depends on all of them.
-  // Coarse per pipe, which can only make a report early.
+  // `reads` receives the pipe's provenance: the marks its value depends
+  // on. Each command collects its own inputs — its arguments, the value
+  // piped into it, the carrier its call returns — and passes them on to
+  // the next stage with its value, so a call's writes depend on what that
+  // call consumed and not on whatever else the pipe read before it.
   private evalPipe(
     pipe: PipeNode,
     scope: Scope,
@@ -1254,11 +1256,14 @@ export class Engine<T> {
     if (pipe.cmds.length === 0) {
       throw new EvalError("empty pipeline", pipe.pos, { source: ctx.source });
     }
-    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, NO_PIPE, reads);
+    let inputs = new Set<unknown>();
+    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, NO_PIPE, inputs);
     for (let i = 1; i < pipe.cmds.length; i++) {
       const next = pipe.cmds[i] as CommandNode;
-      value = this.evalCommand(next, scope, ctx, { kind: "value", value }, reads);
+      inputs = new Set(inputs);
+      value = this.evalCommand(next, scope, ctx, { kind: "value", value }, inputs);
     }
+    for (const mark of inputs) reads.add(mark);
 
     // Apply variable declarations / assignments after the pipe is
     // fully evaluated. Multi-decl tuple semantics for `range` are
@@ -1266,7 +1271,7 @@ export class Engine<T> {
     if (pipe.decls.length > 0) {
       for (const decl of pipe.decls) {
         const name = decl.idents[0] ?? "$";
-        declareVar(scope, name, { value, marks: settle(reads, ctx) });
+        declareVar(scope, name, { value, marks: settle(inputs, ctx) });
       }
     }
     return value;
@@ -1373,7 +1378,7 @@ export class Engine<T> {
       // [LAW:single-enforcer] A `marked` carrier is unwrapped here and only
       // here, so no template value is ever one.
       const result = readCarrier((fn.fn as (...a: unknown[]) => unknown)(...args), reads);
-      markWritable(args, reads, ctx.written);
+      markWritable(args, settle(reads, ctx), ctx.written);
       return result;
     } catch (e) {
       // [LAW:single-enforcer] The dispatch site is the *one* place that
@@ -1399,18 +1404,18 @@ export class Engine<T> {
     }
   }
 
-  // Every operand is a read: whatever a call wrote into an object joins
-  // the pipe's marks when the object is next used.
+  // Every operand is a read of all it contains: whatever a call wrote
+  // into it joins the reading call's inputs.
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     const value = this.evalOperand(node, scope, ctx, reads);
-    readWritten(value, reads, ctx.written);
+    readReachable(value, reads, ctx.written);
     return value;
   }
 
   private evalOperand(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     switch (node.type) {
       case "Dot":
-        return this.readDot(scope, reads, ctx);
+        return this.readDot(scope, reads);
       case "Nil":
         return null;
       case "Bool":
@@ -1421,7 +1426,7 @@ export class Engine<T> {
         return node.value;
       case "Field":
         return this.resolveFieldChain(
-          this.readDot(scope, reads, ctx),
+          this.readDot(scope, reads),
           node.idents,
           node.pos,
           ctx,
@@ -1466,9 +1471,7 @@ export class Engine<T> {
     ctx: EvalContext<T>,
     reads: Set<unknown>,
   ): unknown {
-    const result = walkFieldChain(receiver, idents, (step) =>
-      readWritten(step, reads, ctx.written),
-    );
+    const result = walkFieldChain(receiver, idents, (step) => readObject(step, reads, ctx.written));
     if (result !== MISSING) return result;
     // [LAW:dataflow-not-control-flow] Single gate, three productions.
     // The policy value (a discriminator already validated by the
@@ -1508,9 +1511,8 @@ export class Engine<T> {
       : this.resolveFieldChain(binding.value, tail, pos, ctx, reads);
   }
 
-  private readDot(scope: Scope, reads: Set<unknown>, ctx: EvalContext<T>): unknown {
+  private readDot(scope: Scope, reads: Set<unknown>): unknown {
     for (const mark of scope.dot.marks) reads.add(mark);
-    readWritten(scope.dot.value, reads, ctx.written);
     return scope.dot.value;
   }
 
@@ -1535,8 +1537,9 @@ export class Engine<T> {
   }
 }
 
-// A binding's marks: what its pipe read so far and the arms it sits in.
-// Copied, because the pipe's set keeps growing after a mid-pipe decl.
+// [LAW:one-source-of-truth] What a binding or a write depends on, stated
+// once: the inputs that produced it and the arms it sits in. Copied,
+// because an enclosing pipe's set keeps growing.
 function settle(reads: Marks, ctx: { readonly marks: Marks }): Marks {
   return new Set([...reads, ...ctx.marks]);
 }

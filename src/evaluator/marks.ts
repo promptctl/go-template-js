@@ -75,32 +75,25 @@ export function marked(value: unknown, ...marks: unknown[]): Marked {
  * marked binding points at: `{{ $_ := set $d "k" (tween …) }}{{ $d.k }}`
  * reads `$d`, whose binding was made before the write. Marks therefore
  * also live on the objects themselves, and a read of an object picks
- * them up.
+ * them up. Scoped to one evaluation, so a plain `Map` is the owner and
+ * its size says whether any write has happened at all.
  */
-export type WrittenMarks = WeakMap<object, Set<unknown>>;
+export type WrittenMarks = Map<object, Set<unknown>>;
 
 function isHeapObject(value: unknown): value is object {
   return typeof value === "object" && value !== null;
 }
 
-/**
- * After a call whose inputs carry `marks`, every object reachable from
- * its arguments may now hold a value that depends on them. Reachable,
- * not just the argument itself: a func may write into nested structure,
- * and an alias bound earlier (`$a := $d.a`) must see that write too.
- * With no marks there is nothing a write could carry, so nothing is
- * walked.
- */
-export function markWritable(args: readonly unknown[], marks: Marks, written: WrittenMarks): void {
-  if (marks.size === 0) return;
+// Every object reachable from `roots`, each once: array elements, Map
+// keys and values, Set members, own enumerable values. One traversal, so
+// what a write can reach and what a read can see are the same set.
+function* reachable(roots: readonly unknown[]): Generator<object> {
   const seen = new Set<object>();
-  const pending = args.filter(isHeapObject);
+  const pending = roots.filter(isHeapObject);
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     if (seen.has(next)) continue;
     seen.add(next);
-    const into = written.get(next) ?? new Set<unknown>();
-    for (const mark of marks) into.add(mark);
-    written.set(next, into);
+    yield next;
     const children =
       next instanceof Map
         ? [...next.keys(), ...next.values()]
@@ -111,10 +104,40 @@ export function markWritable(args: readonly unknown[], marks: Marks, written: Wr
   }
 }
 
-/** A read of `value`: whatever a call wrote into it joins `reads`. */
-export function readWritten(value: unknown, reads: Set<unknown>, written: WrittenMarks): void {
-  if (!isHeapObject(value)) return;
-  for (const mark of written.get(value) ?? NO_MARKS) reads.add(mark);
+/**
+ * After a call, every object reachable from its arguments may now hold a
+ * value that depends on the call's inputs (`marks`). Reachable, not just
+ * the argument: a func may write into nested structure, and an alias
+ * bound earlier (`$a := $d.a`) must see that write too. With no marks a
+ * write carries nothing, so nothing is walked.
+ */
+export function markWritable(args: readonly unknown[], marks: Marks, written: WrittenMarks): void {
+  if (marks.size === 0) return;
+  for (const object of reachable(args)) {
+    const into = written.get(object) ?? new Set<unknown>();
+    for (const mark of marks) into.add(mark);
+    written.set(object, into);
+  }
+}
+
+/**
+ * A read of `value` reads everything it contains, so whatever a call
+ * wrote anywhere inside it joins `reads` — `{{ $d }}` after
+ * `set $d.a "k" …` depends on the write. Nothing is walked until some
+ * write has happened.
+ */
+export function readReachable(value: unknown, reads: Set<unknown>, written: WrittenMarks): void {
+  if (written.size === 0) return;
+  for (const object of reachable([value])) readObject(object, reads, written);
+}
+
+/**
+ * A field chain passing through `step` reads that one object: a write to
+ * `.a` reaches `.a.k`, and a write to `.b` does not.
+ */
+export function readObject(step: unknown, reads: Set<unknown>, written: WrittenMarks): void {
+  if (!isHeapObject(step)) return;
+  for (const mark of written.get(step) ?? NO_MARKS) reads.add(mark);
 }
 
 /** `a ∪ b`, sharing an operand when the other is empty. */
