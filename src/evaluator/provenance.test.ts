@@ -74,6 +74,16 @@ function animated(mark: boolean): FuncMap {
       argTypes: [],
       arity: { kind: "exact" },
     },
+    // Fails only at frames whose keyframe is bad, and says so.
+    strictStep: {
+      fn: (_h: number, a: string, _h2: number, b: string) => {
+        const c = T < 1 ? a : b;
+        if (!c.startsWith("#")) throw carry(new Error(`bad colour ${c}`), STEPPED);
+        return carry(c, STEPPED);
+      },
+      argTypes: ["float", "string", "float", "string"],
+      arity: { kind: "exact" },
+    },
     // Builds on another marking func outside the template.
     clamp: {
       fn: () => {
@@ -281,8 +291,24 @@ describe("provenance: the obligations a func author can meet", () => {
     expect(out.at(-1)?.text).toBe("#ff0000");
   });
 
-  it("a carrier hidden inside a func's return fails loudly instead of leaking", () => {
+  it("a carrier hidden inside a func's return is named where an operand reaches it", () => {
     expect(() => run("{{ (box).c }}")).toThrow(/marked\(\) value reached the template/);
+  });
+
+  it.each([
+    "{{ box }}",
+    "{{ $b := box }}{{ $b }}",
+    '{{ printf "%v" (box) }}',
+  ])("a nested carrier stays opaque: its value never reaches output: %s", (src) => {
+    const text = run(src)
+      .out.map((f) => f.text)
+      .join("");
+    expect(text).not.toContain("#ff0000");
+    expect(
+      run(src)
+        .out.map((f) => f.text)
+        .join(""),
+    ).toBe(text);
   });
 
   it("unmarked lets a func build on another marking func's result", () => {
@@ -291,6 +317,13 @@ describe("provenance: the obligations a func author can meet", () => {
 });
 
 describe("provenance: a pipe that throws reports what it read through `decided`", () => {
+  it("a func whose failure depends on a mark throws it marked", () => {
+    const decided: unknown[][] = [];
+    const tpl = engine({ decided }).parse('{{ strictStep 1 "nope" 1 "#0000ff" }}');
+    expect(() => tpl.evaluate({})).toThrow(/bad colour nope/);
+    expect(decided).toEqual([[STEPPED]]);
+  });
+
   it("a throw while lifting the value reports too", () => {
     const decided: unknown[][] = [];
     const strict = createEngine<Frag>({

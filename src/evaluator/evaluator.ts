@@ -1407,17 +1407,16 @@ export class Engine<T> {
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
     // their parameter types; we erase that here, having already validated
     // the runtime types via `enforceArgTypes`.
+    let result: unknown;
     try {
       // [LAW:single-enforcer] A `marked` carrier is unwrapped here and only
-      // here, so no template value is ever one.
-      const result = readCarrier((fn.fn as (...a: unknown[]) => unknown)(...args), reads);
-      // Where a write lands escapes the engine — into
-      // an object read later, into a fragment already emitted, into the
-      // host's data for the next evaluation — so the marks it stored are
-      // reported now, on the channel that needs no cell.
-      if (fn.writes === true) this.decided(settle(reads, ctx));
-      return result;
-    } catch (e) {
+      // here — returned or thrown — so no template value is ever one.
+      result = readCarrier((fn.fn as (...a: unknown[]) => unknown)(...args), reads);
+    } catch (thrown) {
+      // A func whose failure depends on a marked value throws
+      // `marked(error, …)`: the error may clear when the mark changes, and
+      // the enclosing `read` reports it.
+      const e = readCarrier(thrown, reads);
       // [LAW:single-enforcer] The dispatch site is the *one* place that
       // owns call-site context (pos, source). Funcs that validate nested
       // structure (e.g. list elements, alternating variadic positions)
@@ -1439,6 +1438,12 @@ export class Engine<T> {
         cause: e,
       });
     }
+    // Where a write lands escapes the engine — into an object read later,
+    // into a fragment already emitted, into the host's data for the next
+    // evaluation — so the marks it stored are reported now, on the channel
+    // that needs no cell.
+    if (fn.writes === true) this.decided(settle(reads, ctx));
+    return result;
   }
 
   // A carrier is unwrapped only as a func's own return. One nested inside
