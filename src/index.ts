@@ -17,6 +17,8 @@
  * - Sub-template inheritance: Defines, the opaque set a parse can invoke
  *   (Template.defines, Engine.parse's `inherit` parameter).
  * - Error classes: FailError (thrown by sprig `fail`).
+ * - Provenance: `marked` / Marked, the carrier a func returns to mark its
+ *   call (reported through EngineConfig.emitted / decided).
  *
  * Hidden (intentionally): the parser/lexer/walker/stringifier modules,
  * concrete AST node interfaces, position helpers, internal symbols.
@@ -52,6 +54,7 @@ export {
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
+export { type Marked, marked } from "./evaluator/marks.js";
 export { Defines } from "./parser/parser.js";
 export { sprigConversions } from "./sprig/conversions/index.js";
 export { sprigDatetime } from "./sprig/datetime/index.js";

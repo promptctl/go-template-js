@@ -125,6 +125,33 @@ const engine = createEngine<Frag>({
 
 Use `"liftable"` for any consumer-defined function whose slot should accept either a `T` value or a string literal. The body, by contract, only ever receives `T` — the gate owns the lift, so the body has no string-vs-`T` discrimination to do.
 
+### Provenance: `marked`, `emitted` and `decided`
+
+Some funcs return values that change on their own, such as an animation's `tween` or a clock. The host then needs to know which output depends on them. A number or a string cannot carry that fact, so the engine carries it beside the value. A func marks its call by returning `marked(value, ...tokens)`. The template sees `value` exactly as if it had been returned directly, and the arity is unchanged. Two optional `EngineConfig` hooks then report each token wherever the output depends on it:
+
+```ts
+import { createEngine, marked } from "@promptctl/go-template-js";
+
+const engine = createEngine<Frag>({
+  fromString: (s) => ({ color: "default", text: s }),
+  funcs: {
+    pulse: {
+      fn: () => marked(frame.t < 0.5 ? "red" : "blue", { changesAt: 0.5 }),
+      argTypes: [],
+      arity: { kind: "exact" },
+    },
+  },
+  // Every emitted T, with the marks it depends on; the return is what is output.
+  emitted: (frag, marks) => (marks.size === 0 ? frag : { ...frag, holds: [...marks] }),
+  // Every if/with/range pipe, with the marks it read, whichever arm runs.
+  decided: (marks) => marks.forEach((m) => host.redrawAt(m)),
+});
+```
+
+A mark follows the value into every scope it is bound into: a variable, the dot that `with` and `range` push, and the dot a `template` or `block` invocation pushes. It also follows the value into any object a call may have written it into, since `set $d "k" (pulse)` puts it inside `$d`. It then reaches every action that reads any of these. `eq`, `printf`, `default`, sprig maths and every other func pass it through simply by being called on the value. An `if`/`with`/`range` pipe's marks go to `decided`, including when the arm taken is empty, and they also reach every emission inside the arm. The rule is that a mark may be reported early but never late. Tracking is per action, so an emission can carry a mark it did not strictly need. A mark bound somewhere nobody reads, as in `{{ $t := pulse }}still`, is reported nowhere.
+
+The engine sees only what flows through arguments, returns and the objects they reach. A func that keeps state elsewhere (a closure, a module variable) and returns it later must mark that return itself. With neither hook configured, output is unchanged, and so are `referencedCalls()` and the other static facts.
+
 ## `ArgType` reference
 
 Every entry in `argTypes` is one of:
@@ -302,6 +329,7 @@ Every error carries `pos`, `source`, and a `kind` discriminator. `.toString()` p
 The package exports exactly the following from `"@promptctl/go-template-js"` — anything else is internal and may change at any time:
 
 - Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`, `Arity`, `MissingKeyOption`, `Delims`.
+- Provenance: `marked`, `Marked`.
 - Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `ArgCountError`, `ArgCount`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
 - Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`, `sprigRandom`, `sprigHash`, `sprigDatetime`.
 

@@ -52,11 +52,20 @@ export function getField(value: unknown, name: string): unknown | Missing {
  * Walk a chain of field names left-to-right. Returns `MISSING` as soon
  * as any link is missing. The caller decides how to surface the error
  * (typically via EvalError pointing at the AST node's position).
+ *
+ * `visit` sees every value the walk passes through, the receiver first,
+ * so a caller can learn what each step depends on (the engine reads the
+ * marks a call may have written into each object on the path).
  */
-export function walkFieldChain(value: unknown, idents: readonly string[]): unknown | Missing {
+export function walkFieldChain(
+  value: unknown,
+  idents: readonly string[],
+  visit: (step: unknown) => void,
+): unknown | Missing {
   let cur: unknown = value;
   for (const id of idents) {
     if (cur === MISSING) return MISSING;
+    visit(cur);
     cur = getField(cur, id);
   }
   return cur;
