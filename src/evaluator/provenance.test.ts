@@ -159,6 +159,8 @@ describe("provenance: every emission that depends on a marked value carries the 
     [`{{ $c := ${STEP} }}{{ fg $c "x" }}`, "x", STEPPED],
     [`{{ $c := ${STEP} }}{{ printf "%s" $c }}`, "#ff0000", STEPPED],
     [`{{ $c := ${STEP} }}{{ $c }}`, "#ff0000", STEPPED],
+    [`{{ $c := "a" }}{{ with "z" }}{{ $c = ${STEP} }}{{ end }}{{ $c }}`, "#ff0000", STEPPED],
+    [`{{ $c := "a" }}{{ range $c = list (${STEP}) }}{{ end }}{{ $c }}`, "#ff0000", STEPPED],
     [`{{ $c := ${STEP} }}{{ eq $c "#ff0000" }}`, "true", STEPPED],
     [`{{ printf "%.0f" (add 1 (${TWEEN_CALL})) }}`, undefined, TWEEN],
     [

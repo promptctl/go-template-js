@@ -33,6 +33,7 @@ import {
   type ListNode,
   type Node,
   type PipeNode,
+  type VariableNode,
 } from "../parser/ast.js";
 import type { Delims } from "../parser/lexer.js";
 import {
@@ -47,7 +48,15 @@ import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
 import { isLazy } from "./lazy.js";
 import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
-import { type Binding, declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
+import {
+  assignVar,
+  type Binding,
+  declareVar,
+  lookupVar,
+  pushScope,
+  rootScope,
+  type Scope,
+} from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
 // ---------------------------------------------------------------------------
@@ -1180,15 +1189,14 @@ export class Engine<T> {
         // Every item, key and decl came out of the ranged value, so each
         // depends on what the range pipe read.
         const child = pushScope(scope, { value: item, marks: arm.marks });
-        if (decls.length === 1) {
-          const name = decls[0]?.idents[0] ?? "$";
-          declareVar(child, name, { value: item, marks: arm.marks });
-        } else if (decls.length >= 2) {
-          const k = decls[0]?.idents[0] ?? "$";
-          const v = decls[1]?.idents[0] ?? "$";
-          declareVar(child, k, { value: key, marks: arm.marks });
-          declareVar(child, v, { value: item, marks: arm.marks });
-        }
+        // `:=` binds each iteration's own frame; `=` overwrites the
+        // enclosing variables, as Go's `oneIteration` does with `setVar`.
+        const target = node.pipe.isAssign ? scope : child;
+        // One decl takes the element; two take the key, then the element.
+        const values = decls.length === 1 ? [item] : [key, item];
+        decls.forEach((decl, i) => {
+          this.bind(target, decl, node.pipe.isAssign, { value: values[i], marks: arm.marks }, ctx);
+        });
         try {
           this.evalList(node.list, child, arm);
         } catch (e) {
@@ -1302,13 +1310,28 @@ export class Engine<T> {
     // Apply variable declarations / assignments after the pipe is
     // fully evaluated. Multi-decl tuple semantics for `range` are
     // handled inside `evalRange` (which calls `evalPipeWithoutDecls`).
-    if (pipe.decls.length > 0) {
-      for (const decl of pipe.decls) {
-        const name = decl.idents[0] ?? "$";
-        declareVar(scope, name, { value, marks: unionMarks(inputs, ctx.marks) });
-      }
+    for (const decl of pipe.decls) {
+      this.bind(scope, decl, pipe.isAssign, { value, marks: unionMarks(inputs, ctx.marks) }, ctx);
     }
     return value;
+  }
+
+  // [LAW:single-enforcer] The one place a decl binds: `:=` declares in
+  // `scope`'s own frame, `=` overwrites the nearest frame that declared
+  // the name and, like Go's `setVar`, refuses a name no frame declared.
+  private bind(
+    scope: Scope,
+    decl: VariableNode,
+    isAssign: boolean,
+    binding: Binding,
+    ctx: EvalContext<T>,
+  ): void {
+    const name = decl.idents[0] ?? "$";
+    if (!isAssign) {
+      declareVar(scope, name, binding);
+    } else if (!assignVar(scope, name, binding)) {
+      throw new EvalError(`undefined variable: ${name}`, decl.pos, { source: ctx.source });
+    }
   }
 
   private evalPipeWithoutDecls(

@@ -66,3 +66,21 @@ export function lookupVar(scope: Scope, name: string): Binding | undefined {
 export function declareVar(scope: Scope, name: string, binding: Binding): void {
   scope.vars.set(name, binding);
 }
+
+/**
+ * Overwrite the nearest frame's binding of `name` (for `=`), as Go's
+ * `setVar` walks its variable stack. Returns whether any frame declared
+ * it; the caller owns the "undefined variable" error, which needs a
+ * position this module does not have.
+ */
+export function assignVar(scope: Scope, name: string, binding: Binding): boolean {
+  let cur: Scope | undefined = scope;
+  while (cur !== undefined) {
+    if (cur.vars.has(name)) {
+      cur.vars.set(name, binding);
+      return true;
+    }
+    cur = cur.parent;
+  }
+  return false;
+}
