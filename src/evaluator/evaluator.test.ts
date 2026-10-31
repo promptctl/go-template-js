@@ -266,8 +266,16 @@ describe("evaluator — $ and $vars", () => {
     }
   });
 
-  // Go's parser refuses these (a define starts with only `$` declared),
-  // so the corpus cannot pin them; the engine refuses them at execution.
+  // Go's parser refuses these (a name is declared only to the end of its
+  // construct or define), so the corpus cannot pin them; the engine refuses at execution.
+  it("an if/with pipe decl ends with its construct", () => {
+    for (const kw of ["if", "with"]) {
+      expect(() => renderString(`{{ ${kw} $x := 1 }}{{ end }}{{ $x }}`, {})).toThrow(
+        /undefined variable: \$x/,
+      );
+    }
+  });
+
   it("a template body neither reads nor assigns the caller's variables", () => {
     expect(() =>
       renderString('{{ define "t" }}{{ $x }}{{ end }}{{ $x := 1 }}{{ template "t" }}', {}),
