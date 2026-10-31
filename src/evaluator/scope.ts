@@ -13,61 +13,56 @@
  * the binding in the current leaf frame.
  */
 
+import { type Marks, NO_MARKS } from "./marks.js";
+
+/**
+ * A bound value and the marks it depends on.
+ *
+ * [LAW:types-are-the-program] One record, so no binding can be made
+ * without saying what it depends on: a variable or a dot that forgot
+ * its marks would report them late, which is the one failure
+ * provenance exists to rule out.
+ */
+export interface Binding {
+  readonly value: unknown;
+  readonly marks: Marks;
+}
+
 export interface Scope {
   /** Current dot value — what `.` resolves to. */
-  readonly dot: unknown;
+  readonly dot: Binding;
   /** Top-level scope value — what `$` resolves to. */
   readonly root: unknown;
   /** Parent scope, or undefined for the top-level. */
   readonly parent: Scope | undefined;
   /** Variables declared in *this* frame. */
-  readonly vars: Map<string, unknown>;
+  readonly vars: Map<string, Binding>;
 }
 
 export function rootScope(value: unknown): Scope {
-  return { dot: value, root: value, parent: undefined, vars: new Map() };
+  return { dot: { value, marks: NO_MARKS }, root: value, parent: undefined, vars: new Map() };
 }
 
-export function pushScope(parent: Scope, dot: unknown): Scope {
+export function pushScope(parent: Scope, dot: Binding): Scope {
   return { dot, root: parent.root, parent, vars: new Map() };
 }
 
 /**
  * Look up a `$var` binding, walking the parent chain.
- * Returns `{ found: true, value }` on hit and `{ found: false }` on miss
- * — explicit shape rather than `undefined` so callers can disambiguate
- * "not declared" from "declared but undefined".
+ * Returns the binding on hit and `undefined` on miss — a `Binding` is a
+ * record, so a variable declared as `undefined` is still a hit.
  */
-export function lookupVar(
-  scope: Scope,
-  name: string,
-): { found: true; value: unknown } | { found: false } {
+export function lookupVar(scope: Scope, name: string): Binding | undefined {
   let cur: Scope | undefined = scope;
   while (cur !== undefined) {
-    if (cur.vars.has(name)) return { found: true, value: cur.vars.get(name) };
+    const binding = cur.vars.get(name);
+    if (binding !== undefined) return binding;
     cur = cur.parent;
   }
-  return { found: false };
+  return undefined;
 }
 
 /** Declare a new variable in the leaf scope (for `:=`). */
-export function declareVar(scope: Scope, name: string, value: unknown): void {
-  scope.vars.set(name, value);
-}
-
-/**
- * Reassign an existing variable (for `=`). Walks the chain to find the
- * declaring frame and mutates its binding map. Throws via the caller's
- * supplied `notFound` factory when the variable was never declared.
- */
-export function assignVar(scope: Scope, name: string, value: unknown): boolean {
-  let cur: Scope | undefined = scope;
-  while (cur !== undefined) {
-    if (cur.vars.has(name)) {
-      cur.vars.set(name, value);
-      return true;
-    }
-    cur = cur.parent;
-  }
-  return false;
+export function declareVar(scope: Scope, name: string, binding: Binding): void {
+  scope.vars.set(name, binding);
 }

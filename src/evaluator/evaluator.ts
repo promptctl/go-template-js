@@ -28,7 +28,6 @@ import {
   TypeMismatchError,
 } from "../errors.js";
 import {
-  type ActionNode,
   assertNever,
   type CommandNode,
   type ListNode,
@@ -47,7 +46,8 @@ import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
 import { isLazy } from "./lazy.js";
-import { declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
+import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
+import { type Binding, declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
 // ---------------------------------------------------------------------------
@@ -275,6 +275,10 @@ export interface TemplateFunc {
    * first rest parameter and lies about several registrations (`min`,
    * `max`, `mul` and friends report 0 while Go requires 1). Arity comes
    * from `arity`, never from here.
+   *
+   * Return `marked(value, ...tokens)` to mark the call; the template sees
+   * `value`, and the tokens reach `EngineConfig.emitted` / `decided`
+   * wherever the output depends on it.
    */
   readonly fn: (...args: never[]) => unknown;
   /**
@@ -301,6 +305,22 @@ export interface TemplateFunc {
    * the function body's own requirement; see `eq` and `dig`.
    */
   readonly arity: Arity;
+  /**
+   * `true` when the body stores anything it was handed — in place in an
+   * argument, as sprig `set` and `unset` do, or in a closure or module
+   * variable a later call returns — or runs code it was handed, which may
+   * store (`call`). Omitted: it does neither, which is true of nearly
+   * every func.
+   *
+   * [LAW:types-are-the-program] Whether a call writes is a fact about the
+   * func, so it is declared rather than assumed of every call. Where a
+   * write lands is beyond what the engine can follow (an object read
+   * later, a fragment already emitted, the host's data for the next
+   * evaluation), so each call of a writing func reports its inputs'
+   * marks through `EngineConfig.decided` as it runs. A body that writes
+   * without declaring it reports late.
+   */
+  readonly writes?: true;
 }
 
 export type FuncMap = Record<string, TemplateFunc>;
@@ -569,6 +589,27 @@ export interface EngineConfig<T> {
   readonly delims?: Delims;
   /** Optional registry of named functions usable in pipelines. */
   readonly funcs?: FuncMap;
+  /**
+   * Every `T` the template emits passes through here with the marks it
+   * depends on (see `marked`), and the return is what reaches the output.
+   * The marks are those of every value the emitting action read and of
+   * every `if`/`with`/`range` arm it sits in; a mark is reported early,
+   * never late, and a mark bound somewhere nobody reads is not reported.
+   * Called for every emission, an empty set included. Default: returns
+   * `value` unchanged.
+   */
+  readonly emitted?: (value: T, marks: ReadonlySet<unknown>) => T;
+  /**
+   * Called once each time an `if`/`with`/`range` pipe is evaluated,
+   * before either arm runs — so a decision whose taken arm emits nothing
+   * (or which has no arm to take) still says what it depended on. Also
+   * called for each call of a func that declares `writes` (the output may
+   * show that write later with no cell to say it on), and for each action
+   * or control pipe that throws. Every call carries the marks of the
+   * values read and of every `if`/`with`/`range` arm it sits in.
+   * Default: does nothing.
+   */
+  readonly decided?: (marks: ReadonlySet<unknown>) => void;
 }
 
 // Per-evaluate context. Threaded through every internal method.
@@ -576,6 +617,9 @@ interface EvalContext<T> {
   readonly out: T[];
   readonly defines: Defines;
   readonly source: string | undefined;
+  // The control-pipe marks of every arm being evaluated: an emission
+  // here depends on the branches that led to it.
+  readonly marks: Marks;
 }
 
 // [LAW:types-are-the-program] Internal control-flow sentinels for
@@ -886,6 +930,11 @@ export class Engine<T> {
   // never store a synthesized default here, so the engine can't
   // accidentally diverge from whatever the parser considers default.
   private readonly delims: Delims | undefined;
+  // [LAW:dataflow-not-control-flow] Always called; an unconfigured hook is
+  // the identity / no-op, so provenance is one path whether or not anyone
+  // listens.
+  private readonly emitted: (value: T, marks: Marks) => T;
+  private readonly decided: (marks: Marks) => void;
 
   constructor(config: EngineConfig<T>) {
     this.fromString = config.fromString;
@@ -910,6 +959,8 @@ export class Engine<T> {
     // tokenization at parse time. Fail loud at the only place the
     // mistake can be detected.
     this.delims = validateDelims(config.delims);
+    this.emitted = config.emitted ?? ((value) => value);
+    this.decided = config.decided ?? (() => {});
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
     // funcs override on a per-name basis (this gives consumers an
     // escape hatch — desired).
@@ -972,6 +1023,7 @@ export class Engine<T> {
       out,
       defines: parsed.defines,
       source: parsed.source,
+      marks: NO_MARKS,
     };
     this.evalList(parsed.root, root, ctx);
     return out;
@@ -990,18 +1042,23 @@ export class Engine<T> {
   private evalNode(node: Node, scope: Scope, ctx: EvalContext<T>): void {
     switch (node.type) {
       case "Text":
-        ctx.out.push(this.fromString(node.text));
+        ctx.out.push(this.emitted(this.fromString(node.text), ctx.marks));
         return;
       case "Comment":
         return;
-      case "Action": {
-        const value = this.evalAction(node, scope, ctx);
-        // Per Go's spec, actions whose pipeline declares variables
-        // (`{{ $x := pipe }}`) contribute no output — they're pure
-        // assignment statements. Only assignment-free actions emit.
-        if (node.pipe.decls.length === 0) this.emitFromValue(value, ctx);
+      case "Action":
+        // The whole action — pipe, lift, `emitted` — is one read, so a throw
+        // anywhere in it reports what it had consumed.
+        this.read(ctx, (reads) => {
+          const value = this.evalPipe(node.pipe, scope, ctx, reads);
+          // Per Go's spec, actions whose pipeline declares variables
+          // (`{{ $x := pipe }}`) contribute no output — they're pure
+          // assignment statements. Only assignment-free actions emit.
+          if (node.pipe.decls.length === 0) {
+            ctx.out.push(this.emitted(this.lift(value), unionMarks(reads, ctx.marks)));
+          }
+        });
         return;
-      }
       case "List":
         this.evalList(node, scope, ctx);
         return;
@@ -1057,11 +1114,12 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const cond = this.evalPipe(node.pipe, scope, ctx);
+    const { value: cond, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, scope, ctx, r));
+    const arm = this.decide(reads, ctx);
     if (isTruthy(cond)) {
-      this.evalList(node.list, scope, ctx);
+      this.evalList(node.list, scope, arm);
     } else if (node.elseList) {
-      this.evalList(node.elseList, scope, ctx);
+      this.evalList(node.elseList, scope, arm);
     }
   }
 
@@ -1070,12 +1128,13 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const value = this.evalPipe(node.pipe, scope, ctx);
+    const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, scope, ctx, r));
+    const arm = this.decide(reads, ctx);
     if (isTruthy(value)) {
-      const child = pushScope(scope, value);
-      this.evalList(node.list, child, ctx);
+      const child = pushScope(scope, { value, marks: arm.marks });
+      this.evalList(node.list, child, arm);
     } else if (node.elseList) {
-      this.evalList(node.elseList, scope, ctx);
+      this.evalList(node.elseList, scope, arm);
     }
   }
 
@@ -1087,7 +1146,10 @@ export class Engine<T> {
     // For `range`, the pipeline's declarations bind to (key, value)
     // *per iteration*, not to the iterable as a whole. We evaluate the
     // pipe with its decls suppressed, then handle the bindings here.
-    const value = this.evalPipeWithoutDecls(node.pipe, scope, ctx);
+    const { value, reads } = this.read(ctx, (r) =>
+      this.evalPipeWithoutDecls(node.pipe, scope, ctx, r),
+    );
+    const arm = this.decide(reads, ctx);
     const decls = node.pipe.decls;
 
     const entries = enumerateForRange(value);
@@ -1111,22 +1173,24 @@ export class Engine<T> {
     // unrelated user errors with similar shapes are never swallowed.
     try {
       if (entries.length === 0) {
-        if (node.elseList) this.evalList(node.elseList, scope, ctx);
+        if (node.elseList) this.evalList(node.elseList, scope, arm);
         return;
       }
       for (const [key, item] of entries) {
-        const child = pushScope(scope, item);
+        // Every item, key and decl came out of the ranged value, so each
+        // depends on what the range pipe read.
+        const child = pushScope(scope, { value: item, marks: arm.marks });
         if (decls.length === 1) {
           const name = decls[0]?.idents[0] ?? "$";
-          declareVar(child, name, item);
+          declareVar(child, name, { value: item, marks: arm.marks });
         } else if (decls.length >= 2) {
           const k = decls[0]?.idents[0] ?? "$";
           const v = decls[1]?.idents[0] ?? "$";
-          declareVar(child, k, key);
-          declareVar(child, v, item);
+          declareVar(child, k, { value: key, marks: arm.marks });
+          declareVar(child, v, { value: item, marks: arm.marks });
         }
         try {
-          this.evalList(node.list, child, ctx);
+          this.evalList(node.list, child, arm);
         } catch (e) {
           if (e === CONTINUE_SIGNAL) continue;
           throw e;
@@ -1149,11 +1213,10 @@ export class Engine<T> {
         source: ctx.source,
       });
     }
-    const arg = node.pipe ? this.evalPipe(node.pipe, scope, ctx) : scope.dot;
-    const child = pushScope(scope, arg);
+    const child = pushScope(scope, this.invocationDot(node.pipe, scope, ctx));
     // The body's errors snippet against the source that declared it, which
     // for an inherited define is not this template's source.
-    this.evalList(entry.list, child, { out: ctx.out, defines: ctx.defines, source: entry.source });
+    this.evalList(entry.list, child, { ...ctx, source: entry.source });
   }
 
   private evalBlock(
@@ -1164,28 +1227,76 @@ export class Engine<T> {
     // A block invokes the same-named template if one is registered (or
     // that registration came from the block itself at parse time).
     // The dot for the block body is the pipe's value when present.
-    const arg = node.pipe ? this.evalPipe(node.pipe, scope, ctx) : scope.dot;
-    const child = pushScope(scope, arg);
+    const child = pushScope(scope, this.invocationDot(node.pipe, scope, ctx));
     const entry = lookupDefine(ctx.defines, node.name) ?? { list: node.list, source: ctx.source };
-    this.evalList(entry.list, child, { out: ctx.out, defines: ctx.defines, source: entry.source });
+    this.evalList(entry.list, child, { ...ctx, source: entry.source });
+  }
+
+  // [LAW:single-enforcer] The one place a control pipe's marks are
+  // reported, and the one place they join the arm's: whichever arm runs —
+  // an empty one, or none — the decision has already said what it read.
+  private decide(reads: Marks, ctx: EvalContext<T>): EvalContext<T> {
+    const marks = unionMarks(ctx.marks, reads);
+    this.decided(marks);
+    return { ...ctx, marks };
+  }
+
+  // The dot a `template`/`block` invocation pushes: the pipe's value, or
+  // the caller's dot, with what it depends on either way.
+  private invocationDot(pipe: PipeNode | undefined, scope: Scope, ctx: EvalContext<T>): Binding {
+    const { value, reads } = this.read(ctx, (r) =>
+      pipe ? this.evalPipe(pipe, scope, ctx, r) : this.readDot(scope, r),
+    );
+    return { value, marks: unionMarks(reads, ctx.marks) };
+  }
+
+  // [LAW:single-enforcer] Every set of reads starts here, and so does the
+  // one guarantee for a pipe that throws: the error the host shows
+  // instead of output may clear when a mark it read changes, and with no
+  // output there is no cell to say so on, so its reads go to `decided`.
+  private read(
+    ctx: EvalContext<T>,
+    evaluate: (reads: Set<unknown>) => unknown,
+  ): { readonly value: unknown; readonly reads: Marks } {
+    const reads = new Set<unknown>();
+    try {
+      return { value: evaluate(reads), reads };
+    } catch (e) {
+      this.decided(unionMarks(reads, ctx.marks));
+      throw e;
+    }
   }
 
   // -------------------------------------------------------------------
   // Expression-level dispatch (value-producing).
   // -------------------------------------------------------------------
 
-  private evalAction(node: ActionNode, scope: Scope, ctx: EvalContext<T>): unknown {
-    return this.evalPipe(node.pipe, scope, ctx);
-  }
-
-  private evalPipe(pipe: PipeNode, scope: Scope, ctx: EvalContext<T>): unknown {
+  // `reads` receives the pipe's provenance: the marks its value depends
+  // on. The pipe collects its own inputs — each command's arguments, the
+  // value piped into it, the carrier its call returns — so a call's writes
+  // depend on what its pipe consumed up to that call, not on what an
+  // enclosing pipe read beside it.
+  private evalPipe(
+    pipe: PipeNode,
+    scope: Scope,
+    ctx: EvalContext<T>,
+    reads: Set<unknown>,
+  ): unknown {
     if (pipe.cmds.length === 0) {
       throw new EvalError("empty pipeline", pipe.pos, { source: ctx.source });
     }
-    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, NO_PIPE);
-    for (let i = 1; i < pipe.cmds.length; i++) {
-      const next = pipe.cmds[i] as CommandNode;
-      value = this.evalCommand(next, scope, ctx, { kind: "value", value });
+    const inputs = new Set<unknown>();
+    let value: unknown;
+    // The merge runs on every path, so a pipe that throws still hands
+    // `read` what it had consumed when it failed.
+    try {
+      value = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, NO_PIPE, inputs);
+      for (let i = 1; i < pipe.cmds.length; i++) {
+        const next = pipe.cmds[i] as CommandNode;
+        value = this.evalCommand(next, scope, ctx, { kind: "value", value }, inputs);
+      }
+    } finally {
+      for (const mark of inputs) reads.add(mark);
     }
 
     // Apply variable declarations / assignments after the pipe is
@@ -1194,13 +1305,18 @@ export class Engine<T> {
     if (pipe.decls.length > 0) {
       for (const decl of pipe.decls) {
         const name = decl.idents[0] ?? "$";
-        declareVar(scope, name, value);
+        declareVar(scope, name, { value, marks: unionMarks(inputs, ctx.marks) });
       }
     }
     return value;
   }
 
-  private evalPipeWithoutDecls(pipe: PipeNode, scope: Scope, ctx: EvalContext<T>): unknown {
+  private evalPipeWithoutDecls(
+    pipe: PipeNode,
+    scope: Scope,
+    ctx: EvalContext<T>,
+    reads: Set<unknown>,
+  ): unknown {
     // Synthesise a pipe with empty decls so the standard `evalPipe`
     // doesn't attempt the (single-binding) declaration. `evalRange`
     // handles its own multi-binding semantics.
@@ -1211,10 +1327,16 @@ export class Engine<T> {
       isAssign: false,
       cmds: pipe.cmds,
     };
-    return this.evalPipe(stripped, scope, ctx);
+    return this.evalPipe(stripped, scope, ctx, reads);
   }
 
-  private evalCommand(cmd: CommandNode, scope: Scope, ctx: EvalContext<T>, piped: Piped): unknown {
+  private evalCommand(
+    cmd: CommandNode,
+    scope: Scope,
+    ctx: EvalContext<T>,
+    piped: Piped,
+    reads: Set<unknown>,
+  ): unknown {
     if (cmd.args.length === 0) {
       throw new EvalError("empty command", cmd.pos, { source: ctx.source });
     }
@@ -1228,7 +1350,7 @@ export class Engine<T> {
           { source: ctx.source },
         );
       }
-      return this.evalPrimary(head, scope, ctx);
+      return this.evalPrimary(head, scope, ctx, reads);
     }
 
     const fn = this.funcs[head.ident];
@@ -1248,7 +1370,7 @@ export class Engine<T> {
     // validation is a no-op against thunks.
     const lazy = isLazy(fn);
     const args: unknown[] = argNodes.map((n) =>
-      lazy ? () => this.evalPrimary(n, scope, ctx) : this.evalPrimary(n, scope, ctx),
+      lazy ? () => this.evalPrimary(n, scope, ctx, reads) : this.evalPrimary(n, scope, ctx, reads),
     );
     // [LAW:dataflow-not-control-flow] The discriminator drives whether
     // the pipe value is appended; `undefined` flows through as a real
@@ -1258,7 +1380,7 @@ export class Engine<T> {
       args.push(lazy ? () => v : v);
     }
 
-    return this.invoke(head.ident, fn, args, cmd.pos, ctx);
+    return this.invoke(head.ident, fn, args, cmd.pos, ctx, reads);
   }
 
   // [LAW:single-enforcer] Every call of a registered function — a command
@@ -1270,6 +1392,7 @@ export class Engine<T> {
     args: unknown[],
     pos: Pos,
     ctx: EvalContext<T>,
+    reads: Set<unknown>,
   ): unknown {
     enforceArgTypes(
       name,
@@ -1285,9 +1408,16 @@ export class Engine<T> {
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
     // their parameter types; we erase that here, having already validated
     // the runtime types via `enforceArgTypes`.
+    let result: unknown;
     try {
-      return (fn.fn as (...a: unknown[]) => unknown)(...args);
-    } catch (e) {
+      // [LAW:single-enforcer] A `marked` carrier is unwrapped here and only
+      // here — returned or thrown — so no template value is ever one.
+      result = readCarrier((fn.fn as (...a: unknown[]) => unknown)(...args), reads);
+    } catch (thrown) {
+      // A func whose failure depends on a marked value throws
+      // `marked(error, …)`: the error may clear when the mark changes, and
+      // the enclosing `read` reports it.
+      const e = readCarrier(thrown, reads);
       // [LAW:single-enforcer] The dispatch site is the *one* place that
       // owns call-site context (pos, source). Funcs that validate nested
       // structure (e.g. list elements, alternating variadic positions)
@@ -1309,12 +1439,37 @@ export class Engine<T> {
         cause: e,
       });
     }
+    // Where a write lands escapes the engine — into an object read later,
+    // into a fragment already emitted, into the host's data for the next
+    // evaluation — so the marks it stored are reported now, on the channel
+    // that needs no cell.
+    // A snapshot: the command's set keeps growing after this call.
+    if (fn.writes === true) this.decided(new Set([...reads, ...ctx.marks]));
+    return result;
   }
 
-  private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>): unknown {
+  // A carrier is unwrapped only as a func's own return. One nested inside
+  // a returned value is not read there; a func that later returns it alone
+  // (`index`, `get`) reads it with its marks, so its value never reaches
+  // output without them. Where a template operand reaches one directly
+  // (`(box).c`) the likely mistake is named rather than printed.
+  private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
+    const value = this.evalOperand(node, scope, ctx, reads);
+    if (value instanceof Marked) {
+      throw new EvalError(
+        "a marked() value reached the template from inside a func's return; " +
+          "return marked(...) itself, not a structure containing one",
+        node.pos,
+        { source: ctx.source },
+      );
+    }
+    return value;
+  }
+
+  private evalOperand(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     switch (node.type) {
       case "Dot":
-        return scope.dot;
+        return this.readDot(scope, reads);
       case "Nil":
         return null;
       case "Bool":
@@ -1324,9 +1479,9 @@ export class Engine<T> {
       case "String":
         return node.value;
       case "Field":
-        return this.resolveFieldChain(scope.dot, node.idents, node.pos, ctx);
+        return this.resolveFieldChain(this.readDot(scope, reads), node.idents, node.pos, ctx);
       case "Variable":
-        return this.resolveVariable(node.idents, scope, node.pos, ctx);
+        return this.resolveVariable(node.idents, scope, node.pos, ctx, reads);
       case "Identifier": {
         const fn = this.funcs[node.ident];
         if (!fn)
@@ -1334,17 +1489,17 @@ export class Engine<T> {
             source: ctx.source,
             available: Object.keys(this.funcs),
           });
-        return this.invoke(node.ident, fn, [], node.pos, ctx);
+        return this.invoke(node.ident, fn, [], node.pos, ctx, reads);
       }
       case "Chain":
         return this.resolveFieldChain(
-          this.evalPrimary(node.node, scope, ctx),
+          this.evalPrimary(node.node, scope, ctx, reads),
           node.fields,
           node.pos,
           ctx,
         );
       case "Pipe":
-        return this.evalPipe(node, scope, ctx);
+        return this.evalPipe(node, scope, ctx, reads);
       default:
         throw new EvalError(`cannot evaluate ${node.type} as a value`, node.pos, {
           source: ctx.source,
@@ -1382,49 +1537,47 @@ export class Engine<T> {
     scope: Scope,
     pos: Pos,
     ctx: EvalContext<T>,
+    reads: Set<unknown>,
   ): unknown {
     const head = idents[0] ?? "$";
     if (head === "$") {
       const tail = idents.slice(1);
       return tail.length === 0 ? scope.root : this.resolveFieldChain(scope.root, tail, pos, ctx);
     }
-    const lookup = lookupVar(scope, head);
-    if (!lookup.found) {
+    const binding = lookupVar(scope, head);
+    if (binding === undefined) {
       throw new EvalError(`undefined variable ${head}`, pos, { source: ctx.source });
     }
+    for (const mark of binding.marks) reads.add(mark);
     const tail = idents.slice(1);
-    return tail.length === 0 ? lookup.value : this.resolveFieldChain(lookup.value, tail, pos, ctx);
+    return tail.length === 0
+      ? binding.value
+      : this.resolveFieldChain(binding.value, tail, pos, ctx);
+  }
+
+  private readDot(scope: Scope, reads: Set<unknown>): unknown {
+    for (const mark of scope.dot.marks) reads.add(mark);
+    return scope.dot.value;
   }
 
   // -------------------------------------------------------------------
   // Output stream.
   // -------------------------------------------------------------------
 
-  private emitFromValue(value: unknown, ctx: EvalContext<T>): void {
-    // [LAW:dataflow-not-control-flow] No skip-when-null branch. The
-    // emit always runs; the value (including null/undefined) drives
-    // what is pushed. Matches Go's text/template, which emits
-    // `<no value>` for nil pipelines uniformly.
-    if (value === null || value === undefined) {
-      ctx.out.push(this.fromString("<no value>"));
-      return;
-    }
-    if (typeof value === "string") {
-      ctx.out.push(this.fromString(value));
-      return;
-    }
+  // The fragment an action's value becomes on the output stream.
+  private lift(value: unknown): T {
+    // Matches Go's text/template, which prints `<no value>` for a nil
+    // pipeline rather than skipping the emit.
+    if (value === null || value === undefined) return this.fromString("<no value>");
+    if (typeof value === "string") return this.fromString(value);
     if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-      ctx.out.push(this.fromString(String(value)));
-      return;
+      return this.fromString(String(value));
     }
     // A T is pushed as itself; anything else prints as Go's
     // `fmt.Sprintf("%v", v)` would (`[a b c]`, `map[k:v]`), which keeps the
     // conformance corpus byte-equal.
-    if (this.isT(value)) {
-      ctx.out.push(value as T);
-      return;
-    }
-    ctx.out.push(this.fromString(formatV(value, this.toString, this.isT)));
+    if (this.isT(value)) return value as T;
+    return this.fromString(formatV(value, this.toString, this.isT));
   }
 }
 
