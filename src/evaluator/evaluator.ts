@@ -308,8 +308,9 @@ export interface TemplateFunc {
   /**
    * `true` when the body stores anything it was handed — in place in an
    * argument, as sprig `set` and `unset` do, or in a closure or module
-   * variable a later call returns. Omitted: it stores nothing, which is
-   * true of nearly every func.
+   * variable a later call returns — or runs code it was handed, which may
+   * store (`call`). Omitted: it does neither, which is true of nearly
+   * every func.
    *
    * [LAW:types-are-the-program] Whether a call writes is a fact about the
    * func, so it is declared rather than assumed of every call. Where a
@@ -1044,16 +1045,19 @@ export class Engine<T> {
         return;
       case "Comment":
         return;
-      case "Action": {
-        const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, scope, ctx, r));
-        // Per Go's spec, actions whose pipeline declares variables
-        // (`{{ $x := pipe }}`) contribute no output — they're pure
-        // assignment statements. Only assignment-free actions emit.
-        if (node.pipe.decls.length === 0) {
-          ctx.out.push(this.emitted(this.lift(value), unionMarks(reads, ctx.marks)));
-        }
+      case "Action":
+        // The whole action — pipe, lift, `emitted` — is one read, so a throw
+        // anywhere in it reports what it had consumed.
+        this.read(ctx, (reads) => {
+          const value = this.evalPipe(node.pipe, scope, ctx, reads);
+          // Per Go's spec, actions whose pipeline declares variables
+          // (`{{ $x := pipe }}`) contribute no output — they're pure
+          // assignment statements. Only assignment-free actions emit.
+          if (node.pipe.decls.length === 0) {
+            ctx.out.push(this.emitted(this.lift(value), unionMarks(reads, ctx.marks)));
+          }
+        });
         return;
-      }
       case "List":
         this.evalList(node, scope, ctx);
         return;
@@ -1437,9 +1441,10 @@ export class Engine<T> {
     }
   }
 
-  // [LAW:no-silent-failure] A carrier is unwrapped only as a func's own
-  // return. One nested inside a returned value (`(box).c`, a range over a
-  // returned list) would otherwise print as an object and lose its marks.
+  // A carrier is unwrapped only as a func's own return. One nested inside
+  // a returned value is opaque — its value never reaches output, so no
+  // mark can be late — and where a template operand reaches it directly
+  // (`(box).c`) the likely mistake is named rather than printed.
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     const value = this.evalOperand(node, scope, ctx, reads);
     if (value instanceof Marked) {

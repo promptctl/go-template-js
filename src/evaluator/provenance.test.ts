@@ -61,6 +61,13 @@ function animated(mark: boolean): FuncMap {
       writes: true,
     },
     recall: { fn: () => memory.v, argTypes: [], arity: { kind: "exact" } },
+    // Runs a function it was handed, so it declares a write as `call` does.
+    apply: {
+      fn: (f: (...a: unknown[]) => unknown, ...a: unknown[]) => f(...a),
+      argTypes: ["callable", "value"],
+      arity: { kind: "variadic" },
+      writes: true,
+    },
     // Hides a carrier inside its return, which the engine refuses.
     box: {
       fn: () => ({ c: carry("#ff0000", STEPPED) }),
@@ -284,6 +291,34 @@ describe("provenance: the obligations a func author can meet", () => {
 });
 
 describe("provenance: a pipe that throws reports what it read through `decided`", () => {
+  it("a throw while lifting the value reports too", () => {
+    const decided: unknown[][] = [];
+    const strict = createEngine<Frag>({
+      fromString: (text) => {
+        if (text === "BAD") throw new Error("bad markup");
+        return { text };
+      },
+      funcs: animated(true),
+      decided: (marks) => {
+        decided.push([...marks]);
+      },
+    });
+    expect(() => strict.parse(`{{ ${STEP.replace('"#ff0000"', '"BAD"')} }}`).evaluate({})).toThrow(
+      /bad markup/,
+    );
+    expect(decided).toEqual([[STEPPED]]);
+  });
+
+  it("a func that runs code it was handed declares the write", () => {
+    const { decided } = run(`{{ $d := dict }}{{ $_ := apply .put $d "k" (${STEP}) }}{{ $d.k }}`, {
+      put: (d: Record<string, unknown>, k: string, v: unknown) => {
+        d[k] = v;
+        return "";
+      },
+    });
+    expect(decided).toEqual([[STEPPED]]);
+  });
+
   it("the error may clear when the mark changes", () => {
     const decided: unknown[][] = [];
     const tpl = engine({ decided }).parse(`{{ index (list 1 2) (int (stepped 1 "5" 1 "0")) }}`);
