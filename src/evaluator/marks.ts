@@ -14,6 +14,11 @@
  * nothing downstream of `invoke` can be handed one.
  */
 
+/** What the engine says when a carrier is found anywhere but a func's return. */
+export const NESTED_CARRIER =
+  "a marked() value reached the template from inside a func's return; " +
+  "return marked(...) itself, not a structure containing one";
+
 /** The set of marks a value or an emission depends on. */
 export type Marks = ReadonlySet<unknown>;
 
@@ -44,6 +49,17 @@ export class Marked {
   private constructor(value: unknown, marks: readonly unknown[]) {
     this.#value = value;
     this.#marks = marks;
+  }
+
+  // [LAW:no-silent-failure] A carrier nested in a returned structure is
+  // printed by no one: every route to text (`%v`, `printf`, `join`,
+  // `toJson`) converts through one of these, and each refuses.
+  [Symbol.toPrimitive](): never {
+    throw new Error(NESTED_CARRIER);
+  }
+
+  toJSON(): never {
+    throw new Error(NESTED_CARRIER);
   }
 
   static {
