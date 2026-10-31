@@ -45,6 +45,11 @@ describe("sprig.dateInZone", () => {
     expect(dateInZone("15:04 MST", REF_DATE, "America/New_York")).toBe("10:04 EST");
   });
 
+  it("formats a UTC offset name as UTC, since Go cannot load it as a zone", () => {
+    expect(dateInZone("15:04 MST -0700", REF_DATE, "+05:30")).toBe("15:04 UTC +0000");
+    expect(dateInZone("15:04 -0700", REF_DATE, "Etc/GMT+5")).toBe("10:04 -0500");
+  });
+
   it("follows a zone across DST on repeated calls", () => {
     const july = new Date("2006-07-02T15:04:05Z");
     expect(dateInZone("15:04 MST -0700", REF_DATE, "America/New_York")).toBe("10:04 EST -0500");

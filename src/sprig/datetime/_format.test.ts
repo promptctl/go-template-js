@@ -14,13 +14,13 @@ const REF: ZoneParts = {
   second: 5,
   ms: 0,
   tzAbbr: "MST",
-  offsetMinutes: -420, // MST = UTC-7
+  offsetSeconds: -25200, // MST = UTC-7
 };
 
 const UTC_REF: ZoneParts = {
   ...REF,
   tzAbbr: "UTC",
-  offsetMinutes: 0,
+  offsetSeconds: 0,
 };
 
 describe("formatGoLayout", () => {
@@ -103,5 +103,10 @@ describe("formatGoLayout", () => {
   it("December correctly not January", () => {
     const t: ZoneParts = { ...REF, month: 12 };
     expect(formatGoLayout("January", t)).toBe("December");
+  });
+
+  it("truncates a sub-minute offset toward zero and writes Z only for an exact zero, as Go does", () => {
+    const t: ZoneParts = { ...UTC_REF, offsetSeconds: -30 };
+    expect(formatGoLayout("-0700 Z0700 Z07:00", t)).toBe("+0000 +0000 +00:00");
   });
 });

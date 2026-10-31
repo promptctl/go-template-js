@@ -10,7 +10,7 @@
  */
 
 export interface ZoneParts {
-  year: number;
+  year: number; // astronomical: 1 BC is 0
   month: number; // 1–12
   day: number; // 1–31
   weekday: number; // 0 = Sun, 1 = Mon, …, 6 = Sat
@@ -20,7 +20,7 @@ export interface ZoneParts {
   second: number;
   ms: number; // milliseconds 0–999 (from UTC epoch)
   tzAbbr: string; // "UTC", "EST", "EDT", etc.
-  offsetMinutes: number; // UTC offset in minutes (e.g. -300 for EST)
+  offsetSeconds: number; // UTC offset, exact (e.g. -18000 for EST, -17762 for New York LMT)
 }
 
 // `era` lets BCE years be told from CE: Intl numbers 1 BC as year "1".
@@ -38,13 +38,6 @@ const INTL_OPTS: Intl.DateTimeFormatOptions = {
   timeZoneName: "short",
 };
 
-// Index parts array by type for O(1) access.
-function indexParts(parts: Intl.DateTimeFormatPart[]): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const p of parts) out.set(p.type, p.value);
-  return out;
-}
-
 const WEEKDAY_NAMES = [
   "Sunday",
   "Monday",
@@ -55,84 +48,96 @@ const WEEKDAY_NAMES = [
   "Saturday",
 ];
 
-interface ZoneFormatter {
-  zone: string; // Intl's canonical name for the zone; "UTC" for the fallback entry
-  parts: Intl.DateTimeFormat;
+// INTL_OPTS requests every part read here, so a missing one is a runtime
+// that broke the contract, not a value to default past.
+function readParts(fmt: Intl.DateTimeFormat, date: Date) {
+  const parts = new Map<string, string>();
+  for (const p of fmt.formatToParts(date)) parts.set(p.type, p.value);
+  return (type: Intl.DateTimeFormatPartTypes): string => {
+    const value = parts.get(type);
+    if (value === undefined) throw new Error(`Intl.DateTimeFormat omitted the ${type} part`);
+    return value;
+  };
 }
 
-function buildZoneFormatter(timeZone: string): ZoneFormatter {
-  const parts = new Intl.DateTimeFormat("en-US", { ...INTL_OPTS, timeZone });
-  return { zone: parts.resolvedOptions().timeZone, parts };
+function buildFormatter(timeZone: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat("en-US", { ...INTL_OPTS, timeZone });
 }
 
-// Built at load, so a runtime that cannot honour INTL_OPTS fails on import
-// rather than being mistaken for an unknown zone on every call.
-const UTC_FORMATTER = buildZoneFormatter("UTC");
+// Go's time.LoadLocation rejects UTC offset names ("+05:30"), which Intl
+// accepts as zones.
+const OFFSET_ZONE = /^[+-]/;
 
 // [LAW:no-shared-mutable-globals] Owned by `zoneFormatter` alone, the only
 // reader and writer. Invariant: each entry is a pure function of the key
 // (locale and options are fixed), so memoising leaves every result unchanged
-// and nothing is ever evicted. Only zones Intl accepts are stored, keyed
-// ASCII-case-insensitively as ECMA-402 matches them, so the map is bounded
-// by the IANA names and offset zones however the template spells them.
-// Construction costs tens of µs; formatting with a warm formatter, a few.
-const formattersByZone = new Map<string, ZoneFormatter>();
+// and nothing is ever evicted. Only zones that load are stored, keyed
+// ASCII-case-insensitively as ECMA-402 matches them, so the map is bounded by
+// the IANA identifiers however a template spells them. Construction costs
+// tens of µs; formatting with a warm formatter, a few.
+const formattersByZone = new Map<string, Intl.DateTimeFormat>();
 
-// Mirror Go sprig: an unknown zone falls back to UTC. Intl rejects it with a
-// RangeError at construction.
-function zoneFormatter(tzInput: string): ZoneFormatter {
-  const key = tzInput.replace(/[A-Z]/g, (c) => c.toLowerCase());
-  let f = formattersByZone.get(key);
-  if (f === undefined) {
-    try {
-      f = buildZoneFormatter(tzInput);
-    } catch {
-      return UTC_FORMATTER;
-    }
-    formattersByZone.set(key, f);
+// Mirror Go sprig: a zone that does not load falls back to UTC. Intl rejects
+// an unknown zone with a RangeError. The UTC formatter is built outside the
+// `try`, so a runtime that cannot honour INTL_OPTS at all fails loudly.
+function zoneFormatter(name: string): Intl.DateTimeFormat {
+  const key = name.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  const cached = formattersByZone.get(key);
+  if (cached !== undefined) return cached;
+  const loaded = OFFSET_ZONE.test(name) ? undefined : buildOrUnknown(name);
+  if (loaded === undefined) return zoneFormatter("UTC");
+  formattersByZone.set(key, loaded);
+  return loaded;
+}
+
+function buildOrUnknown(name: string): Intl.DateTimeFormat | undefined {
+  if (name === "UTC") return buildFormatter(name);
+  try {
+    return buildFormatter(name);
+  } catch (e) {
+    if (e instanceof RangeError) return undefined;
+    throw e;
   }
-  return f;
 }
 
 /** Extract date parts in the requested IANA timezone. Falls back to "UTC" on invalid zone, mirroring Go sprig. */
-export function getZoneParts(date: Date, tzInput: string): ZoneParts {
-  const fmt = zoneFormatter(tzInput);
-  const p = indexParts(fmt.parts.formatToParts(date));
+export function getZoneParts(date: Date, zone: string): ZoneParts {
+  const part = readParts(zoneFormatter(zone), date);
 
-  // Astronomical year, as Go counts: 1 BC is year 0.
-  const eraYear = parseInt(p.get("year") ?? "2000", 10);
-  const year = p.get("era") === "BC" ? 1 - eraYear : eraYear;
-  const month = parseInt(p.get("month") ?? "1", 10);
-  const day = parseInt(p.get("day") ?? "1", 10);
+  const eraYear = parseInt(part("year"), 10);
+  const year = part("era") === "BC" ? 1 - eraYear : eraYear;
+  const month = parseInt(part("month"), 10);
+  const day = parseInt(part("day"), 10);
   // hour12: false returns "24" for midnight in some runtimes — normalise.
-  const hour = parseInt(p.get("hour") ?? "0", 10) % 24;
-  const minute = parseInt(p.get("minute") ?? "0", 10);
-  const second = parseInt(p.get("second") ?? "0", 10);
+  const hour = parseInt(part("hour"), 10) % 24;
+  const minute = parseInt(part("minute"), 10);
+  const second = parseInt(part("second"), 10);
   const ms = date.getUTCMilliseconds();
 
   // The UTC offset is the wall clock read as if it were UTC, minus the
-  // instant. Exact to the second, so local mean time offsets such as
-  // New York's -4:56:02 before 1883 come out as Go has them; Go's offset
-  // tokens print minutes truncated toward zero. Plain arithmetic, not a
-  // Date, because the wall clock may lie past Date's ±8.64e15 ms range.
+  // instant: exact to the second, so local mean time offsets such as New
+  // York's -4:56:02 before 1883 survive. Plain arithmetic, not a Date,
+  // because the wall clock may lie past Date's ±8.64e15 ms range.
   const wallMs =
     daysFromCivil(year, month, day) * 86_400_000 + ((hour * 60 + minute) * 60 + second) * 1000 + ms;
-  const offsetMinutes = Math.trunc((wallMs - date.getTime()) / 60_000);
+  const offsetSeconds = (wallMs - date.getTime()) / 1000;
 
-  const weekday = WEEKDAY_NAMES.indexOf(p.get("weekday") ?? "Sunday");
+  const weekdayName = part("weekday");
+  const weekday = WEEKDAY_NAMES.indexOf(weekdayName);
+  if (weekday === -1) throw new Error(`Intl.DateTimeFormat gave an unknown weekday ${weekdayName}`);
 
   return {
     year,
     month,
     day,
-    weekday: weekday === -1 ? 0 : weekday,
+    weekday,
     hour,
     hour12: hour % 12 || 12,
     minute,
     second,
     ms,
-    tzAbbr: p.get("timeZoneName") ?? fmt.zone,
-    offsetMinutes,
+    tzAbbr: part("timeZoneName"),
+    offsetSeconds,
   };
 }
 
@@ -149,16 +154,18 @@ function daysFromCivil(year: number, month: number, day: number): number {
 }
 
 // [LAW:no-shared-mutable-globals] Owned by `localTz` alone. Go fixes
-// `time.Local` before `main`, but JS may assign `process.env.TZ` after imports
-// run, and Node re-resolves the host zone when it does — so the memo is keyed
-// on that value, and resolving costs one formatter only when it changes.
-let hostZone: { tzEnv: string | undefined; zone: string } | undefined;
+// `time.Local` before `main`, but in JS the host zone moves at runtime: Node
+// re-resolves it when `process.env.TZ` is assigned, a browser when the OS
+// zone changes. The memo is keyed on both signals (the offset stands in for
+// the OS zone where there is no `process`), so it resolves afresh, at the
+// cost of one formatter, only when one of them moves.
+let hostZone: { key: string; zone: string } | undefined;
 
 /** Host timezone name (IANA string). */
 export function localTz(): string {
-  const tzEnv = globalThis.process?.env.TZ;
-  if (hostZone === undefined || hostZone.tzEnv !== tzEnv) {
-    hostZone = { tzEnv, zone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  const key = `${globalThis.process?.env.TZ}|${new Date().getTimezoneOffset()}`;
+  if (hostZone?.key !== key) {
+    hostZone = { key, zone: Intl.DateTimeFormat().resolvedOptions().timeZone };
   }
   return hostZone.zone;
 }
