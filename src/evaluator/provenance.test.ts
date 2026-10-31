@@ -299,6 +299,8 @@ describe("provenance: the obligations a func author can meet", () => {
     "{{ box }}",
     "{{ $b := box }}{{ $b }}",
     '{{ printf "%v" (box) }}',
+    "{{ (box).c.d }}",
+    "{{ eq (box) (box) }}",
   ])("a nested carrier stays opaque: its value never reaches output: %s", (src) => {
     const text = run(src)
       .out.map((f) => f.text)
@@ -317,6 +319,13 @@ describe("provenance: the obligations a func author can meet", () => {
 
   it("unmarked lets a func build on another marking func's result", () => {
     expect(run("{{ clamp }}").out).toEqual([{ text: "0.1", marks: [TWEEN] }]);
+  });
+});
+
+describe("provenance: every report to `decided` carries the arms it sits in", () => {
+  it("a decision inside a marked arm reports that arm's marks", () => {
+    const { decided } = run(`{{ if ${STEP} }}{{ if true }}x{{ end }}{{ end }}`);
+    expect(decided).toEqual([[STEPPED], [STEPPED]]);
   });
 });
 

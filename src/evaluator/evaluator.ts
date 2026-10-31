@@ -600,13 +600,14 @@ export interface EngineConfig<T> {
    */
   readonly emitted?: (value: T, marks: ReadonlySet<unknown>) => T;
   /**
-   * Called once each time an `if`/`with`/`range` pipe is evaluated, with
-   * the marks of the values it read, before either arm runs — so a
-   * decision whose taken arm emits nothing (or which has no arm to take)
-   * still says what it depended on. Also called for each call of a func
-   * that declares `writes`, with the marks of all its inputs: the output
-   * may show that write later with no cell to say it on. Default: does
-   * nothing.
+   * Called once each time an `if`/`with`/`range` pipe is evaluated,
+   * before either arm runs — so a decision whose taken arm emits nothing
+   * (or which has no arm to take) still says what it depended on. Also
+   * called for each call of a func that declares `writes` (the output may
+   * show that write later with no cell to say it on), and for each action
+   * or control pipe that throws. Every call carries the marks of the
+   * values read and of every `if`/`with`/`range` arm it sits in.
+   * Default: does nothing.
    */
   readonly decided?: (marks: ReadonlySet<unknown>) => void;
 }
@@ -1235,8 +1236,9 @@ export class Engine<T> {
   // reported, and the one place they join the arm's: whichever arm runs —
   // an empty one, or none — the decision has already said what it read.
   private decide(reads: Marks, ctx: EvalContext<T>): EvalContext<T> {
-    this.decided(reads);
-    return { ...ctx, marks: unionMarks(ctx.marks, reads) };
+    const marks = unionMarks(ctx.marks, reads);
+    this.decided(marks);
+    return { ...ctx, marks };
   }
 
   // The dot a `template`/`block` invocation pushes: the pipe's value, or
