@@ -77,39 +77,50 @@ function spacePad2(n: number): string {
   return n < 10 ? ` ${n}` : String(n);
 }
 
+// Go prints an offset in whole minutes truncated toward zero, signed by
+// those minutes (so -30s prints "+0000"), and writes "Z" only when the exact
+// offset in seconds is zero.
+function offsetParts(offsetSeconds: number): { sign: string; hh: string; mm: string } {
+  const minutes = Math.trunc(offsetSeconds / 60);
+  const abs = Math.abs(minutes);
+  return {
+    sign: minutes < 0 ? "-" : "+",
+    hh: pad2(Math.floor(abs / 60)),
+    mm: pad2(abs % 60),
+  };
+}
+
 /** ±hhmm (no colon). E.g. "+0500", "-0500", "+0000". */
-function fmtOffset(offsetMinutes: number): string {
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const abs = Math.abs(offsetMinutes);
-  return `${sign}${pad2(Math.floor(abs / 60))}${pad2(abs % 60)}`;
+function fmtOffset(offsetSeconds: number): string {
+  const { sign, hh, mm } = offsetParts(offsetSeconds);
+  return `${sign}${hh}${mm}`;
 }
 
 /** ±hh:mm (with colon). E.g. "+05:00", "-05:00", "+00:00". */
-function fmtOffsetColon(offsetMinutes: number): string {
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const abs = Math.abs(offsetMinutes);
-  return `${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`;
+function fmtOffsetColon(offsetSeconds: number): string {
+  const { sign, hh, mm } = offsetParts(offsetSeconds);
+  return `${sign}${hh}:${mm}`;
 }
 
 /** ±hh only. */
-function fmtOffsetHour(offsetMinutes: number): string {
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  return `${sign}${pad2(Math.floor(Math.abs(offsetMinutes) / 60))}`;
+function fmtOffsetHour(offsetSeconds: number): string {
+  const { sign, hh } = offsetParts(offsetSeconds);
+  return `${sign}${hh}`;
 }
 
 /** Z or ±hhmm. */
-function fmtOffsetZ(offsetMinutes: number): string {
-  return offsetMinutes === 0 ? "Z" : fmtOffset(offsetMinutes);
+function fmtOffsetZ(offsetSeconds: number): string {
+  return offsetSeconds === 0 ? "Z" : fmtOffset(offsetSeconds);
 }
 
 /** Z or ±hh:mm. */
-function fmtOffsetColonZ(offsetMinutes: number): string {
-  return offsetMinutes === 0 ? "Z" : fmtOffsetColon(offsetMinutes);
+function fmtOffsetColonZ(offsetSeconds: number): string {
+  return offsetSeconds === 0 ? "Z" : fmtOffsetColon(offsetSeconds);
 }
 
 /** Z or ±hh. */
-function fmtOffsetHourZ(offsetMinutes: number): string {
-  return offsetMinutes === 0 ? "Z" : fmtOffsetHour(offsetMinutes);
+function fmtOffsetHourZ(offsetSeconds: number): string {
+  return offsetSeconds === 0 ? "Z" : fmtOffsetHour(offsetSeconds);
 }
 
 // Fractional second helper: pad/trim to `width` digits.
@@ -162,19 +173,20 @@ const TOKENS: [string, Replacer][] = [
   ["January", (z) => MONTHS_LONG[z.month - 1] ?? "January"],
   // 6-char
   ["Monday", (z) => WEEKDAYS_LONG[z.weekday] ?? "Monday"],
-  ["Z07:00", (z) => fmtOffsetColonZ(z.offsetMinutes)],
-  ["-07:00", (z) => fmtOffsetColon(z.offsetMinutes)],
+  ["Z07:00", (z) => fmtOffsetColonZ(z.offsetSeconds)],
+  ["-07:00", (z) => fmtOffsetColon(z.offsetSeconds)],
   // 5-char
-  ["Z0700", (z) => fmtOffsetZ(z.offsetMinutes)],
-  ["-0700", (z) => fmtOffset(z.offsetMinutes)],
+  ["Z0700", (z) => fmtOffsetZ(z.offsetSeconds)],
+  ["-0700", (z) => fmtOffset(z.offsetSeconds)],
   // 4-char
-  ["2006", (z) => String(z.year)],
+  // Go: sign, then the magnitude padded to four digits (-5 → "-0005").
+  ["2006", (z) => `${z.year < 0 ? "-" : ""}${String(Math.abs(z.year)).padStart(4, "0")}`],
   // 3-char
   ["Jan", (z) => MONTHS_SHORT[z.month - 1] ?? "Jan"],
   ["Mon", (z) => WEEKDAYS_SHORT[z.weekday] ?? "Mon"],
   ["MST", (z) => z.tzAbbr],
-  ["-07", (z) => fmtOffsetHour(z.offsetMinutes)],
-  ["Z07", (z) => fmtOffsetHourZ(z.offsetMinutes)],
+  ["-07", (z) => fmtOffsetHour(z.offsetSeconds)],
+  ["Z07", (z) => fmtOffsetHourZ(z.offsetSeconds)],
   // 2-char
   ["15", (z) => pad2(z.hour)],
   ["01", (z) => pad2(z.month)],
@@ -184,7 +196,7 @@ const TOKENS: [string, Replacer][] = [
   ["03", (z) => pad2(z.hour12)],
   ["04", (z) => pad2(z.minute)],
   ["05", (z) => pad2(z.second)],
-  ["06", (z) => pad2(z.year % 100)],
+  ["06", (z) => pad2(Math.abs(z.year) % 100)],
   ["PM", (z) => (z.hour >= 12 ? "PM" : "AM")],
   ["pm", (z) => (z.hour >= 12 ? "pm" : "am")],
   // 1-char
