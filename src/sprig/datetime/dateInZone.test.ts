@@ -37,4 +37,11 @@ describe("sprig.dateInZone", () => {
     // 1136239445 = 2006-01-02T15:04:05Z
     expect(dateInZone("2006-01-02", 1136239445, "UTC")).toBe("2006-01-02");
   });
+
+  it("an unknown zone formats as UTC, as Go sprig does, on every call", () => {
+    for (let i = 0; i < 2; i++) {
+      expect(dateInZone("15:04:05 MST -0700", REF_DATE, "Not/AZone")).toBe("15:04:05 UTC +0000");
+    }
+    expect(dateInZone("15:04 MST", REF_DATE, "America/New_York")).toBe("10:04 EST");
+  });
 });

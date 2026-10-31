@@ -51,36 +51,61 @@ const WEEKDAY_NAMES = [
   "Saturday",
 ];
 
+// Intl allows one `timeZoneName` style per formatter, so a zone needs two:
+// the calendar fields with the short abbreviation, and the GMT offset.
+interface ZoneFormatters {
+  parts: Intl.DateTimeFormat;
+  offset: Intl.DateTimeFormat;
+}
+
+function buildZoneFormatters(timeZone: string): ZoneFormatters {
+  return {
+    parts: new Intl.DateTimeFormat("en-US", {
+      ...INTL_OPTS,
+      timeZone,
+      timeZoneName: "short",
+    }),
+    offset: new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      timeZoneName: "shortOffset",
+    }),
+  };
+}
+
+// [LAW:no-shared-mutable-globals] Owned by `zoneFormatters` alone, the only
+// reader and writer. Invariant: each entry is a pure function of the key
+// (locale and options are fixed), so memoising leaves every result unchanged
+// and nothing is ever evicted. Construction costs tens of µs; formatting a
+// warm formatter costs a few.
+const formattersByZone = new Map<string, ZoneFormatters>();
+
+// Mirror Go sprig: an unknown zone falls back to UTC. Intl rejects it with a
+// RangeError at construction, so the fallback is decided once per key.
+function zoneFormatters(tzInput: string): ZoneFormatters {
+  let f = formattersByZone.get(tzInput);
+  if (f === undefined) {
+    try {
+      f = buildZoneFormatters(tzInput);
+    } catch {
+      f = zoneFormatters("UTC");
+    }
+    formattersByZone.set(tzInput, f);
+  }
+  return f;
+}
+
 /** Extract date parts in the requested IANA timezone. Falls back to "UTC" on invalid zone, mirroring Go sprig. */
 export function getZoneParts(date: Date, tzInput: string): ZoneParts {
-  // Mirror Go sprig: unknown tz → fall back to UTC.
-  let tz: string;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tzInput });
-    tz = tzInput;
-  } catch {
-    tz = "UTC";
-  }
-  const fmt = new Intl.DateTimeFormat("en-US", { ...INTL_OPTS, timeZone: tz });
-  const p = indexParts(fmt.formatToParts(date));
+  const fmt = zoneFormatters(tzInput);
+  const p = indexParts(fmt.parts.formatToParts(date));
 
   // hour12: false returns "24" for midnight in some runtimes — normalise.
   const hour = parseInt(p.get("hour") ?? "0", 10) % 24;
 
-  // Get timezone abbreviation via separate formatter (avoids mixing options).
-  const abbrFmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    timeZoneName: "short",
-  });
-  const abbrParts = indexParts(abbrFmt.formatToParts(date));
-  const tzAbbr = abbrParts.get("timeZoneName") ?? tz;
+  const tzAbbr = p.get("timeZoneName") ?? tzInput;
 
   // UTC offset in minutes from "GMT±h:mm" or "GMT" produced by shortOffset.
-  const offsetFmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    timeZoneName: "shortOffset",
-  });
-  const offsetParts = indexParts(offsetFmt.formatToParts(date));
+  const offsetParts = indexParts(fmt.offset.formatToParts(date));
   const offsetMinutes = parseGMTOffset(offsetParts.get("timeZoneName") ?? "GMT");
 
   const weekday = WEEKDAY_NAMES.indexOf(p.get("weekday") ?? "Sunday");
@@ -111,7 +136,10 @@ function parseGMTOffset(s: string): number {
   return sign * (h * 60 + min);
 }
 
+// Read once, as Go fixes `time.Local` at process start.
+const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 /** Host timezone name (IANA string). */
 export function localTz(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return LOCAL_TZ;
 }
