@@ -105,15 +105,20 @@ function* reachable(roots: readonly unknown[]): Generator<object> {
 }
 
 /**
- * After a call, every object reachable from its arguments may now hold a
- * value that depends on the call's inputs (`marks`). Reachable, not just
- * the argument: a func may write into nested structure, and an alias
- * bound earlier (`$a := $d.a`) must see that write too. With no marks a
- * write carries nothing, so nothing is walked.
+ * After a call that writes into `targets` (its declared `writes`), every
+ * object reachable from them may now hold a value that depends on the
+ * call's inputs (`marks`). Reachable, not just the target: a write can
+ * land in nested structure, and an alias bound earlier (`$a := $d.a`)
+ * must see it. With no marks a write carries nothing, so nothing is
+ * walked; with no targets there is nothing to walk.
  */
-export function markWritable(args: readonly unknown[], marks: Marks, written: WrittenMarks): void {
+export function markWritable(
+  targets: readonly unknown[],
+  marks: Marks,
+  written: WrittenMarks,
+): void {
   if (marks.size === 0) return;
-  for (const object of reachable(args)) {
+  for (const object of reachable(targets)) {
     const into = written.get(object) ?? new Set<unknown>();
     for (const mark of marks) into.add(mark);
     written.set(object, into);

@@ -314,6 +314,20 @@ export interface TemplateFunc {
    * the function body's own requirement; see `eq` and `dig`.
    */
   readonly arity: Arity;
+  /**
+   * The argument positions whose objects the body changes in place —
+   * sprig `set` and `unset` write into argument 0. Positions count the
+   * pipe-fed last argument the way `argTypes` does.
+   *
+   * [LAW:types-are-the-program] Whether a call writes is a fact about the
+   * func, so it is declared here rather than assumed of every call: a
+   * value marked by `marked` that a declared write stores into an object
+   * reaches every later read of that object, and a call that declares no
+   * writes changes nothing a later read could see. Omitted: the body
+   * writes into none of its arguments, which is true of nearly every
+   * func. A body that writes where it does not declare reports late.
+   */
+  readonly writes?: readonly number[];
 }
 
 export type FuncMap = Record<string, TemplateFunc>;
@@ -488,6 +502,14 @@ function validateArgSpecs(funcs: FuncMap): FuncMap {
           `least one declared argType (it reads its repeating slot from the end of ` +
           `argTypes); declare the slots the Go signature has, or use { kind: "exact" }`,
       );
+    }
+    for (const position of fn.writes ?? []) {
+      if (!Number.isSafeInteger(position) || position < 0) {
+        throw new Error(
+          `EngineConfig.funcs.${name}: writes holds ${String(position)}, which is not an ` +
+            `argument position; declare the non-negative indices the body writes into`,
+        );
+      }
     }
     if (
       fn.arity.kind === "alternating" &&
@@ -1378,7 +1400,11 @@ export class Engine<T> {
       // [LAW:single-enforcer] A `marked` carrier is unwrapped here and only
       // here, so no template value is ever one.
       const result = readCarrier((fn.fn as (...a: unknown[]) => unknown)(...args), reads);
-      markWritable(args, settle(reads, ctx), ctx.written);
+      markWritable(
+        (fn.writes ?? []).map((position) => args[position]),
+        settle(reads, ctx),
+        ctx.written,
+      );
       return result;
     } catch (e) {
       // [LAW:single-enforcer] The dispatch site is the *one* place that

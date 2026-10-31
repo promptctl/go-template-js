@@ -56,6 +56,7 @@ function animated(mark: boolean): FuncMap {
       },
       argTypes: ["dict", "value"],
       arity: { kind: "exact" },
+      writes: [0],
     },
   };
 }
@@ -195,6 +196,25 @@ describe("provenance: a call's writes depend only on what that call consumed", (
       ["x", [STEPPED]],
       ["y", []],
     ]);
+  });
+
+  it.each([
+    `{{ $p := dict "c" (${STEP}) "row" . }}{{ .name }}`,
+    `{{ $l := list (${TWEEN_CALL}) . }}{{ .name }}`,
+    `{{ $c := ${STEP} }}{{ $s := printf "%v %v" $c . }}{{ .name }}`,
+    `{{ define "row" }}{{ .row.name }}{{ end }}{{ $c := ${STEP} }}{{ template "row" (dict "c" $c "row" .) }}{{ .name }}`,
+  ])("a call that declares no writes changes nothing a later read sees: %s", (src) => {
+    const { out } = run(src, { name: "still" });
+    expect(out.at(-1)).toEqual({ text: "still", marks: [] });
+  });
+
+  it("an undeclared write position is refused at construct time", () => {
+    expect(() =>
+      createEngine<string>({
+        fromString: (s) => s,
+        funcs: { f: { fn: () => "", argTypes: [], arity: { kind: "exact" }, writes: [-1] } },
+      }),
+    ).toThrow(/writes holds -1/);
   });
 
   it("a write to one object does not reach a read of its sibling", () => {
