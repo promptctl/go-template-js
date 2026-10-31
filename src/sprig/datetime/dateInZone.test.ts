@@ -44,4 +44,24 @@ describe("sprig.dateInZone", () => {
     }
     expect(dateInZone("15:04 MST", REF_DATE, "America/New_York")).toBe("10:04 EST");
   });
+
+  it("follows a zone across DST on repeated calls", () => {
+    const july = new Date("2006-07-02T15:04:05Z");
+    expect(dateInZone("15:04 MST -0700", REF_DATE, "America/New_York")).toBe("10:04 EST -0500");
+    expect(dateInZone("15:04 MST -0700", july, "America/New_York")).toBe("11:04 EDT -0400");
+  });
+
+  it("keeps a local mean time offset's minutes, truncating seconds as Go does", () => {
+    // New York ran on LMT -4:56:02 before 1883.
+    const d = new Date("1800-01-01T00:00:00Z");
+    expect(dateInZone("2006-01-02 15:04:05 -0700", d, "America/New_York")).toBe(
+      "1799-12-31 19:03:58 -0456",
+    );
+  });
+
+  it("counts 1 BC as year 0, as Go does", () => {
+    const d = new Date(0);
+    d.setUTCFullYear(0, 0, 1);
+    expect(dateInZone("06-01-02 15:04 -0700", d, "UTC")).toBe("00-01-01 00:00 +0000");
+  });
 });

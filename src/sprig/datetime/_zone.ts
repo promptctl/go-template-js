@@ -23,7 +23,10 @@ export interface ZoneParts {
   offsetMinutes: number; // UTC offset in minutes (e.g. -300 for EST)
 }
 
+// `era` lets BCE years be told from CE: Intl numbers 1 BC as year "1".
+// `timeZoneName` adds the short abbreviation as a part.
 const INTL_OPTS: Intl.DateTimeFormatOptions = {
+  era: "short",
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
@@ -32,6 +35,7 @@ const INTL_OPTS: Intl.DateTimeFormatOptions = {
   minute: "2-digit",
   second: "2-digit",
   hour12: false,
+  timeZoneName: "short",
 };
 
 // Index parts array by type for O(1) access.
@@ -51,95 +55,88 @@ const WEEKDAY_NAMES = [
   "Saturday",
 ];
 
-// Intl allows one `timeZoneName` style per formatter, so a zone needs two:
-// the calendar fields with the short abbreviation, and the GMT offset.
-interface ZoneFormatters {
+interface ZoneFormatter {
+  zone: string; // the zone Intl accepted; "UTC" for the fallback entry
   parts: Intl.DateTimeFormat;
-  offset: Intl.DateTimeFormat;
 }
 
-function buildZoneFormatters(timeZone: string): ZoneFormatters {
-  return {
-    parts: new Intl.DateTimeFormat("en-US", {
-      ...INTL_OPTS,
-      timeZone,
-      timeZoneName: "short",
-    }),
-    offset: new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      timeZoneName: "shortOffset",
-    }),
-  };
+function buildZoneFormatter(zone: string): ZoneFormatter {
+  return { zone, parts: new Intl.DateTimeFormat("en-US", { ...INTL_OPTS, timeZone: zone }) };
 }
 
-// [LAW:no-shared-mutable-globals] Owned by `zoneFormatters` alone, the only
+// Built at load, so a runtime that cannot honour INTL_OPTS fails on import
+// rather than being mistaken for an unknown zone on every call.
+const UTC_FORMATTER = buildZoneFormatter("UTC");
+
+// [LAW:no-shared-mutable-globals] Owned by `zoneFormatter` alone, the only
 // reader and writer. Invariant: each entry is a pure function of the key
 // (locale and options are fixed), so memoising leaves every result unchanged
-// and nothing is ever evicted. Construction costs tens of µs; formatting a
-// warm formatter costs a few.
-const formattersByZone = new Map<string, ZoneFormatters>();
+// and nothing is ever evicted. Only zones Intl accepts are stored, keyed
+// ASCII-case-insensitively as ECMA-402 matches them, so the map is bounded
+// by the IANA names and offset zones however the template spells them.
+// Construction costs tens of µs; formatting with a warm formatter, a few.
+const formattersByZone = new Map<string, ZoneFormatter>();
 
 // Mirror Go sprig: an unknown zone falls back to UTC. Intl rejects it with a
-// RangeError at construction, so the fallback is decided once per key.
-function zoneFormatters(tzInput: string): ZoneFormatters {
-  let f = formattersByZone.get(tzInput);
+// RangeError at construction.
+function zoneFormatter(tzInput: string): ZoneFormatter {
+  const key = tzInput.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  let f = formattersByZone.get(key);
   if (f === undefined) {
     try {
-      f = buildZoneFormatters(tzInput);
+      f = buildZoneFormatter(tzInput);
     } catch {
-      f = zoneFormatters("UTC");
+      return UTC_FORMATTER;
     }
-    formattersByZone.set(tzInput, f);
+    formattersByZone.set(key, f);
   }
   return f;
 }
 
 /** Extract date parts in the requested IANA timezone. Falls back to "UTC" on invalid zone, mirroring Go sprig. */
 export function getZoneParts(date: Date, tzInput: string): ZoneParts {
-  const fmt = zoneFormatters(tzInput);
+  const fmt = zoneFormatter(tzInput);
   const p = indexParts(fmt.parts.formatToParts(date));
 
+  // Astronomical year, as Go counts: 1 BC is year 0.
+  const eraYear = parseInt(p.get("year") ?? "2000", 10);
+  const year = p.get("era") === "BC" ? 1 - eraYear : eraYear;
+  const month = parseInt(p.get("month") ?? "1", 10);
+  const day = parseInt(p.get("day") ?? "1", 10);
   // hour12: false returns "24" for midnight in some runtimes — normalise.
   const hour = parseInt(p.get("hour") ?? "0", 10) % 24;
+  const minute = parseInt(p.get("minute") ?? "0", 10);
+  const second = parseInt(p.get("second") ?? "0", 10);
+  const ms = date.getUTCMilliseconds();
 
-  const tzAbbr = p.get("timeZoneName") ?? tzInput;
-
-  // UTC offset in minutes from "GMT±h:mm" or "GMT" produced by shortOffset.
-  const offsetParts = indexParts(fmt.offset.formatToParts(date));
-  const offsetMinutes = parseGMTOffset(offsetParts.get("timeZoneName") ?? "GMT");
+  // The UTC offset is the wall clock read as if it were UTC, minus the
+  // instant. Exact to the second, so local mean time offsets such as
+  // New York's -4:56:02 before 1883 come out as Go has them; Go's offset
+  // tokens print minutes truncated toward zero.
+  const wall = new Date(0);
+  wall.setUTCFullYear(year, month - 1, day);
+  wall.setUTCHours(hour, minute, second, ms);
+  const offsetMinutes = Math.trunc((wall.getTime() - date.getTime()) / 60_000);
 
   const weekday = WEEKDAY_NAMES.indexOf(p.get("weekday") ?? "Sunday");
 
   return {
-    year: parseInt(p.get("year") ?? "2000", 10),
-    month: parseInt(p.get("month") ?? "1", 10),
-    day: parseInt(p.get("day") ?? "1", 10),
+    year,
+    month,
+    day,
     weekday: weekday === -1 ? 0 : weekday,
     hour,
     hour12: hour % 12 || 12,
-    minute: parseInt(p.get("minute") ?? "0", 10),
-    second: parseInt(p.get("second") ?? "0", 10),
-    ms: date.getUTCMilliseconds(),
-    tzAbbr,
+    minute,
+    second,
+    ms,
+    tzAbbr: p.get("timeZoneName") ?? fmt.zone,
     offsetMinutes,
   };
 }
 
-/** Parse "GMT", "GMT+5", "GMT+5:30", "GMT-4" → offset in minutes. */
-function parseGMTOffset(s: string): number {
-  if (s === "GMT" || s === "UTC") return 0;
-  const m = s.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
-  if (!m) return 0;
-  const sign = m[1] === "+" ? 1 : -1;
-  const h = parseInt(m[2] ?? "0", 10);
-  const min = parseInt(m[3] ?? "0", 10);
-  return sign * (h * 60 + min);
-}
-
-// Read once, as Go fixes `time.Local` at process start.
-const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-/** Host timezone name (IANA string). */
+/** Host timezone name (IANA string). Read per call: Go fixes `time.Local`
+ * before `main`, but JS code may set `process.env.TZ` after imports run. */
 export function localTz(): string {
-  return LOCAL_TZ;
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
