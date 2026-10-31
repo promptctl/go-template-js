@@ -48,11 +48,9 @@ import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js
 import { isLazy } from "./lazy.js";
 import {
   type Marks,
-  markWritable,
   NO_MARKS,
   readCarrier,
-  readObject,
-  readReachable,
+  readThrough,
   unionMarks,
   type WrittenMarks,
 } from "./marks.js";
@@ -315,19 +313,18 @@ export interface TemplateFunc {
    */
   readonly arity: Arity;
   /**
-   * The argument positions whose objects the body changes in place —
-   * sprig `set` and `unset` write into argument 0. Positions count the
-   * pipe-fed last argument the way `argTypes` does.
+   * `true` when the body changes an object it was handed in place, as
+   * sprig `set` and `unset` do. Omitted: it changes nothing it was
+   * handed, which is true of nearly every func.
    *
    * [LAW:types-are-the-program] Whether a call writes is a fact about the
-   * func, so it is declared here rather than assumed of every call: a
-   * value marked by `marked` that a declared write stores into an object
-   * reaches every later read of that object, and a call that declares no
-   * writes changes nothing a later read could see. Omitted: the body
-   * writes into none of its arguments, which is true of nearly every
-   * func. A body that writes where it does not declare reports late.
+   * func, so it is declared rather than assumed of every call. After a
+   * declared write whose inputs carry `marked` tokens, every later read
+   * through an object reports them — the engine does not walk the host's
+   * data to find where the write landed. A body that writes without
+   * declaring it reports late.
    */
-  readonly writes?: readonly number[];
+  readonly writes?: true;
 }
 
 export type FuncMap = Record<string, TemplateFunc>;
@@ -502,14 +499,6 @@ function validateArgSpecs(funcs: FuncMap): FuncMap {
           `least one declared argType (it reads its repeating slot from the end of ` +
           `argTypes); declare the slots the Go signature has, or use { kind: "exact" }`,
       );
-    }
-    for (const position of fn.writes ?? []) {
-      if (!Number.isSafeInteger(position) || position < 0) {
-        throw new Error(
-          `EngineConfig.funcs.${name}: writes holds ${String(position)}, which is not an ` +
-            `argument position; declare the non-negative indices the body writes into`,
-        );
-      }
     }
     if (
       fn.arity.kind === "alternating" &&
@@ -1036,7 +1025,7 @@ export class Engine<T> {
       defines: parsed.defines,
       source: parsed.source,
       marks: NO_MARKS,
-      written: new Map(),
+      written: new Set(),
     };
     this.evalList(parsed.root, root, ctx);
     return out;
@@ -1400,11 +1389,7 @@ export class Engine<T> {
       // [LAW:single-enforcer] A `marked` carrier is unwrapped here and only
       // here, so no template value is ever one.
       const result = readCarrier((fn.fn as (...a: unknown[]) => unknown)(...args), reads);
-      markWritable(
-        (fn.writes ?? []).map((position) => args[position]),
-        settle(reads, ctx),
-        ctx.written,
-      );
+      if (fn.writes === true) for (const mark of settle(reads, ctx)) ctx.written.add(mark);
       return result;
     } catch (e) {
       // [LAW:single-enforcer] The dispatch site is the *one* place that
@@ -1430,11 +1415,10 @@ export class Engine<T> {
     }
   }
 
-  // Every operand is a read of all it contains: whatever a call wrote
-  // into it joins the reading call's inputs.
+  // An operand that is an object may hold anything a write stored.
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     const value = this.evalOperand(node, scope, ctx, reads);
-    readReachable(value, reads, ctx.written);
+    readThrough(value, reads, ctx.written);
     return value;
   }
 
@@ -1497,7 +1481,9 @@ export class Engine<T> {
     ctx: EvalContext<T>,
     reads: Set<unknown>,
   ): unknown {
-    const result = walkFieldChain(receiver, idents, (step) => readObject(step, reads, ctx.written));
+    const result = walkFieldChain(receiver, idents, (step) =>
+      readThrough(step, reads, ctx.written),
+    );
     if (result !== MISSING) return result;
     // [LAW:dataflow-not-control-flow] Single gate, three productions.
     // The policy value (a discriminator already validated by the

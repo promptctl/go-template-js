@@ -56,7 +56,7 @@ function animated(mark: boolean): FuncMap {
       },
       argTypes: ["dict", "value"],
       arity: { kind: "exact" },
-      writes: [0],
+      writes: true,
     },
   };
 }
@@ -208,17 +208,29 @@ describe("provenance: a call's writes depend only on what that call consumed", (
     expect(out.at(-1)).toEqual({ text: "still", marks: [] });
   });
 
-  it("an undeclared write position is refused at construct time", () => {
-    expect(() =>
-      createEngine<string>({
-        fromString: (s) => s,
-        funcs: { f: { fn: () => "", argTypes: [], arity: { kind: "exact" }, writes: [-1] } },
-      }),
-    ).toThrow(/writes holds -1/);
+  it("a write reaches what an accessor reaches, and the data's code never runs", () => {
+    const data = { name: "n" } as Record<string, unknown>;
+    Object.defineProperty(data, "a", { value: { k: "x" }, enumerable: false });
+    Object.defineProperty(data, "boom", {
+      enumerable: true,
+      get() {
+        throw new Error("boom");
+      },
+    });
+    for (const src of [
+      `{{ $_ := set .a "k" (${STEP}) }}{{ index . "a" "k" }}`,
+      `{{ $_ := set .a "k" (${STEP}) }}{{ dig "a" "k" "" . }}`,
+      `{{ $_ := set .a "k" (${STEP}) }}{{ $x := . }}{{ .a.k }}`,
+    ]) {
+      expect(run(src, data).out.at(-1)?.marks).toEqual([STEPPED]);
+    }
   });
 
-  it("a write to one object does not reach a read of its sibling", () => {
-    const { out } = run(`{{ $_ := set .a "k" (${STEP}) }}{{ .b.k }}`, { a: {}, b: { k: "y" } });
+  it("a write leaves values that were not read through an object alone", () => {
+    const { out } = run(`{{ $n := .b.k }}{{ $_ := set .a "k" (${STEP}) }}{{ $n }}`, {
+      a: {},
+      b: { k: "y" },
+    });
     expect(out.at(-1)).toEqual({ text: "y", marks: [] });
   });
 });

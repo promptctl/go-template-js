@@ -68,81 +68,24 @@ export function marked(value: unknown, ...marks: unknown[]): Marked {
 }
 
 /**
- * Per evaluation: the marks a call may have written into each object.
+ * Per evaluation: the marks every declared write so far has carried.
  *
- * A func can change an object it is handed (sprig `set`, `unset`,
- * `merge` do), so a mark can reach the output through an object no
- * marked binding points at: `{{ $_ := set $d "k" (tween …) }}{{ $d.k }}`
- * reads `$d`, whose binding was made before the write. Marks therefore
- * also live on the objects themselves, and a read of an object picks
- * them up. Scoped to one evaluation, so a plain `Map` is the owner and
- * its size says whether any write has happened at all.
+ * A func can change an object it is handed (sprig `set`, `unset`), so a
+ * mark can reach the output through an object no marked binding points
+ * at: `{{ $_ := set $d "k" (tween …) }}{{ $d.k }}` reads `$d`, whose
+ * binding was made before the write. The engine cannot see where a write
+ * landed without walking the host's data — running its getters and
+ * missing what an accessor reaches but a walk does not — so it does not
+ * try: after a write, every later read through any object depends on it.
+ * Coarse, and so early rather than late, and confined to evaluations in
+ * which a func that declares writes was handed a marked value.
  */
-export type WrittenMarks = Map<object, Set<unknown>>;
+export type WrittenMarks = Set<unknown>;
 
-function isHeapObject(value: unknown): value is object {
-  return typeof value === "object" && value !== null;
-}
-
-// Every object reachable from `roots`, each once: array elements, Map
-// keys and values, Set members, own enumerable values. One traversal, so
-// what a write can reach and what a read can see are the same set.
-function* reachable(roots: readonly unknown[]): Generator<object> {
-  const seen = new Set<object>();
-  const pending = roots.filter(isHeapObject);
-  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-    if (seen.has(next)) continue;
-    seen.add(next);
-    yield next;
-    const children =
-      next instanceof Map
-        ? [...next.keys(), ...next.values()]
-        : next instanceof Set
-          ? [...next]
-          : Object.values(next);
-    for (const child of children) if (isHeapObject(child)) pending.push(child);
-  }
-}
-
-/**
- * After a call that writes into `targets` (its declared `writes`), every
- * object reachable from them may now hold a value that depends on the
- * call's inputs (`marks`). Reachable, not just the target: a write can
- * land in nested structure, and an alias bound earlier (`$a := $d.a`)
- * must see it. With no marks a write carries nothing, so nothing is
- * walked; with no targets there is nothing to walk.
- */
-export function markWritable(
-  targets: readonly unknown[],
-  marks: Marks,
-  written: WrittenMarks,
-): void {
-  if (marks.size === 0) return;
-  for (const object of reachable(targets)) {
-    const into = written.get(object) ?? new Set<unknown>();
-    for (const mark of marks) into.add(mark);
-    written.set(object, into);
-  }
-}
-
-/**
- * A read of `value` reads everything it contains, so whatever a call
- * wrote anywhere inside it joins `reads` — `{{ $d }}` after
- * `set $d.a "k" …` depends on the write. Nothing is walked until some
- * write has happened.
- */
-export function readReachable(value: unknown, reads: Set<unknown>, written: WrittenMarks): void {
-  if (written.size === 0) return;
-  for (const object of reachable([value])) readObject(object, reads, written);
-}
-
-/**
- * A field chain passing through `step` reads that one object: a write to
- * `.a` reaches `.a.k`, and a write to `.b` does not.
- */
-export function readObject(step: unknown, reads: Set<unknown>, written: WrittenMarks): void {
-  if (!isHeapObject(step)) return;
-  for (const mark of written.get(step) ?? NO_MARKS) reads.add(mark);
+/** A read through `value`: if it is an object, every write so far may be in it. */
+export function readThrough(value: unknown, reads: Set<unknown>, written: WrittenMarks): void {
+  if (typeof value !== "object" || value === null) return;
+  for (const mark of written) reads.add(mark);
 }
 
 /** `a ∪ b`, sharing an operand when the other is empty. */

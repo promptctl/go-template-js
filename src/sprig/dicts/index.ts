@@ -63,13 +63,13 @@ export function sprigDicts(): FuncMap {
       argTypes: ["dict", "string", "value"],
       arity: { kind: "exact" },
       // Go's `set` writes into the dict it is handed and returns it.
-      writes: [0],
+      writes: true,
     },
     unset: {
       fn: (d, k) => unset(d as Record<string, unknown>, k as string),
       argTypes: ["dict", "string"],
       arity: { kind: "exact" },
-      writes: [0],
+      writes: true,
     },
     // Go: `keys(dicts ...map[string]interface{})` — variadic, so no
     // argument is required and every dict past the first contributes
