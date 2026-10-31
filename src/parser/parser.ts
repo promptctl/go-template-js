@@ -472,7 +472,7 @@ class Parser {
 
   private parseBlock(startPos: Pos, trimLeft: boolean): BlockNode {
     const name = this.parseQuotedName();
-    const pipe = this.peek().type === "RightDelim" ? undefined : this.parsePipeline("block clause");
+    const pipe = this.parsePipeline("block clause");
     this.expect("RightDelim", "`}}`");
     // [LAW:types-are-the-program] A `{{block}}` body is invoked via the
     // sub-template machinery: a separate parse context in Go's
@@ -492,9 +492,7 @@ class Parser {
     if (!this.defines.has(name) && !this.inherit.has(name)) {
       this.defines.set(name, { list, source: this.source });
     }
-    return pipe
-      ? ({ type: "Block", pos: startPos, name, pipe, list, trim } satisfies BlockNode)
-      : ({ type: "Block", pos: startPos, name, list, trim } satisfies BlockNode);
+    return { type: "Block", pos: startPos, name, pipe, list, trim } satisfies BlockNode;
   }
 
   private parseDefine(_startPos: Pos, _trimLeft: boolean): void {
@@ -541,6 +539,10 @@ class Parser {
   private parsePipeline(context: PipelineContext): PipeNode {
     const startPos = this.peek().pos;
     const decls = this.tryParseDecls(context);
+    const end = this.peek();
+    if (end.type === "RightDelim" || end.type === "RightParen") {
+      throw this.errAt(end, `missing value for ${context}`, { expected: "command" });
+    }
     const cmds: CommandNode[] = [this.parseCommand()];
     while (this.peek().type === "Pipe") {
       this.next();
@@ -565,14 +567,14 @@ class Parser {
   private tryParseDecls(
     context: PipelineContext,
   ): { vars: VariableNode[]; isAssign: boolean } | undefined {
-    if (this.peek().type !== "Variable") return undefined;
+    if (!isDeclTarget(this.peek())) return undefined;
     // We have to be conservative here — `$x` could be the start of a
     // declaration *or* a plain pipeline whose first command is just a
     // variable reference. Distinguish by scanning ahead for `:=` / `=`
     // (possibly through `, $y` chains).
     let n = 1;
     while (this.peek(n).type === "Comma") {
-      if (this.peek(n + 1).type !== "Variable") return undefined;
+      if (!isDeclTarget(this.peek(n + 1))) return undefined;
       n += 2;
     }
     const opType = this.peek(n).type;
@@ -706,6 +708,12 @@ function canStartPrimary(t: TokenType): boolean {
     default:
       return false;
   }
+}
+
+// A declaration names a bare variable: Go lexes `$x.y` as `$x` and a
+// field, so `$x.y := v` is no declaration and fails as a pipeline.
+function isDeclTarget(t: Token): boolean {
+  return t.type === "Variable" && !t.value.includes(".");
 }
 
 function varFromToken(t: Token): VariableNode {

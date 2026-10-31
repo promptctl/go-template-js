@@ -53,6 +53,7 @@ import {
   type Binding,
   declareVar,
   lookupVar,
+  markVar,
   pushScope,
   rootScope,
   type Scope,
@@ -622,6 +623,12 @@ export interface EngineConfig<T> {
 }
 
 // Per-evaluate context. Threaded through every internal method.
+// The bodies a control construct chooses among.
+interface Arms {
+  readonly list: ListNode;
+  readonly elseList?: ListNode;
+}
+
 interface EvalContext<T> {
   readonly out: T[];
   readonly defines: Defines;
@@ -1125,7 +1132,7 @@ export class Engine<T> {
   ): void {
     const frame = constructFrame(scope);
     const { value: cond, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, frame, ctx, r));
-    const arm = this.decide(reads, ctx);
+    const arm = this.decide(reads, ctx, frame, node);
     if (isTruthy(cond)) {
       this.evalList(node.list, frame, arm);
     } else if (node.elseList) {
@@ -1140,7 +1147,7 @@ export class Engine<T> {
   ): void {
     const frame = constructFrame(scope);
     const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, frame, ctx, r));
-    const arm = this.decide(reads, ctx);
+    const arm = this.decide(reads, ctx, frame, node);
     if (isTruthy(value)) {
       this.evalList(node.list, pushScope(frame, { value, marks: arm.marks }), arm);
     } else if (node.elseList) {
@@ -1158,7 +1165,7 @@ export class Engine<T> {
     // rebinds them to its key and element, as Go's exec.go does.
     const rangeScope = constructFrame(scope);
     const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, rangeScope, ctx, r));
-    const arm = this.decide(reads, ctx);
+    const arm = this.decide(reads, ctx, rangeScope, node);
     const { decls, isAssign } = node.pipe;
 
     const entries = enumerateForRange(value);
@@ -1226,7 +1233,7 @@ export class Engine<T> {
   }
 
   private evalBlock(
-    node: { name: string; pipe?: PipeNode; list: ListNode; pos: Pos },
+    node: { name: string; pipe: PipeNode; list: ListNode; pos: Pos },
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
@@ -1239,12 +1246,31 @@ export class Engine<T> {
   }
 
   // [LAW:single-enforcer] The one place a control pipe's marks are
-  // reported, and the one place they join the arm's: whichever arm runs —
-  // an empty one, or none — the decision has already said what it read.
-  private decide(reads: Marks, ctx: EvalContext<T>): EvalContext<T> {
+  // reported, and the one place they join what depends on the decision:
+  // whichever arm runs — an empty one, or none — the decision has already
+  // said what it read, and every variable an arm may `=`-assign carries it,
+  // since its value after the construct hangs on which arm ran.
+  private decide(reads: Marks, ctx: EvalContext<T>, frame: Scope, arms: Arms): EvalContext<T> {
     const marks = unionMarks(ctx.marks, reads);
     this.decided(marks);
+    for (const name of this.assignedIn(arms)) markVar(frame, name, marks);
     return { ...ctx, marks };
+  }
+
+  // The names any `=` in a construct's arms assigns, nested constructs
+  // included; fixed by the AST, so found once per construct.
+  private readonly assigned = new WeakMap<ListNode, readonly string[]>();
+  private assignedIn(arms: Arms): readonly string[] {
+    const cached = this.assigned.get(arms.list);
+    if (cached !== undefined) return cached;
+    const names = new Set<string>();
+    const collect = (n: Node): void => {
+      if (n.type === "Pipe" && n.isAssign) for (const d of n.decls) names.add(d.idents[0] ?? "$");
+    };
+    for (const list of [arms.list, arms.elseList]) if (list) walk(list, collect);
+    const found = [...names];
+    this.assigned.set(arms.list, found);
+    return found;
   }
 
   // The dot a `template`/`block` invocation pushes: the pipe's value with

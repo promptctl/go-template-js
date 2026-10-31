@@ -1,23 +1,23 @@
 /**
  * Lexical scope chain for the evaluator.
  *
- * [LAW:dataflow-not-control-flow] A `Scope` is an immutable record of
- * `dot`, `root` (the original `$`), and a parent pointer. New frames
- * are *constructed*; we never mutate an existing frame to "leave" it.
- * That means iterations of `{{range}}` cannot see each other's `$var`
- * declarations — the data shape itself prevents the bug.
+ * [LAW:dataflow-not-control-flow] A `Scope` is a `dot`, a parent
+ * pointer and the variables declared in it. Entering a construct or an
+ * iteration *constructs* a frame and leaving it drops the frame, so
+ * nothing is ever undone: iterations of `{{range}}` cannot see each
+ * other's `:=` declarations — the data shape itself prevents the bug.
  *
- * Variables are stored on the leaf frame as a flat record. A lookup
- * walks the parent chain. Assignment via `=` searches the chain and
- * mutates the *binding's* frame; declaration via `:=` always creates
- * the binding in the current leaf frame.
+ * Only a frame's variables change. A lookup walks the parent chain.
+ * Assignment via `=` searches the chain and overwrites the binding in
+ * the frame that declared it; declaration via `:=` always creates the
+ * binding in the current leaf frame.
  *
  * `$` is an ordinary variable declared in a chain's root frame, as in
  * Go, where it is `vars[0]`: so `$ = v` assigns it, and a `template` /
  * `block` invocation starts a fresh chain whose only variable is `$`.
  */
 
-import type { Marks } from "./marks.js";
+import { type Marks, unionMarks } from "./marks.js";
 
 /**
  * A bound value and the marks it depends on.
@@ -82,4 +82,11 @@ export function assignVar(scope: Scope, name: string, binding: Binding): boolean
   const frame = findFrame(scope, name);
   frame?.vars.set(name, binding);
   return frame !== undefined;
+}
+
+/** Add `marks` to what `name`'s binding depends on, if any frame declared it. */
+export function markVar(scope: Scope, name: string, marks: Marks): void {
+  const binding = lookupVar(scope, name);
+  if (binding === undefined) return;
+  assignVar(scope, name, { value: binding.value, marks: unionMarks(binding.marks, marks) });
 }
