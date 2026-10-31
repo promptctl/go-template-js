@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { marked } from "../index.js";
+import { marked, unmarked } from "../index.js";
 import { sprigConversions } from "../sprig/conversions/index.js";
 import { sprigDefaults } from "../sprig/defaults/index.js";
 import { sprigDicts } from "../sprig/dicts/index.js";
@@ -23,6 +23,8 @@ const STEPPED = Symbol("stepped");
 // Each returns the value it has at T; `mark` says whether it marks its call.
 function animated(mark: boolean): FuncMap {
   const carry = (value: unknown, token: symbol) => (mark ? marked(value, token) : value);
+  const memory: { v?: unknown } = {};
+  const tweenAt = () => carry(0.125, TWEEN);
   return {
     // tween duration ease delay from to
     tween: {
@@ -46,6 +48,32 @@ function animated(mark: boolean): FuncMap {
     fg: {
       fn: (colour: string, text: string): Frag => ({ text, fg: colour }),
       argTypes: ["string", "string"],
+      arity: { kind: "exact" },
+    },
+    // Keeps what it is handed in a closure: a store, so it declares a write.
+    remember: {
+      fn: (v: unknown) => {
+        memory.v = v;
+        return "";
+      },
+      argTypes: ["value"],
+      arity: { kind: "exact" },
+      writes: true,
+    },
+    recall: { fn: () => memory.v, argTypes: [], arity: { kind: "exact" } },
+    // Hides a carrier inside its return, which the engine refuses.
+    box: {
+      fn: () => ({ c: carry("#ff0000", STEPPED) }),
+      argTypes: [],
+      arity: { kind: "exact" },
+    },
+    // Builds on another marking func outside the template.
+    clamp: {
+      fn: () => {
+        const { value, marks } = unmarked(tweenAt());
+        return marked(Math.min(0.1, value as number), ...marks);
+      },
+      argTypes: [],
       arity: { kind: "exact" },
     },
     // Writes into nested structure of its argument: d.a.k = v.
@@ -236,6 +264,31 @@ describe("provenance: a call's writes depend only on what that call consumed", (
   ])("a call that declares no writes changes nothing a later read sees: %s", (src) => {
     const { out } = run(src, { name: "still" });
     expect(out.at(-1)).toEqual({ text: "still", marks: [] });
+  });
+});
+
+describe("provenance: the obligations a func author can meet", () => {
+  it("a func that stores what it is handed declares the write, and the store is reported", () => {
+    const { out, decided } = run(`{{ $_ := remember (${STEP}) }}{{ recall }}`);
+    expect(decided).toEqual([[STEPPED]]);
+    expect(out.at(-1)?.text).toBe("#ff0000");
+  });
+
+  it("a carrier hidden inside a func's return fails loudly instead of leaking", () => {
+    expect(() => run("{{ (box).c }}")).toThrow(/marked\(\) value reached the template/);
+  });
+
+  it("unmarked lets a func build on another marking func's result", () => {
+    expect(run("{{ clamp }}").out).toEqual([{ text: "0.1", marks: [TWEEN] }]);
+  });
+});
+
+describe("provenance: a pipe that throws reports what it read through `decided`", () => {
+  it("the error may clear when the mark changes", () => {
+    const decided: unknown[][] = [];
+    const tpl = engine({ decided }).parse(`{{ index (list 1 2) (int (stepped 1 "5" 1 "0")) }}`);
+    expect(() => tpl.evaluate({})).toThrow(/index out of range/);
+    expect(decided).toEqual([[STEPPED]]);
   });
 });
 

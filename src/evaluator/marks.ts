@@ -22,6 +22,10 @@ export const NO_MARKS: Marks = new Set();
 // Declared before the class: its static block assigns them as the class
 // is defined, and a `let` read or written before its line is in the TDZ.
 let createMarked: (value: unknown, marks: readonly unknown[]) => Marked;
+let openMarked: (result: unknown) => {
+  readonly value: unknown;
+  readonly marks: readonly unknown[];
+};
 
 // [LAW:single-enforcer] The one reader of a carrier, called only by the
 // engine's dispatch site: the marks join the reading pipe's set and the
@@ -49,6 +53,10 @@ export class Marked {
       value instanceof Marked
         ? new Marked(value.#value, [...value.#marks, ...marks])
         : new Marked(value, marks);
+    openMarked = (result) =>
+      result instanceof Marked
+        ? { value: result.#value, marks: result.#marks }
+        : { value: result, marks: [] };
     readCarrier = (result, into) => {
       if (!(result instanceof Marked)) return result;
       for (const mark of result.#marks) into.add(mark);
@@ -65,6 +73,19 @@ export class Marked {
  */
 export function marked(value: unknown, ...marks: unknown[]): Marked {
   return createMarked(value, marks);
+}
+
+/**
+ * A func's return read apart: its value and the marks it carries (none
+ * for a plain value). For JS code that builds on a marking func outside a
+ * template — `const { value, marks } = unmarked(tween.fn(...))`, then
+ * `return marked(Math.min(1, value as number), ...marks)`.
+ */
+export function unmarked(result: unknown): {
+  readonly value: unknown;
+  readonly marks: readonly unknown[];
+} {
+  return openMarked(result);
 }
 
 /** `a ∪ b`, sharing an operand when the other is empty. */

@@ -46,7 +46,7 @@ import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
 import { isLazy } from "./lazy.js";
-import { type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
+import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
 import { type Binding, declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
@@ -306,9 +306,10 @@ export interface TemplateFunc {
    */
   readonly arity: Arity;
   /**
-   * `true` when the body changes an object it was handed in place, as
-   * sprig `set` and `unset` do. Omitted: it changes nothing it was
-   * handed, which is true of nearly every func.
+   * `true` when the body stores anything it was handed — in place in an
+   * argument, as sprig `set` and `unset` do, or in a closure or module
+   * variable a later call returns. Omitted: it stores nothing, which is
+   * true of nearly every func.
    *
    * [LAW:types-are-the-program] Whether a call writes is a fact about the
    * func, so it is declared rather than assumed of every call. Where a
@@ -1044,8 +1045,7 @@ export class Engine<T> {
       case "Comment":
         return;
       case "Action": {
-        const reads = new Set<unknown>();
-        const value = this.evalPipe(node.pipe, scope, ctx, reads);
+        const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, scope, ctx, r));
         // Per Go's spec, actions whose pipeline declares variables
         // (`{{ $x := pipe }}`) contribute no output — they're pure
         // assignment statements. Only assignment-free actions emit.
@@ -1109,8 +1109,7 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const reads = new Set<unknown>();
-    const cond = this.evalPipe(node.pipe, scope, ctx, reads);
+    const { value: cond, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, scope, ctx, r));
     const arm = this.decide(reads, ctx);
     if (isTruthy(cond)) {
       this.evalList(node.list, scope, arm);
@@ -1124,8 +1123,7 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const reads = new Set<unknown>();
-    const value = this.evalPipe(node.pipe, scope, ctx, reads);
+    const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, scope, ctx, r));
     const arm = this.decide(reads, ctx);
     if (isTruthy(value)) {
       const child = pushScope(scope, { value, marks: arm.marks });
@@ -1143,8 +1141,9 @@ export class Engine<T> {
     // For `range`, the pipeline's declarations bind to (key, value)
     // *per iteration*, not to the iterable as a whole. We evaluate the
     // pipe with its decls suppressed, then handle the bindings here.
-    const reads = new Set<unknown>();
-    const value = this.evalPipeWithoutDecls(node.pipe, scope, ctx, reads);
+    const { value, reads } = this.read(ctx, (r) =>
+      this.evalPipeWithoutDecls(node.pipe, scope, ctx, r),
+    );
     const arm = this.decide(reads, ctx);
     const decls = node.pipe.decls;
 
@@ -1239,9 +1238,27 @@ export class Engine<T> {
   // The dot a `template`/`block` invocation pushes: the pipe's value, or
   // the caller's dot, with what it depends on either way.
   private invocationDot(pipe: PipeNode | undefined, scope: Scope, ctx: EvalContext<T>): Binding {
-    const reads = new Set<unknown>();
-    const value = pipe ? this.evalPipe(pipe, scope, ctx, reads) : this.readDot(scope, reads);
+    const { value, reads } = this.read(ctx, (r) =>
+      pipe ? this.evalPipe(pipe, scope, ctx, r) : this.readDot(scope, r),
+    );
     return { value, marks: settle(reads, ctx) };
+  }
+
+  // [LAW:single-enforcer] Every set of reads starts here, and so does the
+  // one guarantee for a pipe that throws: the error the host shows
+  // instead of output may clear when a mark it read changes, and with no
+  // output there is no cell to say so on, so its reads go to `decided`.
+  private read(
+    ctx: EvalContext<T>,
+    evaluate: (reads: Set<unknown>) => unknown,
+  ): { readonly value: unknown; readonly reads: Marks } {
+    const reads = new Set<unknown>();
+    try {
+      return { value: evaluate(reads), reads };
+    } catch (e) {
+      this.decided(settle(reads, ctx));
+      throw e;
+    }
   }
 
   // -------------------------------------------------------------------
@@ -1263,13 +1280,19 @@ export class Engine<T> {
       throw new EvalError("empty pipeline", pipe.pos, { source: ctx.source });
     }
     let inputs = new Set<unknown>();
-    let value: unknown = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, NO_PIPE, inputs);
-    for (let i = 1; i < pipe.cmds.length; i++) {
-      const next = pipe.cmds[i] as CommandNode;
-      inputs = new Set(inputs);
-      value = this.evalCommand(next, scope, ctx, { kind: "value", value }, inputs);
+    let value: unknown;
+    // The merge runs on every path, so a pipe that throws still hands
+    // `read` what it had consumed when it failed.
+    try {
+      value = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, NO_PIPE, inputs);
+      for (let i = 1; i < pipe.cmds.length; i++) {
+        const next = pipe.cmds[i] as CommandNode;
+        inputs = new Set(inputs);
+        value = this.evalCommand(next, scope, ctx, { kind: "value", value }, inputs);
+      }
+    } finally {
+      for (const mark of inputs) reads.add(mark);
     }
-    for (const mark of inputs) reads.add(mark);
 
     // Apply variable declarations / assignments after the pipe is
     // fully evaluated. Multi-decl tuple semantics for `range` are
@@ -1414,7 +1437,23 @@ export class Engine<T> {
     }
   }
 
+  // [LAW:no-silent-failure] A carrier is unwrapped only as a func's own
+  // return. One nested inside a returned value (`(box).c`, a range over a
+  // returned list) would otherwise print as an object and lose its marks.
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
+    const value = this.evalOperand(node, scope, ctx, reads);
+    if (value instanceof Marked) {
+      throw new EvalError(
+        "a marked() value reached the template from inside a func's return; " +
+          "return marked(...) itself, not a structure containing one",
+        node.pos,
+        { source: ctx.source },
+      );
+    }
+    return value;
+  }
+
+  private evalOperand(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     switch (node.type) {
       case "Dot":
         return this.readDot(scope, reads);
