@@ -159,6 +159,17 @@ describe("provenance: every emission that depends on a marked value carries the 
     [`{{ $c := ${STEP} }}{{ fg $c "x" }}`, "x", STEPPED],
     [`{{ $c := ${STEP} }}{{ printf "%s" $c }}`, "#ff0000", STEPPED],
     [`{{ $c := ${STEP} }}{{ $c }}`, "#ff0000", STEPPED],
+    [`{{ $c := "a" }}{{ with "z" }}{{ $c = ${STEP} }}{{ end }}{{ $c }}`, "#ff0000", STEPPED],
+    [`{{ $c := "a" }}{{ range $c = list (${STEP}) }}{{ end }}{{ $c }}`, "#ff0000", STEPPED],
+    [`{{ define "t" }}{{ $ }}{{ end }}{{ template "t" (${STEP}) }}`, "#ff0000", STEPPED],
+    // An arm that could have assigned `$x` but did not: `$x` still hangs on the decision.
+    [`{{ $x := 0 }}{{ if eq (${STEP}) "no" }}{{ $x = 1 }}{{ end }}{{ $x }}`, "0", STEPPED],
+    [`{{ $x := 0 }}{{ with eq (${STEP}) "no" }}{{ $x = 1 }}{{ end }}{{ $x }}`, "0", STEPPED],
+    [
+      `{{ $x := 0 }}{{ range without (list (${STEP})) (${STEP}) }}{{ $x = 1 }}{{ end }}{{ $x }}`,
+      "0",
+      STEPPED,
+    ],
     [`{{ $c := ${STEP} }}{{ eq $c "#ff0000" }}`, "true", STEPPED],
     [`{{ printf "%.0f" (add 1 (${TWEEN_CALL})) }}`, undefined, TWEEN],
     [

@@ -140,6 +140,22 @@ export function parse(
 // Internals.
 // ---------------------------------------------------------------------------
 
+// Go's text/template/parse names the pipeline it is parsing in its
+// errors ("too many declarations in command").
+type PipelineContext =
+  | "command"
+  | "if"
+  | "range"
+  | "with"
+  | "template clause"
+  | "block clause"
+  | "parenthesized pipeline";
+
+const PIPELINE_CONTEXT = { If: "if", Range: "range", With: "with" } as const satisfies Record<
+  "If" | "Range" | "With",
+  PipelineContext
+>;
+
 class Parser {
   private readonly lex: Lexer;
   private readonly buf: Token[] = [];
@@ -309,7 +325,7 @@ class Parser {
         throw this.errAt(head, "empty action", { expected: "pipeline" });
       default: {
         // A plain pipeline action: `{{ pipeline }}`.
-        const pipe = this.parsePipeline();
+        const pipe = this.parsePipeline("command");
         const right = this.expect("RightDelim", "`}}`");
         return {
           type: "Action",
@@ -334,7 +350,7 @@ class Parser {
     startPos: Pos,
     trimLeft: boolean,
   ): IfNode | RangeNode | WithNode {
-    const pipe = this.parsePipeline();
+    const pipe = this.parsePipeline(PIPELINE_CONTEXT[kind]);
     this.expect("RightDelim", "`}}`");
     // [LAW:types-are-the-program] `rangeDepth` counts the enclosing
     // ranges that can absorb a `{{break}}` / `{{continue}}` at the
@@ -445,7 +461,8 @@ class Parser {
 
   private parseTemplateInvocation(startPos: Pos, trimLeft: boolean): TemplateNode {
     const name = this.parseQuotedName();
-    const pipe = this.peek().type === "RightDelim" ? undefined : this.parsePipeline();
+    const pipe =
+      this.peek().type === "RightDelim" ? undefined : this.parsePipeline("template clause");
     const right = this.expect("RightDelim", "`}}`");
     const trim: TrimMarkers = { trimLeft, trimRight: right.trimRight === true };
     return pipe
@@ -455,7 +472,7 @@ class Parser {
 
   private parseBlock(startPos: Pos, trimLeft: boolean): BlockNode {
     const name = this.parseQuotedName();
-    const pipe = this.peek().type === "RightDelim" ? undefined : this.parsePipeline();
+    const pipe = this.parsePipeline("block clause");
     this.expect("RightDelim", "`}}`");
     // [LAW:types-are-the-program] A `{{block}}` body is invoked via the
     // sub-template machinery: a separate parse context in Go's
@@ -475,9 +492,7 @@ class Parser {
     if (!this.defines.has(name) && !this.inherit.has(name)) {
       this.defines.set(name, { list, source: this.source });
     }
-    return pipe
-      ? ({ type: "Block", pos: startPos, name, pipe, list, trim } satisfies BlockNode)
-      : ({ type: "Block", pos: startPos, name, list, trim } satisfies BlockNode);
+    return { type: "Block", pos: startPos, name, pipe, list, trim } satisfies BlockNode;
   }
 
   private parseDefine(_startPos: Pos, _trimLeft: boolean): void {
@@ -516,12 +531,18 @@ class Parser {
   // Pipelines.
   //
   //   pipeline := decls? command (`|` command)*
-  //   decls    := variable (`,` variable)* (`:=` | `=`)
+  //   decls    := variable (`,` variable)? (`:=` | `=`)
+  //
+  // The second variable is legal only in a `range` pipeline.
   // -------------------------------------------------------------------
 
-  private parsePipeline(): PipeNode {
+  private parsePipeline(context: PipelineContext): PipeNode {
     const startPos = this.peek().pos;
-    const decls = this.tryParseDecls();
+    const decls = this.tryParseDecls(context);
+    const end = this.peek();
+    if (end.type === "RightDelim" || end.type === "RightParen") {
+      throw this.errAt(end, `missing value for ${context}`, { expected: "command" });
+    }
     const cmds: CommandNode[] = [this.parseCommand()];
     while (this.peek().type === "Pipe") {
       this.next();
@@ -543,15 +564,17 @@ class Parser {
     };
   }
 
-  private tryParseDecls(): { vars: VariableNode[]; isAssign: boolean } | undefined {
-    if (this.peek().type !== "Variable") return undefined;
+  private tryParseDecls(
+    context: PipelineContext,
+  ): { vars: VariableNode[]; isAssign: boolean } | undefined {
+    if (!isDeclTarget(this.peek())) return undefined;
     // We have to be conservative here — `$x` could be the start of a
     // declaration *or* a plain pipeline whose first command is just a
     // variable reference. Distinguish by scanning ahead for `:=` / `=`
     // (possibly through `, $y` chains).
     let n = 1;
     while (this.peek(n).type === "Comma") {
-      if (this.peek(n + 1).type !== "Variable") return undefined;
+      if (!isDeclTarget(this.peek(n + 1))) return undefined;
       n += 2;
     }
     const opType = this.peek(n).type;
@@ -559,7 +582,10 @@ class Parser {
 
     const vars: VariableNode[] = [varFromToken(this.next() as Token)];
     while (this.peek().type === "Comma") {
-      this.next();
+      const comma = this.next();
+      if (vars.length === (context === "range" ? 2 : 1)) {
+        throw this.errAt(comma, `too many declarations in ${context}`);
+      }
       vars.push(varFromToken(this.expect("Variable", "$variable")));
     }
     const op = this.next();
@@ -627,7 +653,7 @@ class Parser {
   }
 
   private parseChainOrPipe(startPos: Pos): Node {
-    const inner = this.parsePipeline();
+    const inner = this.parsePipeline("parenthesized pipeline");
     const rparen = this.expect("RightParen", "`)`");
     // Field chain on `(pipe).field` requires the `.` to be immediately
     // adjacent to `)` — otherwise it's a separate command argument.
@@ -682,6 +708,12 @@ function canStartPrimary(t: TokenType): boolean {
     default:
       return false;
   }
+}
+
+// A declaration names a bare variable: Go lexes `$x.y` as `$x` and a
+// field, so `$x.y := v` is no declaration and fails as a pipeline.
+function isDeclTarget(t: Token): boolean {
+  return t.type === "Variable" && !t.value.includes(".");
 }
 
 function varFromToken(t: Token): VariableNode {

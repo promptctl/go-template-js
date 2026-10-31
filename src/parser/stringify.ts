@@ -158,8 +158,7 @@ function formatTemplate(node: TemplateNode): string {
 }
 
 function formatBlock(node: BlockNode): string {
-  const arg = node.pipe ? ` ${formatPipe(node.pipe)}` : "";
-  const head = wrapAction(`block ${JSON.stringify(node.name)}${arg}`, {
+  const head = wrapAction(`block ${JSON.stringify(node.name)} ${formatPipe(node.pipe)}`, {
     trimLeft: node.trim.trimLeft,
     trimRight: false,
   });

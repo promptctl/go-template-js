@@ -33,6 +33,7 @@ import {
   type ListNode,
   type Node,
   type PipeNode,
+  type VariableNode,
 } from "../parser/ast.js";
 import type { Delims } from "../parser/lexer.js";
 import {
@@ -47,7 +48,16 @@ import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
 import { isLazy } from "./lazy.js";
 import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
-import { type Binding, declareVar, lookupVar, pushScope, rootScope, type Scope } from "./scope.js";
+import {
+  assignVar,
+  type Binding,
+  declareVar,
+  lookupVar,
+  markVar,
+  pushScope,
+  rootScope,
+  type Scope,
+} from "./scope.js";
 import { isTruthy } from "./truthy.js";
 
 // ---------------------------------------------------------------------------
@@ -613,6 +623,12 @@ export interface EngineConfig<T> {
 }
 
 // Per-evaluate context. Threaded through every internal method.
+// The bodies a control construct chooses among.
+interface Arms {
+  readonly list: ListNode;
+  readonly elseList?: ListNode;
+}
+
 interface EvalContext<T> {
   readonly out: T[];
   readonly defines: Defines;
@@ -1018,7 +1034,7 @@ export class Engine<T> {
   // Template closure built in `parse()` calls back into this method.
   private evalParsed(parsed: ParseResult, scope: unknown): T[] {
     const out: T[] = [];
-    const root = rootScope(scope);
+    const root = rootScope({ value: scope, marks: NO_MARKS });
     const ctx: EvalContext<T> = {
       out,
       defines: parsed.defines,
@@ -1114,12 +1130,13 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const { value: cond, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, scope, ctx, r));
-    const arm = this.decide(reads, ctx);
+    const frame = constructFrame(scope);
+    const { value: cond, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, frame, ctx, r));
+    const arm = this.decide(reads, ctx, frame, node);
     if (isTruthy(cond)) {
-      this.evalList(node.list, scope, arm);
+      this.evalList(node.list, frame, arm);
     } else if (node.elseList) {
-      this.evalList(node.elseList, scope, arm);
+      this.evalList(node.elseList, frame, arm);
     }
   }
 
@@ -1128,13 +1145,13 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, scope, ctx, r));
-    const arm = this.decide(reads, ctx);
+    const frame = constructFrame(scope);
+    const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, frame, ctx, r));
+    const arm = this.decide(reads, ctx, frame, node);
     if (isTruthy(value)) {
-      const child = pushScope(scope, { value, marks: arm.marks });
-      this.evalList(node.list, child, arm);
+      this.evalList(node.list, pushScope(frame, { value, marks: arm.marks }), arm);
     } else if (node.elseList) {
-      this.evalList(node.elseList, scope, arm);
+      this.evalList(node.elseList, frame, arm);
     }
   }
 
@@ -1143,14 +1160,13 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    // For `range`, the pipeline's declarations bind to (key, value)
-    // *per iteration*, not to the iterable as a whole. We evaluate the
-    // pipe with its decls suppressed, then handle the bindings here.
-    const { value, reads } = this.read(ctx, (r) =>
-      this.evalPipeWithoutDecls(node.pipe, scope, ctx, r),
-    );
-    const arm = this.decide(reads, ctx);
-    const decls = node.pipe.decls;
+    // The pipe's decls first bind to the ranged value as a whole (`=`
+    // assigns the enclosing variables instead); each iteration then
+    // rebinds them to its key and element, as Go's exec.go does.
+    const rangeScope = constructFrame(scope);
+    const { value, reads } = this.read(ctx, (r) => this.evalPipe(node.pipe, rangeScope, ctx, r));
+    const arm = this.decide(reads, ctx, rangeScope, node);
+    const { decls, isAssign } = node.pipe;
 
     const entries = enumerateForRange(value);
     // [LAW:single-enforcer] Two catch boundaries, exactly mirroring
@@ -1173,22 +1189,18 @@ export class Engine<T> {
     // unrelated user errors with similar shapes are never swallowed.
     try {
       if (entries.length === 0) {
-        if (node.elseList) this.evalList(node.elseList, scope, arm);
+        if (node.elseList) this.evalList(node.elseList, rangeScope, arm);
         return;
       }
       for (const [key, item] of entries) {
         // Every item, key and decl came out of the ranged value, so each
         // depends on what the range pipe read.
-        const child = pushScope(scope, { value: item, marks: arm.marks });
-        if (decls.length === 1) {
-          const name = decls[0]?.idents[0] ?? "$";
-          declareVar(child, name, { value: item, marks: arm.marks });
-        } else if (decls.length >= 2) {
-          const k = decls[0]?.idents[0] ?? "$";
-          const v = decls[1]?.idents[0] ?? "$";
-          declareVar(child, k, { value: key, marks: arm.marks });
-          declareVar(child, v, { value: item, marks: arm.marks });
-        }
+        // The last decl takes the element; a first of two takes the key.
+        decls.forEach((decl, i) => {
+          const binding = { value: i === decls.length - 1 ? item : key, marks: arm.marks };
+          this.bind(rangeScope, decl, isAssign, binding, ctx);
+        });
+        const child = pushScope(rangeScope, { value: item, marks: arm.marks });
         try {
           this.evalList(node.list, child, arm);
         } catch (e) {
@@ -1213,39 +1225,59 @@ export class Engine<T> {
         source: ctx.source,
       });
     }
-    const child = pushScope(scope, this.invocationDot(node.pipe, scope, ctx));
+    // A template body sees only its own `$`, never the caller's variables.
+    const child = rootScope(this.invocationDot(node.pipe, scope, ctx));
     // The body's errors snippet against the source that declared it, which
     // for an inherited define is not this template's source.
     this.evalList(entry.list, child, { ...ctx, source: entry.source });
   }
 
   private evalBlock(
-    node: { name: string; pipe?: PipeNode; list: ListNode; pos: Pos },
+    node: { name: string; pipe: PipeNode; list: ListNode; pos: Pos },
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
     // A block invokes the same-named template if one is registered (or
     // that registration came from the block itself at parse time).
     // The dot for the block body is the pipe's value when present.
-    const child = pushScope(scope, this.invocationDot(node.pipe, scope, ctx));
+    const child = rootScope(this.invocationDot(node.pipe, scope, ctx));
     const entry = lookupDefine(ctx.defines, node.name) ?? { list: node.list, source: ctx.source };
     this.evalList(entry.list, child, { ...ctx, source: entry.source });
   }
 
   // [LAW:single-enforcer] The one place a control pipe's marks are
-  // reported, and the one place they join the arm's: whichever arm runs —
-  // an empty one, or none — the decision has already said what it read.
-  private decide(reads: Marks, ctx: EvalContext<T>): EvalContext<T> {
+  // reported, and the one place they join what depends on the decision:
+  // whichever arm runs — an empty one, or none — the decision has already
+  // said what it read, and every variable an arm may `=`-assign carries it,
+  // since its value after the construct hangs on which arm ran.
+  private decide(reads: Marks, ctx: EvalContext<T>, frame: Scope, arms: Arms): EvalContext<T> {
     const marks = unionMarks(ctx.marks, reads);
     this.decided(marks);
+    for (const name of this.assignedIn(arms)) markVar(frame, name, marks);
     return { ...ctx, marks };
   }
 
-  // The dot a `template`/`block` invocation pushes: the pipe's value, or
-  // the caller's dot, with what it depends on either way.
+  // The names any `=` in a construct's arms assigns, nested constructs
+  // included; fixed by the AST, so found once per construct.
+  private readonly assigned = new WeakMap<ListNode, readonly string[]>();
+  private assignedIn(arms: Arms): readonly string[] {
+    const cached = this.assigned.get(arms.list);
+    if (cached !== undefined) return cached;
+    const names = new Set<string>();
+    const collect = (n: Node): void => {
+      if (n.type === "Pipe" && n.isAssign) for (const d of n.decls) names.add(d.idents[0] ?? "$");
+    };
+    for (const list of [arms.list, arms.elseList]) if (list) walk(list, collect);
+    const found = [...names];
+    this.assigned.set(arms.list, found);
+    return found;
+  }
+
+  // The dot a `template`/`block` invocation pushes: the pipe's value with
+  // what it depends on, or, with no pipe, Go's nil data.
   private invocationDot(pipe: PipeNode | undefined, scope: Scope, ctx: EvalContext<T>): Binding {
     const { value, reads } = this.read(ctx, (r) =>
-      pipe ? this.evalPipe(pipe, scope, ctx, r) : this.readDot(scope, r),
+      pipe ? this.evalPipe(pipe, scope, ctx, r) : null,
     );
     return { value, marks: unionMarks(reads, ctx.marks) };
   }
@@ -1300,34 +1332,29 @@ export class Engine<T> {
     }
 
     // Apply variable declarations / assignments after the pipe is
-    // fully evaluated. Multi-decl tuple semantics for `range` are
-    // handled inside `evalRange` (which calls `evalPipeWithoutDecls`).
-    if (pipe.decls.length > 0) {
-      for (const decl of pipe.decls) {
-        const name = decl.idents[0] ?? "$";
-        declareVar(scope, name, { value, marks: unionMarks(inputs, ctx.marks) });
-      }
+    // fully evaluated; `evalRange` rebinds them per iteration.
+    for (const decl of pipe.decls) {
+      this.bind(scope, decl, pipe.isAssign, { value, marks: unionMarks(inputs, ctx.marks) }, ctx);
     }
     return value;
   }
 
-  private evalPipeWithoutDecls(
-    pipe: PipeNode,
+  // [LAW:single-enforcer] The one place a decl binds: `:=` declares in
+  // `scope`'s own frame, `=` overwrites the nearest frame that declared
+  // the name and refuses a name no frame declared.
+  private bind(
     scope: Scope,
+    decl: VariableNode,
+    isAssign: boolean,
+    binding: Binding,
     ctx: EvalContext<T>,
-    reads: Set<unknown>,
-  ): unknown {
-    // Synthesise a pipe with empty decls so the standard `evalPipe`
-    // doesn't attempt the (single-binding) declaration. `evalRange`
-    // handles its own multi-binding semantics.
-    const stripped: PipeNode = {
-      type: "Pipe",
-      pos: pipe.pos,
-      decls: [],
-      isAssign: false,
-      cmds: pipe.cmds,
-    };
-    return this.evalPipe(stripped, scope, ctx, reads);
+  ): void {
+    const name = decl.idents[0] ?? "$";
+    if (!isAssign) {
+      declareVar(scope, name, binding);
+    } else if (!assignVar(scope, name, binding)) {
+      throw undefinedVariable(name, decl.pos, ctx);
+    }
   }
 
   private evalCommand(
@@ -1540,14 +1567,8 @@ export class Engine<T> {
     reads: Set<unknown>,
   ): unknown {
     const head = idents[0] ?? "$";
-    if (head === "$") {
-      const tail = idents.slice(1);
-      return tail.length === 0 ? scope.root : this.resolveFieldChain(scope.root, tail, pos, ctx);
-    }
     const binding = lookupVar(scope, head);
-    if (binding === undefined) {
-      throw new EvalError(`undefined variable ${head}`, pos, { source: ctx.source });
-    }
+    if (binding === undefined) throw undefinedVariable(head, pos, ctx);
     for (const mark of binding.marks) reads.add(mark);
     const tail = idents.slice(1);
     return tail.length === 0
@@ -2081,6 +2102,19 @@ function humanArgType(t: ArgType): string {
       throw new Error(`invalid ArgType: ${String(_exhaustive)}`);
     }
   }
+}
+
+// [LAW:single-enforcer] The frame every `if`, `with` and `range` opens,
+// spanning its pipe, its body and its else, so a `:=` anywhere in the
+// construct ends with it, as Go marks and pops its variable stack.
+function constructFrame(scope: Scope): Scope {
+  return pushScope(scope, scope.dot);
+}
+
+// [LAW:single-enforcer] Reading and assigning an undeclared variable
+// fail alike, with Go's text/template exec.go message.
+function undefinedVariable(name: string, pos: Pos, ctx: { source: string | undefined }): EvalError {
+  return new EvalError(`undefined variable: ${name}`, pos, { source: ctx.source });
 }
 
 // A body may throw anything; Go's `%v` of an error is its message.

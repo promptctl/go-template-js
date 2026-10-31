@@ -212,7 +212,7 @@ export interface TemplateNode extends NodeBase<"Template"> {
 /** `{{block "name" pipe}} list {{end}}` — define + invoke in one form. */
 export interface BlockNode extends NodeBase<"Block"> {
   readonly name: string;
-  readonly pipe?: PipeNode;
+  readonly pipe: PipeNode;
   readonly list: ListNode;
   readonly trim: TrimMarkers;
 }

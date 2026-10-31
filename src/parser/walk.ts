@@ -72,7 +72,7 @@ export function children(node: Node): readonly Node[] {
     case "Template":
       return node.pipe ? [node.pipe] : [];
     case "Block":
-      return node.pipe ? [node.pipe, node.list] : [node.list];
+      return [node.pipe, node.list];
     default:
       return assertNever(node);
   }

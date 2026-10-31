@@ -357,6 +357,27 @@ describe("parse — error cases", () => {
     expect(() => parse("{{ break }}")).toThrow(/\{\{break\}\} outside of \{\{range\}\}/);
   });
 
+  it("a range declares at most two variables; any other pipeline one, as Go refuses", () => {
+    expect(parse("{{ range $i, $e := .x }}{{ end }}")).toBeDefined();
+    expect(() => parse("{{ range $a, $b, $c := .x }}{{ end }}")).toThrow(
+      /too many declarations in range/,
+    );
+    expect(() => parse("{{ $a, $b := 1 }}")).toThrow(/too many declarations in command/);
+    expect(() => parse("{{ with $a, $b := 1 }}{{ end }}")).toThrow(/too many declarations in with/);
+  });
+
+  it("a pipeline with no command is missing its value, named as Go names it", () => {
+    expect(() => parse('{{ block "b" }}{{ end }}')).toThrow(/missing value for block clause/);
+    expect(() => parse("{{ if }}{{ end }}")).toThrow(/missing value for if/);
+    expect(() => parse("{{ ( ) }}")).toThrow(/missing value for parenthesized pipeline/);
+    expect(() => parse("{{ $x := }}")).toThrow(/missing value for command/);
+  });
+
+  it("a dotted variable is no declaration target, as Go refuses", () => {
+    expect(() => parse("{{ $x := 1 }}{{ $x.y := 2 }}")).toThrow();
+    expect(() => parse("{{ $x := 1 }}{{ $x.y = 2 }}")).toThrow();
+  });
+
   it("rejects {{continue}} outside any range", () => {
     expect(() => parse("{{ continue }}")).toThrow(/\{\{continue\}\} outside of \{\{range\}\}/);
   });
