@@ -1245,7 +1245,7 @@ export class Engine<T> {
     const { value, reads } = this.read(ctx, (r) =>
       pipe ? this.evalPipe(pipe, scope, ctx, r) : this.readDot(scope, r),
     );
-    return { value, marks: settle(reads, ctx) };
+    return { value, marks: unionMarks(reads, ctx.marks) };
   }
 
   // [LAW:single-enforcer] Every set of reads starts here, and so does the
@@ -1260,7 +1260,7 @@ export class Engine<T> {
     try {
       return { value: evaluate(reads), reads };
     } catch (e) {
-      this.decided(settle(reads, ctx));
+      this.decided(unionMarks(reads, ctx.marks));
       throw e;
     }
   }
@@ -1270,10 +1270,10 @@ export class Engine<T> {
   // -------------------------------------------------------------------
 
   // `reads` receives the pipe's provenance: the marks its value depends
-  // on. Each command collects its own inputs — its arguments, the value
-  // piped into it, the carrier its call returns — and passes them on to
-  // the next stage with its value, so a call's writes depend on what that
-  // call consumed and not on whatever else the pipe read before it.
+  // on. The pipe collects its own inputs — each command's arguments, the
+  // value piped into it, the carrier its call returns — so a call's writes
+  // depend on what its pipe consumed up to that call, not on what an
+  // enclosing pipe read beside it.
   private evalPipe(
     pipe: PipeNode,
     scope: Scope,
@@ -1283,7 +1283,7 @@ export class Engine<T> {
     if (pipe.cmds.length === 0) {
       throw new EvalError("empty pipeline", pipe.pos, { source: ctx.source });
     }
-    let inputs = new Set<unknown>();
+    const inputs = new Set<unknown>();
     let value: unknown;
     // The merge runs on every path, so a pipe that throws still hands
     // `read` what it had consumed when it failed.
@@ -1291,7 +1291,6 @@ export class Engine<T> {
       value = this.evalCommand(pipe.cmds[0] as CommandNode, scope, ctx, NO_PIPE, inputs);
       for (let i = 1; i < pipe.cmds.length; i++) {
         const next = pipe.cmds[i] as CommandNode;
-        inputs = new Set(inputs);
         value = this.evalCommand(next, scope, ctx, { kind: "value", value }, inputs);
       }
     } finally {
@@ -1304,7 +1303,7 @@ export class Engine<T> {
     if (pipe.decls.length > 0) {
       for (const decl of pipe.decls) {
         const name = decl.idents[0] ?? "$";
-        declareVar(scope, name, { value, marks: settle(inputs, ctx) });
+        declareVar(scope, name, { value, marks: unionMarks(inputs, ctx.marks) });
       }
     }
     return value;
@@ -1442,13 +1441,15 @@ export class Engine<T> {
     // into a fragment already emitted, into the host's data for the next
     // evaluation — so the marks it stored are reported now, on the channel
     // that needs no cell.
-    if (fn.writes === true) this.decided(settle(reads, ctx));
+    // A snapshot: the command's set keeps growing after this call.
+    if (fn.writes === true) this.decided(new Set([...reads, ...ctx.marks]));
     return result;
   }
 
   // A carrier is unwrapped only as a func's own return. One nested inside
-  // a returned value is opaque — its value never reaches output, so no
-  // mark can be late — and where a template operand reaches it directly
+  // a returned value is not read there; a func that later returns it alone
+  // (`index`, `get`) reads it with its marks, so its value never reaches
+  // output without them. Where a template operand reaches one directly
   // (`(box).c`) the likely mistake is named rather than printed.
   private evalPrimary(node: Node, scope: Scope, ctx: EvalContext<T>, reads: Set<unknown>): unknown {
     const value = this.evalOperand(node, scope, ctx, reads);
@@ -1576,13 +1577,6 @@ export class Engine<T> {
     if (this.isT(value)) return value as T;
     return this.fromString(formatV(value, this.toString, this.isT));
   }
-}
-
-// [LAW:one-source-of-truth] What a binding or a write depends on, stated
-// once: the inputs that produced it and the arms it sits in. Copied,
-// because an enclosing pipe's set keeps growing.
-function settle(reads: Marks, ctx: { readonly marks: Marks }): Marks {
-  return new Set([...reads, ...ctx.marks]);
 }
 
 // [LAW:one-source-of-truth] The engine's default `isT`, shared by the

@@ -311,6 +311,10 @@ describe("provenance: the obligations a func author can meet", () => {
     ).toBe(text);
   });
 
+  it("a func that returns a nested carrier on its own reads it with its marks", () => {
+    expect(run('{{ get (box) "c" }}').out).toEqual([{ text: "#ff0000", marks: [STEPPED] }]);
+  });
+
   it("unmarked lets a func build on another marking func's result", () => {
     expect(run("{{ clamp }}").out).toEqual([{ text: "0.1", marks: [TWEEN] }]);
   });
