@@ -262,8 +262,19 @@ describe("evaluator — $ and $vars", () => {
     }
     expect(err).toBeInstanceOf(EvalError);
     if (err instanceof EvalError) {
-      expect(err.message).toMatch(/undefined variable \$absent/);
+      expect(err.message).toMatch(/undefined variable: \$absent/);
     }
+  });
+
+  // Go's parser refuses these (a define starts with only `$` declared),
+  // so the corpus cannot pin them; the engine refuses them at execution.
+  it("a template body neither reads nor assigns the caller's variables", () => {
+    expect(() =>
+      renderString('{{ define "t" }}{{ $x }}{{ end }}{{ $x := 1 }}{{ template "t" }}', {}),
+    ).toThrow(/undefined variable: \$x/);
+    expect(() =>
+      renderString('{{ define "t" }}{{ $x = 2 }}{{ end }}{{ $x := 1 }}{{ template "t" }}', {}),
+    ).toThrow(/undefined variable: \$x/);
   });
 
   it("supports $var.field chains", () => {

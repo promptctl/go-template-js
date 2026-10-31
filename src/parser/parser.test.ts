@@ -357,6 +357,15 @@ describe("parse — error cases", () => {
     expect(() => parse("{{ break }}")).toThrow(/\{\{break\}\} outside of \{\{range\}\}/);
   });
 
+  it("a range declares at most two variables; any other pipeline one, as Go refuses", () => {
+    expect(parse("{{ range $i, $e := .x }}{{ end }}")).toBeDefined();
+    expect(() => parse("{{ range $a, $b, $c := .x }}{{ end }}")).toThrow(
+      /too many declarations in range/,
+    );
+    expect(() => parse("{{ $a, $b := 1 }}")).toThrow(/too many declarations in command/);
+    expect(() => parse("{{ with $a, $b := 1 }}{{ end }}")).toThrow(/too many declarations in with/);
+  });
+
   it("rejects {{continue}} outside any range", () => {
     expect(() => parse("{{ continue }}")).toThrow(/\{\{continue\}\} outside of \{\{range\}\}/);
   });
