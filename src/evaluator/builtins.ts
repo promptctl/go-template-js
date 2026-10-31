@@ -159,6 +159,9 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
       fn: (fn: unknown, ...args: unknown[]) => (fn as (...a: unknown[]) => unknown)(...args),
       argTypes: ["callable", "value"],
       arity: { kind: "variadic" },
+      // The function comes from the data and has no registration to say
+      // whether it writes, so `call` says it for every function it runs.
+      writes: true,
     },
 
     // [LAW:single-enforcer + LAW:one-source-of-truth] `html` mirrors Go's

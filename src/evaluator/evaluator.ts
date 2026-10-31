@@ -602,7 +602,7 @@ export interface EngineConfig<T> {
    * the marks of the values it read, before either arm runs — so a
    * decision whose taken arm emits nothing (or which has no arm to take)
    * still says what it depended on. Also called for each call of a func
-   * that declares `writes`, with the marks of what it stored: the output
+   * that declares `writes`, with the marks of all its inputs: the output
    * may show that write later with no cell to say it on. Default: does
    * nothing.
    */

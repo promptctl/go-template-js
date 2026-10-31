@@ -172,6 +172,19 @@ describe("provenance: a declared write reports what it stored through `decided`"
     ],
     // Nothing reads the write in this evaluation; a later one may.
     [`{{ $d := dict }}{{ $_ := set $d "k" (${TWEEN_CALL}) }}still`, {}, TWEEN],
+    // A function from the data, run by `call`, has no registration of its own.
+    [
+      `{{ $d := dict }}{{ $_ := call .put $d "k" (${STEP}) }}{{ $d.k }}`,
+      {
+        put: (d: Record<string, unknown>, k: string, v: unknown) => {
+          d[k] = v;
+          return "";
+        },
+      },
+      STEPPED,
+    ],
+    // A marked target counts too: it chose which object was written.
+    [`{{ $d := dict "t" (${STEP}) }}{{ $_ := set $d "n" 1 }}still`, {}, STEPPED],
     // The write changes a fragment already in the output.
     [`{{ $x := dict "text" "a" }}{{ $x }}{{ $_ := set $x "text" (${STEP}) }}`, {}, STEPPED],
   ])("%s", (src, scope, mark) => {
