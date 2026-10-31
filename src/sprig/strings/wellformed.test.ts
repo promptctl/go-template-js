@@ -96,7 +96,7 @@ const probes: Record<string, readonly (() => unknown)[]> = {
   trunc: [() => trunc(1, `${HWAIR}x`), () => trunc(-1, `x${HWAIR}`)],
   substr: [() => substr(0, 1, `${HWAIR}x`), () => substr(1, 3, `${HWAIR}${GRIN}`)],
   abbrev: [() => abbrev(4, `${HWAIR}abcdef`)],
-  abbrevboth: [() => abbrevboth(1, 7, `${HWAIR}abcdef`)],
+  abbrevboth: [() => abbrevboth(0, 4, `${HWAIR}abcdef`)],
   trimAll: [() => trimAll(GRIN, `${GRIN}${BEAM}`)],
   split: [() => split("", `${HWAIR}ab`)],
   splitList: [() => splitList("", `${HWAIR}ab`)],
