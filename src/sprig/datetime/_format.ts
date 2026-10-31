@@ -168,7 +168,8 @@ const TOKENS: [string, Replacer][] = [
   ["Z0700", (z) => fmtOffsetZ(z.offsetMinutes)],
   ["-0700", (z) => fmtOffset(z.offsetMinutes)],
   // 4-char
-  ["2006", (z) => String(z.year)],
+  // Go: sign, then the magnitude padded to four digits (-5 → "-0005").
+  ["2006", (z) => `${z.year < 0 ? "-" : ""}${String(Math.abs(z.year)).padStart(4, "0")}`],
   // 3-char
   ["Jan", (z) => MONTHS_SHORT[z.month - 1] ?? "Jan"],
   ["Mon", (z) => WEEKDAYS_SHORT[z.weekday] ?? "Mon"],
@@ -184,7 +185,7 @@ const TOKENS: [string, Replacer][] = [
   ["03", (z) => pad2(z.hour12)],
   ["04", (z) => pad2(z.minute)],
   ["05", (z) => pad2(z.second)],
-  ["06", (z) => pad2(z.year % 100)],
+  ["06", (z) => pad2(Math.abs(z.year) % 100)],
   ["PM", (z) => (z.hour >= 12 ? "PM" : "AM")],
   ["pm", (z) => (z.hour >= 12 ? "pm" : "am")],
   // 1-char

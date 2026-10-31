@@ -6,7 +6,9 @@ const hostTz = process.env.TZ;
 
 describe("sprig.date", () => {
   afterEach(() => {
-    process.env.TZ = hostTz;
+    // Assigning undefined would set the string "undefined".
+    if (hostTz === undefined) delete process.env.TZ;
+    else process.env.TZ = hostTz;
   });
 
   it("formats in the host zone as TZ stands at the call, not at import", () => {

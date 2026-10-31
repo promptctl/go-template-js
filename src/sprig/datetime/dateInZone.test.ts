@@ -59,9 +59,24 @@ describe("sprig.dateInZone", () => {
     );
   });
 
-  it("counts 1 BC as year 0, as Go does", () => {
-    const d = new Date(0);
-    d.setUTCFullYear(0, 0, 1);
-    expect(dateInZone("06-01-02 15:04 -0700", d, "UTC")).toBe("00-01-01 00:00 +0000");
+  it("numbers BCE years as Go does: 1 BC is year 0, signed and zero-padded", () => {
+    const at = (year: number) => {
+      const d = new Date(0);
+      d.setUTCFullYear(year, 2, 4);
+      return d;
+    };
+    expect(dateInZone("2006-01-02|06", at(0), "UTC")).toBe("0000-03-04|00");
+    expect(dateInZone("2006-01-02|06", at(-5), "UTC")).toBe("-0005-03-04|05");
+    expect(dateInZone("2006|06", at(33), "UTC")).toBe("0033|33");
+  });
+
+  it("formats offsets at the edges of the Date range, as Go does", () => {
+    const layout = "2006-01-02 15:04:05 -0700";
+    expect(dateInZone(layout, new Date(-8.64e15), "America/New_York")).toBe(
+      "-271821-04-19 19:03:58 -0456",
+    );
+    expect(dateInZone(layout, new Date(8.64e15), "Pacific/Kiritimati")).toBe(
+      "275760-09-13 14:00:00 +1400",
+    );
   });
 });

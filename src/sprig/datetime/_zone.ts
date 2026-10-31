@@ -56,12 +56,13 @@ const WEEKDAY_NAMES = [
 ];
 
 interface ZoneFormatter {
-  zone: string; // the zone Intl accepted; "UTC" for the fallback entry
+  zone: string; // Intl's canonical name for the zone; "UTC" for the fallback entry
   parts: Intl.DateTimeFormat;
 }
 
-function buildZoneFormatter(zone: string): ZoneFormatter {
-  return { zone, parts: new Intl.DateTimeFormat("en-US", { ...INTL_OPTS, timeZone: zone }) };
+function buildZoneFormatter(timeZone: string): ZoneFormatter {
+  const parts = new Intl.DateTimeFormat("en-US", { ...INTL_OPTS, timeZone });
+  return { zone: parts.resolvedOptions().timeZone, parts };
 }
 
 // Built at load, so a runtime that cannot honour INTL_OPTS fails on import
@@ -112,11 +113,11 @@ export function getZoneParts(date: Date, tzInput: string): ZoneParts {
   // The UTC offset is the wall clock read as if it were UTC, minus the
   // instant. Exact to the second, so local mean time offsets such as
   // New York's -4:56:02 before 1883 come out as Go has them; Go's offset
-  // tokens print minutes truncated toward zero.
-  const wall = new Date(0);
-  wall.setUTCFullYear(year, month - 1, day);
-  wall.setUTCHours(hour, minute, second, ms);
-  const offsetMinutes = Math.trunc((wall.getTime() - date.getTime()) / 60_000);
+  // tokens print minutes truncated toward zero. Plain arithmetic, not a
+  // Date, because the wall clock may lie past Date's ±8.64e15 ms range.
+  const wallMs =
+    daysFromCivil(year, month, day) * 86_400_000 + ((hour * 60 + minute) * 60 + second) * 1000 + ms;
+  const offsetMinutes = Math.trunc((wallMs - date.getTime()) / 60_000);
 
   const weekday = WEEKDAY_NAMES.indexOf(p.get("weekday") ?? "Sunday");
 
@@ -135,8 +136,29 @@ export function getZoneParts(date: Date, tzInput: string): ZoneParts {
   };
 }
 
-/** Host timezone name (IANA string). Read per call: Go fixes `time.Local`
- * before `main`, but JS code may set `process.env.TZ` after imports run. */
+// Days from 1970-01-01 to a proleptic Gregorian date, for any integer year.
+// Howard Hinnant's days_from_civil: count in 400-year eras from 0000-03-01.
+function daysFromCivil(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year;
+  const era = Math.floor(y / 400);
+  const yearOfEra = y - era * 400;
+  const dayOfYear = Math.floor((153 * ((month + 9) % 12) + 2) / 5) + day - 1;
+  const dayOfEra =
+    yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear;
+  return era * 146_097 + dayOfEra - 719_468;
+}
+
+// [LAW:no-shared-mutable-globals] Owned by `localTz` alone. Go fixes
+// `time.Local` before `main`, but JS may assign `process.env.TZ` after imports
+// run, and Node re-resolves the host zone when it does — so the memo is keyed
+// on that value, and resolving costs one formatter only when it changes.
+let hostZone: { tzEnv: string | undefined; zone: string } | undefined;
+
+/** Host timezone name (IANA string). */
 export function localTz(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tzEnv = globalThis.process?.env.TZ;
+  if (hostZone === undefined || hostZone.tzEnv !== tzEnv) {
+    hostZone = { tzEnv, zone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  }
+  return hostZone.zone;
 }

@@ -15,6 +15,12 @@ describe("sprig.htmlDateInZone", () => {
     expect(htmlDateInZone(d, "Europe/Paris")).toBe("2024-03-15");
   });
 
+  it("pads and signs BCE years as Go's 2006-01-02 layout does", () => {
+    const d = new Date(0);
+    d.setUTCFullYear(-5, 2, 4);
+    expect(htmlDateInZone(d, "UTC")).toBe("-0005-03-04");
+  });
+
   it("accepts number (unix seconds)", () => {
     // 1136239445 = 2006-01-02T15:04:05Z
     expect(htmlDateInZone(1136239445, "UTC")).toBe("2006-01-02");
