@@ -147,8 +147,8 @@ type PipelineContext =
   | "if"
   | "range"
   | "with"
-  | "template"
-  | "block"
+  | "template clause"
+  | "block clause"
   | "parenthesized pipeline";
 
 const PIPELINE_CONTEXT = { If: "if", Range: "range", With: "with" } as const satisfies Record<
@@ -461,7 +461,8 @@ class Parser {
 
   private parseTemplateInvocation(startPos: Pos, trimLeft: boolean): TemplateNode {
     const name = this.parseQuotedName();
-    const pipe = this.peek().type === "RightDelim" ? undefined : this.parsePipeline("template");
+    const pipe =
+      this.peek().type === "RightDelim" ? undefined : this.parsePipeline("template clause");
     const right = this.expect("RightDelim", "`}}`");
     const trim: TrimMarkers = { trimLeft, trimRight: right.trimRight === true };
     return pipe
@@ -471,7 +472,7 @@ class Parser {
 
   private parseBlock(startPos: Pos, trimLeft: boolean): BlockNode {
     const name = this.parseQuotedName();
-    const pipe = this.peek().type === "RightDelim" ? undefined : this.parsePipeline("block");
+    const pipe = this.peek().type === "RightDelim" ? undefined : this.parsePipeline("block clause");
     this.expect("RightDelim", "`}}`");
     // [LAW:types-are-the-program] A `{{block}}` body is invoked via the
     // sub-template machinery: a separate parse context in Go's

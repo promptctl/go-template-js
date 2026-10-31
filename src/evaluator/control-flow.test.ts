@@ -246,8 +246,10 @@ describe("control flow — sub-templates (template / block / define)", () => {
     );
   });
 
-  it("template without a pipe inherits the caller's dot", () => {
-    expect(render('{{define "g"}}<{{ . }}>{{end}}{{ template "g" }}', "outer")).toBe("<outer>");
+  it("template without a pipe runs with nil data, as in Go", () => {
+    expect(render('{{define "g"}}<{{ . }}>{{end}}{{ template "g" }}', "outer")).toBe(
+      "<<no value>>",
+    );
   });
 
   it("block defines AND invokes inline; can be overridden via define", () => {

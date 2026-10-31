@@ -1,0 +1,1 @@
+{{ $x := 1 }}{{ if false }}{{ else }}{{ $x := 2 }}{{ end }}{{ with 0 }}{{ else }}{{ $x := 3 }}{{ end }}{{ range list }}{{ else }}{{ $x := 4 }}{{ end }}{{ $x }}
