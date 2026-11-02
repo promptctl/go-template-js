@@ -192,6 +192,16 @@ func generate(dir string) (bool, error) {
 
 	name := filepath.Base(dir)
 	tpl := template.New(name).Funcs(sprig.FuncMap())
+	// Helm's `include` (helm/pkg/engine/engine.go, includeFun): a func that
+	// closes over the template set and runs ExecuteTemplate into a buffer.
+	// Registered before Parse, because Parse refuses an unknown func name.
+	tpl = tpl.Funcs(template.FuncMap{
+		"include": func(name string, data interface{}) (string, error) {
+			var buf strings.Builder
+			err := tpl.ExecuteTemplate(&buf, name, data)
+			return buf.String(), err
+		},
+	})
 	if cfg.Delims != nil {
 		if len(cfg.Delims) != 2 {
 			return false, fmt.Errorf("config.json: delims must be [left, right]")

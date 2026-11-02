@@ -37,6 +37,7 @@ import {
 } from "../parser/ast.js";
 import type { Delims } from "../parser/lexer.js";
 import {
+  type DefineEntry,
   type Defines,
   lookupDefine,
   type ParseResult,
@@ -46,6 +47,7 @@ import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
+import { isInclude } from "./include.js";
 import { isLazy } from "./lazy.js";
 import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
 import {
@@ -630,12 +632,23 @@ interface Arms {
 }
 
 interface EvalContext<T> {
-  readonly out: T[];
+  // Where a fragment goes once produced. The root evaluation's sink
+  // pushes through `emitted` onto the output; `include`'s sink captures
+  // the fragment instead, because a captured fragment never reaches the
+  // output — the string it becomes does.
+  readonly emit: (value: T, marks: Marks) => void;
+  // Where a decision's marks go. The root's sink is the engine's `decided`;
+  // `include`'s also joins them to its result, which hangs on every
+  // decision its body made, an arm that emitted nothing included.
+  readonly decided: (marks: Marks) => void;
   readonly defines: Defines;
   readonly source: string | undefined;
   // The control-pipe marks of every arm being evaluated: an emission
   // here depends on the branches that led to it.
   readonly marks: Marks;
+  // How many define bodies enclose this one, for the error that names a
+  // recursion too deep for the host's stack.
+  readonly depth: number;
 }
 
 // [LAW:types-are-the-program] Internal control-flow sentinels for
@@ -1036,10 +1049,12 @@ export class Engine<T> {
     const out: T[] = [];
     const root = rootScope({ value: scope, marks: NO_MARKS });
     const ctx: EvalContext<T> = {
-      out,
+      emit: (value, marks) => out.push(this.emitted(value, marks)),
+      decided: this.decided,
       defines: parsed.defines,
       source: parsed.source,
       marks: NO_MARKS,
+      depth: 0,
     };
     this.evalList(parsed.root, root, ctx);
     return out;
@@ -1058,7 +1073,7 @@ export class Engine<T> {
   private evalNode(node: Node, scope: Scope, ctx: EvalContext<T>): void {
     switch (node.type) {
       case "Text":
-        ctx.out.push(this.emitted(this.fromString(node.text), ctx.marks));
+        ctx.emit(this.fromString(node.text), ctx.marks);
         return;
       case "Comment":
         return;
@@ -1071,7 +1086,7 @@ export class Engine<T> {
           // (`{{ $x := pipe }}`) contribute no output — they're pure
           // assignment statements. Only assignment-free actions emit.
           if (node.pipe.decls.length === 0) {
-            ctx.out.push(this.emitted(this.lift(value), unionMarks(reads, ctx.marks)));
+            ctx.emit(this.lift(value), unionMarks(reads, ctx.marks));
           }
         });
         return;
@@ -1219,17 +1234,99 @@ export class Engine<T> {
     scope: Scope,
     ctx: EvalContext<T>,
   ): void {
-    const entry = lookupDefine(ctx.defines, node.name);
+    const entry = this.definedEntry(node.name, node.pos, ctx);
+    this.renderDefine(node.name, entry, this.invocationDot(node.pipe, scope, ctx), node.pos, ctx);
+  }
+
+  // [LAW:single-enforcer] The one lookup a by-name render (`{{ template }}`,
+  // `include`) goes through, and so the one "is not defined" error.
+  private definedEntry(name: string, pos: Pos, ctx: EvalContext<T>): DefineEntry {
+    const entry = lookupDefine(ctx.defines, name);
     if (!entry) {
-      throw new EvalError(`template ${JSON.stringify(node.name)} is not defined`, node.pos, {
+      throw new EvalError(`template ${JSON.stringify(name)} is not defined`, pos, {
         source: ctx.source,
       });
     }
+    return entry;
+  }
+
+  // [LAW:single-enforcer] Every define body runs here: `{{ template }}`,
+  // `{{ block }}` and `include`.
+  private renderDefine(
+    name: string,
+    body: { readonly list: ListNode; readonly source: string | undefined },
+    dot: Binding,
+    pos: Pos,
+    ctx: EvalContext<T>,
+  ): void {
     // A template body sees only its own `$`, never the caller's variables.
-    const child = rootScope(this.invocationDot(node.pipe, scope, ctx));
-    // The body's errors snippet against the source that declared it, which
-    // for an inherited define is not this template's source.
-    this.evalList(entry.list, child, { ...ctx, source: entry.source });
+    // Its errors snippet against the source that declared it, which for an
+    // inherited define is not this template's source.
+    try {
+      this.evalList(body.list, rootScope(dot), {
+        ...ctx,
+        source: body.source,
+        depth: ctx.depth + 1,
+      });
+    } catch (e) {
+      // Go caps nesting at 100000, deeper than any JS host's stack. The
+      // recursion runs as deep as the host allows; the overflow becomes one
+      // error naming the define, at the innermost frame that can build it,
+      // and every frame above passes that `TemplateError` through.
+      if (!isStackOverflow(e)) throw e;
+      throw new EvalError(
+        `template ${JSON.stringify(name)}: nesting depth ${ctx.depth + 1} exceeds the host's stack`,
+        pos,
+        { source: ctx.source, cause: e },
+      );
+    }
+  }
+
+  // Helm's `include`: the define renders into a capture instead of the
+  // output, and its text is the call's value. What the body's fragments
+  // depend on is what that value depends on, so their marks join `reads`.
+  private include(
+    registered: string,
+    name: string,
+    data: unknown,
+    pos: Pos,
+    ctx: EvalContext<T>,
+    reads: Set<unknown>,
+  ): string {
+    const entry = this.definedEntry(name, pos, ctx);
+    const parts: string[] = [];
+    const emit = (value: T, marks: Marks): void => {
+      // [LAW:single-enforcer] T→string is the engine's `toString`, here as
+      // everywhere; a non-string T with none configured fails loudly.
+      parts.push(this.toString(value));
+      for (const mark of marks) reads.add(mark);
+    };
+    const decided = (marks: Marks): void => {
+      ctx.decided(marks);
+      for (const mark of marks) reads.add(mark);
+    };
+    // The dot depends on everything the call has read so far, its data
+    // argument included: a mark is reported early, never late. A snapshot:
+    // `reads` keeps growing as the body emits.
+    const dot = { value: data, marks: new Set([...reads, ...ctx.marks]) };
+    try {
+      this.renderDefine(name, entry, dot, pos, { ...ctx, emit, decided });
+    } catch (e) {
+      // `error calling <registered name>` at the call, with the body's own error —
+      // its class, position and source — as the cause. The text is the
+      // innermost error's, not every level's again: a chain of includes
+      // otherwise repeats itself once per level. A `fail` stays a
+      // `FailError`, so the template's own refusal is told apart from the
+      // engine's however many includes it passed through.
+      if (!(e instanceof TemplateError)) throw e;
+      const root = innermost(e);
+      const Wrap = root instanceof FailError ? FailError : EvalError;
+      throw new Wrap(`error calling ${registered} ${JSON.stringify(name)}: ${root.message}`, pos, {
+        source: ctx.source,
+        cause: e,
+      });
+    }
+    return parts.join("");
   }
 
   private evalBlock(
@@ -1240,9 +1337,9 @@ export class Engine<T> {
     // A block invokes the same-named template if one is registered (or
     // that registration came from the block itself at parse time).
     // The dot for the block body is the pipe's value when present.
-    const child = rootScope(this.invocationDot(node.pipe, scope, ctx));
+    const dot = this.invocationDot(node.pipe, scope, ctx);
     const entry = lookupDefine(ctx.defines, node.name) ?? { list: node.list, source: ctx.source };
-    this.evalList(entry.list, child, { ...ctx, source: entry.source });
+    this.renderDefine(node.name, entry, dot, node.pos, ctx);
   }
 
   // [LAW:single-enforcer] The one place a control pipe's marks are
@@ -1252,7 +1349,7 @@ export class Engine<T> {
   // since its value after the construct hangs on which arm ran.
   private decide(reads: Marks, ctx: EvalContext<T>, frame: Scope, arms: Arms): EvalContext<T> {
     const marks = unionMarks(ctx.marks, reads);
-    this.decided(marks);
+    ctx.decided(marks);
     for (const name of this.assignedIn(arms)) markVar(frame, name, marks);
     return { ...ctx, marks };
   }
@@ -1294,7 +1391,7 @@ export class Engine<T> {
     try {
       return { value: evaluate(reads), reads };
     } catch (e) {
-      this.decided(unionMarks(reads, ctx.marks));
+      ctx.decided(unionMarks(reads, ctx.marks));
       throw e;
     }
   }
@@ -1439,7 +1536,15 @@ export class Engine<T> {
     try {
       // [LAW:single-enforcer] A `marked` carrier is unwrapped here and only
       // here — returned or thrown — so no template value is ever one.
-      result = readCarrier((fn.fn as (...a: unknown[]) => unknown)(...args), reads);
+      // [LAW:dataflow-not-control-flow] The gate and the error path below
+      // are the same for every call; `include` differs only in which body
+      // runs, because its body is a render the evaluator owns.
+      result = readCarrier(
+        isInclude(fn)
+          ? this.include(name, args[0] as string, args[1], pos, ctx, reads)
+          : (fn.fn as (...a: unknown[]) => unknown)(...args),
+        reads,
+      );
     } catch (thrown) {
       // A func whose failure depends on a marked value throws
       // `marked(error, …)`: the error may clear when the mark changes, and
@@ -1456,7 +1561,7 @@ export class Engine<T> {
         });
       }
       if (e instanceof FailError) {
-        throw new FailError(e.message, pos, { source: ctx.source });
+        throw new FailError(e.message, pos, { source: ctx.source, cause: e.cause });
       }
       if (e instanceof TemplateError) throw e;
       // Go reports a function's own error as `error calling <name>: <err>`
@@ -1471,7 +1576,7 @@ export class Engine<T> {
     // evaluation — so the marks it stored are reported now, on the channel
     // that needs no cell.
     // A snapshot: the command's set keeps growing after this call.
-    if (fn.writes === true) this.decided(new Set([...reads, ...ctx.marks]));
+    if (fn.writes === true) ctx.decided(new Set([...reads, ...ctx.marks]));
     return result;
   }
 
@@ -2115,6 +2220,22 @@ function constructFrame(scope: Scope): Scope {
 // fail alike, with Go's text/template exec.go message.
 function undefinedVariable(name: string, pos: Pos, ctx: { source: string | undefined }): EvalError {
   return new EvalError(`undefined variable: ${name}`, pos, { source: ctx.source });
+}
+
+// The template error a chain of `cause`s started from: where it went wrong.
+function innermost(e: TemplateError): TemplateError {
+  return e.cause instanceof TemplateError ? innermost(e.cause) : e;
+}
+
+// The host ran out of stack in the template's own frames: V8 and JSC throw
+// a RangeError, SpiderMonkey an InternalError, each naming the condition.
+// A template error never matches, whatever its text: a func that overflowed
+// was already reported at its own call, as `error calling <func>`.
+function isStackOverflow(e: unknown): boolean {
+  return (
+    (e instanceof RangeError || (e instanceof Error && e.name === "InternalError")) &&
+    /call stack|too much recursion/i.test(e.message)
+  );
 }
 
 // A body may throw anything; Go's `%v` of an error is its message.

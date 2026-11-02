@@ -1,0 +1,20 @@
+{{- define "name" }}{{ .first }} {{ .last }}{{ end -}}
+{{- define "badge" }}{{ if .admin }}admin{{ end }}{{ end -}}
+{{- define "item" }}- {{ . }}
+{{ end -}}
+{{- define "list" }}{{ range . }}{{ include "item" . }}{{ end }}{{ end -}}
+{{- define "dollar" }}{{ $ }}{{ end -}}
+{{- define "countdown" }}{{ . }}{{ if gt . 0 }} {{ include "countdown" (sub . 1) }}{{ end }}{{ end -}}
+pipe: {{ include "name" .user | upper }}
+indent:
+{{ include "list" .items | indent 4 }}
+arg: {{ printf "<%s>" (include "name" .user) }}
+if-empty: {{ if include "badge" .user }}has badge{{ else }}no badge{{ end }}
+if-set: {{ if include "badge" .admin }}has badge{{ else }}no badge{{ end }}
+default: {{ include "badge" .user | default "guest" }}
+var: {{ $n := include "name" .user }}{{ $n }}/{{ len $n }}
+piped-data: {{ .user | include "name" }}
+dollar: {{ include "dollar" "own-dollar" }}
+nil-data: [{{ include "dollar" nil }}]
+recursion: {{ include "countdown" 3 }}
+block: {{ block "greet" .user }}hi {{ .first }}{{ end }} / {{ include "greet" .admin }}

@@ -1,0 +1,15 @@
+pipe: GRACE HOPPER
+indent:
+    - a
+    - b
+    
+arg: <Grace Hopper>
+if-empty: no badge
+if-set: has badge
+default: guest
+var: Grace Hopper/12
+piped-data: Grace Hopper
+dollar: own-dollar
+nil-data: [<no value>]
+recursion: 3 2 1 0
+block: hi Grace / hi Ada
