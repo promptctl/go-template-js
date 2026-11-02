@@ -304,7 +304,8 @@ It behaves as Helm's `include` does, and the conformance corpus checks it agains
 
 - The body sees its data argument as both `.` and `$`, never the caller's variables, the same as with `{{ template }}`. With no data to pass, pass `.` or `nil` explicitly.
 - It renders any define it can see, inherited ones included (`engine.parse(src, helpers.defines())`).
-- An undefined name fails at the call with `template "name" is not defined`. An error inside the body points at the body, in the source that declared it.
+- An undefined name fails at the call with `template "name" is not defined`. An error inside the body fails at the call as `error calling include "name": <what went wrong>`, as in Helm. Its `cause` is the body's own error, with its class, and its position in the source that declared the define.
+- A define that recurses, through `include`, `template` or `block`, stops after 100 nested levels with an error naming it. That limit is lower than Go's and Helm's, so the error is the same on every JS host instead of becoming a stack overflow.
 - With a non-string `T`, the body's fragments are flattened through the engine's `toString` and the result is one string. An engine with a non-string `T` and no `toString` fails loudly the first time `include` runs.
 - Provenance carries through: every mark the body read, and every mark on the data argument, reaches the emission that uses the result.
 

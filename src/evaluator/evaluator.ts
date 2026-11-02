@@ -642,7 +642,16 @@ interface EvalContext<T> {
   // The control-pipe marks of every arm being evaluated: an emission
   // here depends on the branches that led to it.
   readonly marks: Marks;
+  // How many define bodies enclose this one. A recursive define stops at
+  // MAX_DEFINE_DEPTH with an error naming it, not at the host's stack size.
+  readonly depth: number;
 }
+
+// Go's limit (100000) and Helm's (1000) both need a deeper stack than a JS
+// host gives: Node overflows near 450 nested `include`s of a one-action
+// body, and a body with nested control flow spends more frames per level.
+// 100 sits well under every host, so the error is the same everywhere.
+const MAX_DEFINE_DEPTH = 100;
 
 // [LAW:types-are-the-program] Internal control-flow sentinels for
 // `{{break}}` / `{{continue}}`. They are NOT user-facing errors —
@@ -1046,6 +1055,7 @@ export class Engine<T> {
       defines: parsed.defines,
       source: parsed.source,
       marks: NO_MARKS,
+      depth: 0,
     };
     this.evalList(parsed.root, root, ctx);
     return out;
@@ -1226,7 +1236,7 @@ export class Engine<T> {
     ctx: EvalContext<T>,
   ): void {
     const entry = this.definedEntry(node.name, node.pos, ctx);
-    this.renderDefine(entry, this.invocationDot(node.pipe, scope, ctx), ctx);
+    this.renderDefine(node.name, entry, this.invocationDot(node.pipe, scope, ctx), node.pos, ctx);
   }
 
   // [LAW:single-enforcer] The one lookup a by-name render (`{{ template }}`,
@@ -1244,14 +1254,27 @@ export class Engine<T> {
   // [LAW:single-enforcer] Every define body runs here: `{{ template }}`,
   // `{{ block }}` and `include`.
   private renderDefine(
+    name: string,
     body: { readonly list: ListNode; readonly source: string | undefined },
     dot: Binding,
+    pos: Pos,
     ctx: EvalContext<T>,
   ): void {
+    if (ctx.depth >= MAX_DEFINE_DEPTH) {
+      throw new EvalError(
+        `template ${JSON.stringify(name)}: exceeded maximum nesting depth of ${MAX_DEFINE_DEPTH}`,
+        pos,
+        { source: ctx.source },
+      );
+    }
     // A template body sees only its own `$`, never the caller's variables.
     // Its errors snippet against the source that declared it, which for an
     // inherited define is not this template's source.
-    this.evalList(body.list, rootScope(dot), { ...ctx, source: body.source });
+    this.evalList(body.list, rootScope(dot), {
+      ...ctx,
+      source: body.source,
+      depth: ctx.depth + 1,
+    });
   }
 
   // Helm's `include`: the define renders into a capture instead of the
@@ -1273,12 +1296,23 @@ export class Engine<T> {
       for (const mark of marks) reads.add(mark);
     };
     // The dot depends on everything the call has read so far, its data
-    // argument included: a mark is reported early, never late.
-    this.renderDefine(
-      entry,
-      { value: data, marks: unionMarks(reads, ctx.marks) },
-      { ...ctx, emit },
-    );
+    // argument included: a mark is reported early, never late. A snapshot:
+    // `reads` keeps growing as the body emits.
+    const dot = { value: data, marks: new Set([...reads, ...ctx.marks]) };
+    try {
+      this.renderDefine(name, entry, dot, pos, { ...ctx, emit });
+    } catch (e) {
+      // As Go reports it: `error calling include` at the call, with the
+      // body's own error — its class, position and source — as the cause.
+      // The text is the innermost error's, not every level's again: a
+      // chain of includes otherwise repeats itself once per level.
+      if (!(e instanceof TemplateError)) throw e;
+      throw new EvalError(
+        `error calling include ${JSON.stringify(name)}: ${innermost(e).message}`,
+        pos,
+        { source: ctx.source, cause: e },
+      );
+    }
     return parts.join("");
   }
 
@@ -1292,7 +1326,7 @@ export class Engine<T> {
     // The dot for the block body is the pipe's value when present.
     const dot = this.invocationDot(node.pipe, scope, ctx);
     const entry = lookupDefine(ctx.defines, node.name) ?? { list: node.list, source: ctx.source };
-    this.renderDefine(entry, dot, ctx);
+    this.renderDefine(node.name, entry, dot, node.pos, ctx);
   }
 
   // [LAW:single-enforcer] The one place a control pipe's marks are
@@ -2174,6 +2208,11 @@ function undefinedVariable(name: string, pos: Pos, ctx: { source: string | undef
 }
 
 // A body may throw anything; Go's `%v` of an error is its message.
+// The template error a chain of `cause`s started from: where it went wrong.
+function innermost(e: TemplateError): TemplateError {
+  return e.cause instanceof TemplateError ? innermost(e.cause) : e;
+}
+
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }

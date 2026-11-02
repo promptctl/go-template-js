@@ -9,30 +9,31 @@
  * under any name.
  *
  * [LAW:single-enforcer] Rendering a define needs the evaluator's context,
- * which no `TemplateFunc` body receives. The evaluator recognizes this one
- * object by a module-private brand (the `lazy.ts` pattern) and runs the
- * render in its place; the brand never appears on the object, so a
- * consumer can neither forge it nor reach it, and the brand follows the
- * object, not the name it is registered under.
+ * which no `TemplateFunc` body receives. The evaluator recognizes `include`
+ * by its module-private `fn` and runs the render in its place. A consumer
+ * cannot forge that function, and it follows the registration through any
+ * name and any copy (`{ ...include }`).
  *
  * Leaf module so `evaluator.ts` and `index.ts` import it without a cycle.
  */
 
 import type { TemplateFunc } from "./evaluator.js";
 
+// Never called: the evaluator dispatches on this reference to its own
+// render. Reaching this body means that dispatch was bypassed.
+const render = (): never => {
+  throw new Error("include was called outside the evaluator's dispatch");
+};
+
 /** Helm's `include(name string, data interface{}) (string, error)`. */
 export const include: TemplateFunc = {
-  // Never called: the evaluator dispatches the branded object to its own
-  // render. Reaching this body means the brand check was bypassed.
-  fn: () => {
-    throw new Error("include was called outside the evaluator's dispatch");
-  },
+  fn: render,
   argTypes: ["string", "value"],
   arity: { kind: "exact" },
   returnType: "string",
 };
 
-/** True iff `fn` is the `include` object, under whatever name it was registered. */
+/** True iff `fn` is `include`, under whatever name or copy it was registered. */
 export function isInclude(fn: TemplateFunc): boolean {
-  return fn === include;
+  return fn.fn === render;
 }

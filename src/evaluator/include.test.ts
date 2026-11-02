@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   createEngine,
   EvalError,
+  FailError,
   FuncNotFoundError,
   include,
   marked,
+  sprigFlow,
+  sprigLists,
+  sprigMath,
   sprigStrings,
   TypeMismatchError,
 } from "../index.js";
@@ -58,7 +62,52 @@ describe("include", () => {
         .parse('{{ define "x" }}{{ $v }}{{ end }}{{ $v := 1 }}{{ include "x" . }}')
         .evaluate({}),
     );
-    expect(e).toBeInstanceOf(Error);
+    expect((e as EvalError).message).toContain("undefined variable: $v");
+  });
+
+  it("matches a copy of the registration, not only the exported object", () => {
+    const engine = createEngine<string>({ fromString: (s) => s, funcs: { inc: { ...include } } });
+    const out = engine.parse('{{ define "x" }}<{{ . }}>{{ end }}{{ inc "x" 1 }}').evaluate({});
+    expect(out.join("")).toBe("<1>");
+  });
+
+  it("stops a recursive define at a fixed depth with an error naming it", () => {
+    const e = thrown(() =>
+      stringEngine()
+        .parse('{{ define "r" }}{{ include "r" . }}{{ end }}{{ include "r" . }}')
+        .evaluate({}),
+    );
+    expect(e).toBeInstanceOf(EvalError);
+    expect((e as EvalError).message).toContain('template "r": exceeded maximum nesting depth');
+  });
+
+  it("stops a recursive {{ template }} the same way", () => {
+    const e = thrown(() =>
+      stringEngine()
+        .parse('{{ define "r" }}{{ template "r" . }}{{ end }}{{ template "r" . }}')
+        .evaluate({}),
+    );
+    expect((e as EvalError).message).toContain('template "r": exceeded maximum nesting depth');
+  });
+
+  it("recurses as deep as the data does, below the limit", () => {
+    const src =
+      '{{ define "n" }}{{ if . }}{{ range $i := until 1 }}{{ with $ }}x{{ include "n" (sub . 1) }}{{ end }}{{ end }}{{ end }}{{ end }}{{ include "n" 99 | len }}';
+    const engine = createEngine<string>({
+      fromString: (s) => s,
+      funcs: {
+        ...sprigStrings(),
+        ...sprigLists(),
+        ...sprigMath(),
+        include,
+        len: {
+          fn: (s: string) => String(s.length),
+          argTypes: ["string"],
+          arity: { kind: "exact" },
+        },
+      },
+    });
+    expect(engine.parse(src).evaluate({}).join("")).toBe("99");
   });
 
   it("fails on an undefined name with an error at the call that names it", () => {
@@ -69,13 +118,37 @@ describe("include", () => {
     expect((e as EvalError).pos.offset).toBe(src.indexOf("include"));
   });
 
-  it("reports an error inside an inherited body against the source that declared it", () => {
+  it("reports a body error at the call, with the body's own error as the cause", () => {
     const engine = stringEngine();
     const preamble = '{{ define "boom" }}{{ nosuchfn . }}{{ end }}';
     const helpers = engine.parse(preamble).defines();
-    const e = thrown(() => engine.parse('{{ include "boom" . }}', helpers).evaluate({}));
-    expect(e).toBeInstanceOf(FuncNotFoundError);
-    expect((e as FuncNotFoundError).source).toBe(preamble);
+    const src = 'top {{ include "boom" . }}';
+    const e = thrown(() => engine.parse(src, helpers).evaluate({})) as EvalError;
+    expect(e.message).toBe('error calling include "boom": function "nosuchfn" is not registered');
+    expect(e.pos.offset).toBe(src.indexOf("include"));
+    expect(e.source).toBe(src);
+    expect(e.cause).toBeInstanceOf(FuncNotFoundError);
+    expect((e.cause as FuncNotFoundError).source).toBe(preamble);
+  });
+
+  it("keeps the location of a fail inside an inherited body", () => {
+    const engine = stringEngine({ ...sprigFlow() });
+    const preamble = '{{ define "f" }}xx{{ fail "boom" }}{{ end }}';
+    const helpers = engine.parse(preamble).defines();
+    const e = thrown(() =>
+      engine.parse('top {{ include "f" . }}', helpers).evaluate({}),
+    ) as EvalError;
+    const cause = e.cause as FailError;
+    expect(cause).toBeInstanceOf(FailError);
+    expect(cause.pos.offset).toBe(preamble.indexOf("fail"));
+    expect(cause.source).toBe(preamble);
+  });
+
+  it("keeps the location of a type mismatch inside the body", () => {
+    const src = '{{ define "t" }}yy{{ upper 1 }}{{ end }}top {{ include "t" . }}';
+    const e = thrown(() => stringEngine().parse(src).evaluate({})) as EvalError;
+    expect(e.cause).toBeInstanceOf(TypeMismatchError);
+    expect((e.cause as TypeMismatchError).pos.offset).toBe(src.indexOf("upper"));
   });
 
   describe("provenance", () => {
@@ -110,6 +183,18 @@ describe("include", () => {
       expect(seen[0]?.has(PULSE)).toBe(true);
     });
 
+    it("a mark the body reads does not leak into the body's dot", () => {
+      const decided: ReadonlySet<unknown>[] = [];
+      createEngine<string>({
+        fromString: (s) => s,
+        funcs: { include, pulse },
+        decided: (marks) => decided.push(marks),
+      })
+        .parse('{{ define "x" }}{{ pulse }}{{ if . }}y{{ end }}{{ end }}{{ include "x" true }}')
+        .evaluate({});
+      expect(decided.some((m) => m.has(PULSE))).toBe(false);
+    });
+
     it("an include that reads nothing marked carries no mark", () => {
       const seen = emissions('{{ define "x" }}plain{{ end }}{{ include "x" . }}');
       expect(seen[0]?.size).toBe(0);
@@ -139,7 +224,8 @@ describe("include", () => {
         isT: isFrag,
         funcs: { include },
       });
-      expect(thrown(() => engine.parse(src).evaluate({}))).toBeInstanceOf(TypeMismatchError);
+      const e = thrown(() => engine.parse(src).evaluate({})) as EvalError;
+      expect(e.cause).toBeInstanceOf(TypeMismatchError);
     });
   });
 });
