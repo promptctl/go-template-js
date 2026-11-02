@@ -378,6 +378,13 @@ describe("public API — Defines.names", () => {
     expect(top.names()).toEqual(["b", "m", "z"]);
   });
 
+  it("lists a block over an inherited define once, and the inherited body is what renders", () => {
+    const base = engine.parse('{{ define "b" }}base{{ end }}').defines();
+    const tpl = engine.parse('{{ block "b" . }}block{{ end }}', base);
+    expect(tpl.defines().names()).toEqual(["b"]);
+    expect(tpl.evaluateDefine("b", {}).join("")).toBe("base");
+  });
+
   it("is empty for EMPTY and for a template that declares nothing", () => {
     expect(Defines.EMPTY.names()).toEqual([]);
     expect(engine.parse("plain").defines().names()).toEqual([]);

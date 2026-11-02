@@ -111,8 +111,8 @@ export class Defines {
   /**
    * Every name this set can render, own and inherited, sorted — what a
    * consumer reads after `evaluateDefine` reports a name as not defined.
-   * Collected into a Set so the listing cannot disagree with `has`, whatever
-   * the chain holds.
+   * The parser forbids redeclaring an inherited name, so the chain repeats
+   * none; the Set keeps the listing duplicate-free without leaning on that.
    */
   names(): string[] {
     const names = new Set<string>();
