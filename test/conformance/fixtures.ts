@@ -28,19 +28,18 @@ export function listFixtures(outcomeFile: string): string[] {
     .sort();
 }
 
+/** What a fixture sets on the engine; each harness spreads it into its own config. */
+export interface FixtureEngineConfig {
+  readonly delims?: Delims;
+}
+
 /** The inputs Go was given — everything about a fixture except its outcome. */
 export interface FixtureInput {
   readonly template: string;
   readonly scope: unknown;
-  readonly delims: Delims | undefined;
+  readonly engine: FixtureEngineConfig;
   /** A define to render by name, as Go's `ExecuteTemplate`. */
   readonly execute: string | undefined;
-}
-
-// Mirrors main.go's fixtureConfig.
-interface FixtureConfig {
-  delims?: [string, string];
-  execute?: string;
 }
 
 export function readFixtureInput(name: string): FixtureInput {
@@ -49,12 +48,31 @@ export function readFixtureInput(name: string): FixtureInput {
   const scopePath = join(dir, "scope.json");
   const scope: unknown = existsSync(scopePath) ? JSON.parse(readFileSync(scopePath, "utf8")) : null;
   const configPath = join(dir, "config.json");
-  const cfg: FixtureConfig = existsSync(configPath)
-    ? (JSON.parse(readFileSync(configPath, "utf8")) as FixtureConfig)
+  const cfg: Record<string, unknown> = existsSync(configPath)
+    ? JSON.parse(readFileSync(configPath, "utf8"))
     : {};
-  const delims = cfg.delims ? { left: cfg.delims[0], right: cfg.delims[1] } : undefined;
-  return { template, scope, delims, execute: cfg.execute };
+  return { template, scope, ...readConfig(name, cfg) };
 }
+
+// main.go decodes config.json into fixtureConfig: a null field is unset,
+// and a field of the wrong shape stops regen. Both readings hold here.
+function readConfig(
+  name: string,
+  cfg: Record<string, unknown>,
+): Pick<FixtureInput, "engine" | "execute"> {
+  const bad = (field: string) =>
+    new Error(`fixture ${name}: config.json ${field} is not what main.go accepts`);
+  const { delims, execute } = cfg;
+  if (delims != null && !isPair(delims)) throw bad("delims");
+  if (execute != null && typeof execute !== "string") throw bad("execute");
+  return {
+    engine: delims != null ? { delims: { left: delims[0], right: delims[1] } } : {},
+    execute: execute ?? undefined,
+  };
+}
+
+const isPair = (v: unknown): v is [string, string] =>
+  Array.isArray(v) && v.length === 2 && v.every((d) => typeof d === "string");
 
 export function readOutcome(name: string, outcomeFile: string): string {
   return readFileSync(join(FIXTURES_DIR, name, outcomeFile), "utf8");
@@ -63,12 +81,12 @@ export function readOutcome(name: string, outcomeFile: string): string {
 /**
  * The fixture's render, as main.go runs it: the whole template, or the
  * one define `execute` names. `makeEngine` builds the harness's engine
- * with the fixture's delimiters.
+ * with the fixture's config spread in.
  */
 export function renderFixture<T>(
-  makeEngine: (delims: Delims | undefined) => Engine<T>,
-  { template, scope, delims, execute }: FixtureInput,
+  makeEngine: (config: FixtureEngineConfig) => Engine<T>,
+  { template, scope, engine, execute }: FixtureInput,
 ): T[] {
-  const parsed = makeEngine(delims).parse(template);
+  const parsed = makeEngine(engine).parse(template);
   return execute === undefined ? parsed.evaluate(scope) : parsed.evaluateDefine(execute, scope);
 }

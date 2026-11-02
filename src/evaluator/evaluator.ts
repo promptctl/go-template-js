@@ -675,9 +675,9 @@ type Piped = { readonly kind: "none" } | { readonly kind: "value"; readonly valu
 
 const NO_PIPE: Piped = { kind: "none" };
 
-// Where a define's render is reported from when it fails as a whole: the
-// call, in the source that holds it.
-type Site = { readonly pos: Pos; readonly source: string | undefined };
+// The one wording for a by-name render whose name nothing defines, whether
+// a template or the host asked.
+const notDefined = (name: string): string => `template ${JSON.stringify(name)} is not defined`;
 
 /**
  * A parsed template bound to its parent engine.
@@ -1040,13 +1040,15 @@ export class Engine<T> {
       (name, scope) => {
         // The call is the host's, at no place in any source. A name it
         // cannot find is the host's mistake, as Go's ExecuteTemplate returns
-        // a plain error; a render that fails as a whole is reported at the
-        // define's own body.
+        // a plain error; the define itself runs as if called from its own
+        // body, in the source that declared it.
         const entry = lookupDefine(parsed.defines, name);
-        if (!entry) throw new Error(`template ${JSON.stringify(name)} is not defined`);
-        const site = { pos: entry.list.pos, source: entry.source };
+        if (!entry) throw new Error(notDefined(name));
         return this.evalParsed(parsed, scope, (root, ctx) =>
-          this.renderDefine(name, entry, root.dot, site, ctx),
+          this.renderDefine(name, entry, root.dot, entry.list.pos, {
+            ...ctx,
+            source: entry.source,
+          }),
         );
       },
       parsed.defines,
@@ -1273,7 +1275,7 @@ export class Engine<T> {
   ): void {
     const entry = this.definedEntry(node.name, node.pos, ctx);
     const dot = this.invocationDot(node.pipe, scope, ctx);
-    this.renderDefine(node.name, entry, dot, { pos: node.pos, source: ctx.source }, ctx);
+    this.renderDefine(node.name, entry, dot, node.pos, ctx);
   }
 
   // [LAW:single-enforcer] The one lookup a by-name render inside a template
@@ -1282,7 +1284,7 @@ export class Engine<T> {
   private definedEntry(name: string, pos: Pos, ctx: EvalContext<T>): DefineEntry {
     const entry = lookupDefine(ctx.defines, name);
     if (!entry) {
-      throw new EvalError(`template ${JSON.stringify(name)} is not defined`, pos, {
+      throw new EvalError(notDefined(name), pos, {
         source: ctx.source,
       });
     }
@@ -1295,7 +1297,7 @@ export class Engine<T> {
     name: string,
     body: { readonly list: ListNode; readonly source: string | undefined },
     dot: Binding,
-    site: Site,
+    pos: Pos,
     ctx: EvalContext<T>,
   ): void {
     // A template body sees only its own `$`, never the caller's variables.
@@ -1315,8 +1317,8 @@ export class Engine<T> {
       if (!isStackOverflow(e)) throw e;
       throw new EvalError(
         `template ${JSON.stringify(name)}: nesting depth ${ctx.depth + 1} exceeds the host's stack`,
-        site.pos,
-        { source: site.source, cause: e },
+        pos,
+        { source: ctx.source, cause: e },
       );
     }
   }
@@ -1349,7 +1351,7 @@ export class Engine<T> {
     // `reads` keeps growing as the body emits.
     const dot = { value: data, marks: new Set([...reads, ...ctx.marks]) };
     try {
-      this.renderDefine(name, entry, dot, { pos, source: ctx.source }, { ...ctx, emit, decided });
+      this.renderDefine(name, entry, dot, pos, { ...ctx, emit, decided });
     } catch (e) {
       // `error calling <registered name>` at the call, with the body's own error —
       // its class, position and source — as the cause. The text is the
@@ -1378,7 +1380,7 @@ export class Engine<T> {
     // The dot for the block body is the pipe's value when present.
     const dot = this.invocationDot(node.pipe, scope, ctx);
     const entry = lookupDefine(ctx.defines, node.name) ?? { list: node.list, source: ctx.source };
-    this.renderDefine(node.name, entry, dot, { pos: node.pos, source: ctx.source }, ctx);
+    this.renderDefine(node.name, entry, dot, node.pos, ctx);
   }
 
   // [LAW:single-enforcer] The one place a control pipe's marks are

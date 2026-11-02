@@ -12,7 +12,6 @@
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
-  type Delims,
   include,
   sprigConversions,
   sprigDatetime,
@@ -28,7 +27,13 @@ import {
   sprigTypes,
   TemplateError,
 } from "../../src/index.js";
-import { listFixtures, readFixtureInput, readOutcome, renderFixture } from "./fixtures.js";
+import {
+  type FixtureEngineConfig,
+  listFixtures,
+  readFixtureInput,
+  readOutcome,
+  renderFixture,
+} from "./fixtures.js";
 
 const allSprig = () => ({
   ...sprigDefaults(),
@@ -49,11 +54,11 @@ const allSprig = () => ({
 // same engine. A refusal fixture proving the engine matches Go's message
 // would prove nothing if it were rendered by a differently-configured
 // engine than the one the rendering fixtures pin.
-function makeEngine(delims: Delims | undefined) {
+function makeEngine(config: FixtureEngineConfig) {
   return createEngine<string>({
     fromString: (s) => s,
     funcs: { ...allSprig(), include },
-    ...(delims ? { delims } : {}),
+    ...config,
   });
 }
 

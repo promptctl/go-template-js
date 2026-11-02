@@ -48,11 +48,11 @@ describe("conformance — typed-fragment (T = TaggedFragment)", () => {
     it(name, () => {
       const expected = JSON.parse(readOutcome(name, "expected-fragments.json")) as TaggedFragment[];
       const output = renderFixture(
-        (delims) =>
+        (config) =>
           createEngine<TaggedFragment>({
             fromString: (s) => ({ tag: "text", text: s }),
             funcs: stylingFuncs,
-            ...(delims ? { delims } : {}),
+            ...config,
           }),
         readFixtureInput(name),
       );

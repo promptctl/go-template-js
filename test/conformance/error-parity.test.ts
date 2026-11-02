@@ -82,11 +82,11 @@ describe("conformance — error-parity (TypeMismatchError)", () => {
       let caught: unknown;
       try {
         renderFixture(
-          (delims) =>
+          (config) =>
             createEngine<TaggedFragment>({
               fromString: (s) => ({ tag: "text", text: s }),
               funcs: { ...allSprig(), ...stylingFuncs },
-              ...(delims ? { delims } : {}),
+              ...config,
             }),
           readFixtureInput(name),
         );

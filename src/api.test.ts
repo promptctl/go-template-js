@@ -354,7 +354,7 @@ describe("public API — Template.evaluateDefine", () => {
     expect((caught as Error).message).toBe('template "b" is not defined');
   });
 
-  it("reports a define that overflows the stack at its own body, in its own source", () => {
+  it("points an overflow inside an inherited define into the source that declared it", () => {
     const helpers = engine.parse('{{ define "r" }}{{ template "r" . }}{{ end }}').defines();
     let caught: unknown;
     try {

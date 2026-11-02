@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -178,8 +179,8 @@ func generate(dir string) (bool, error) {
 		return false, fmt.Errorf("read scope.json: %w", err)
 	}
 
-	// Optional per-fixture configuration. Mirrors the TS engine's
-	// EngineConfig fields that affect *parsing* (currently: delims).
+	// Optional per-fixture configuration, read the same way by
+	// test/conformance/fixtures.ts.
 	// Absent file → defaults; the Go reference uses standard {{ }}.
 	cfg := fixtureConfig{}
 	if cfgBytes, err := os.ReadFile(configPath); err == nil {
@@ -219,12 +220,9 @@ func generate(dir string) (bool, error) {
 	// outcome occurred decides which file is written — and a refusal
 	// never leaves a half-written expected.txt behind.
 	var rendered bytes.Buffer
-	// The template Go names in an execution error's context: the one run.
-	entry := name
 	var execErr error
 	if cfg.Execute != nil {
-		entry = *cfg.Execute
-		execErr = tpl.ExecuteTemplate(&rendered, entry, scope)
+		execErr = tpl.ExecuteTemplate(&rendered, *cfg.Execute, scope)
 	} else {
 		execErr = tpl.Execute(&rendered, scope)
 	}
@@ -245,12 +243,16 @@ func generate(dir string) (bool, error) {
 				"the fixture and the reference implementation disagree about whether "+
 				"this template is legal", rendered.String())
 	}
-	core, err := goErrorCore(entry, execErr)
+	core, err := goErrorCore(execErr)
 	if err != nil {
 		return false, err
 	}
 	return true, os.WriteFile(refusalPath, []byte(core+"\n"), 0o644)
 }
+
+// executingMarker is the context Go puts before the node: `executing`,
+// the executing template's name as a Go-quoted string, ` at <`.
+var executingMarker = regexp.MustCompile(`executing "(?:[^"\\]|\\.)*" at <`)
 
 // goErrorCore strips text/template's location-and-context wrapper off an
 // execution error, leaving the sentence alone — `wrong number of args for
@@ -260,9 +262,9 @@ func generate(dir string) (bool, error) {
 // presents with its own caret, so pinning it would pin Go's error
 // *formatting* rather than the engine's claim to say the same thing.
 // Go flattens both layers with a single fmt.Errorf, leaving no wrapped
-// inner error to unwrap, so the prefix — anchored on the name of the
-// template run, the fixture's or the define `execute` names — is the only
-// handle on the seam.
+// inner error to unwrap, so the prefix is the only handle on the seam. It
+// names the template executing when the error happened, which under
+// `{{ template }}` or `execute` is a define, so any quoted name matches.
 //
 // [LAW:no-silent-failure] An unrecognised shape stops the line; half a
 // stripped sentence recorded as Go's message is the kind of wrong that
@@ -274,15 +276,14 @@ func generate(dir string) (bool, error) {
 // the first nor the last occurrence is right in general, so this refuses
 // to guess rather than picking the likelier branch and being quietly
 // wrong in the other case.
-func goErrorCore(name string, execErr error) (string, error) {
+func goErrorCore(execErr error) (string, error) {
 	const contextEnd = ">: "
 	full := execErr.Error()
-	marker := fmt.Sprintf("executing %q at <", name)
-	start := strings.Index(full, marker)
-	if start < 0 {
+	marker := executingMarker.FindStringIndex(full)
+	if marker == nil {
 		return "", fmt.Errorf("execution error has no recognisable context prefix: %q", full)
 	}
-	rest := full[start+len(marker):]
+	rest := full[marker[1]:]
 	if n := strings.Count(rest, contextEnd); n != 1 {
 		return "", fmt.Errorf(
 			"cannot tell where the node context ends: expected exactly one %q after the "+
@@ -309,9 +310,8 @@ func exists(path string) (bool, error) {
 	return false, fmt.Errorf("stat %s: %w", path, err)
 }
 
-// fixtureConfig mirrors the engine-level knobs that affect how the
-// reference template is parsed. Kept intentionally minimal: only fields
-// that the TS engine also exposes via EngineConfig belong here.
+// fixtureConfig is how a fixture departs from the default run: how the
+// template is parsed, and which template is executed.
 type fixtureConfig struct {
 	// Delims, if set, must be a two-element [left, right] pair.
 	Delims []string `json:"delims,omitempty"`
