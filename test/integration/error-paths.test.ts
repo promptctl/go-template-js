@@ -82,6 +82,7 @@ describe("error paths via the public API", () => {
     }
     const fragEngine = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "color" in v,
       funcs: {
         upper: {
           fn: (s: unknown) => String(s).toUpperCase(),

@@ -577,6 +577,7 @@ describe("matchesArgType — liftable", () => {
     const seen: unknown[] = [];
     const eng = createEngine<Frag>({
       fromString: (s) => ({ kind: "frag", text: s }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "kind" in v,
       funcs: {
         cat: {
           fn: (...vs: unknown[]) => {

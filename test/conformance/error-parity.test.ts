@@ -85,6 +85,7 @@ describe("conformance — error-parity (TypeMismatchError)", () => {
           (config) =>
             createEngine<TaggedFragment>({
               fromString: (s) => ({ tag: "text", text: s }),
+              isT: (v): v is TaggedFragment => typeof v === "object" && v !== null && "tag" in v,
               funcs: { ...allSprig(), ...stylingFuncs },
               ...config,
             }),

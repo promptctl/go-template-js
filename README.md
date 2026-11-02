@@ -85,6 +85,7 @@ interface Frag { color: string; text: string }
 
 const engine = createEngine<Frag>({
   fromString: (s) => ({ color: "default", text: s }),
+  isT: (v): v is Frag => typeof v === "object" && v !== null && "color" in v,
   funcs: {
     red: {
       fn: (s: unknown) => ({ color: "red", text: String(s) }),
@@ -104,6 +105,8 @@ tpl.evaluate({ label: "warn", value: "ALERT" });
 // ]
 ```
 
+`isT` tells the engine which values are fragments: a T is emitted as itself, and anything else is printed as Go's `%v` prints it (`map[k:v]`, `[a b]`). It defaults to "is a string", so an engine whose `T` is not a string must declare it; `createEngine` throws if `fromString("")` is not a T by its `isT`.
+
 Functions declare `argTypes` and `arity`, both required. The engine uses `argTypes` to enforce one architectural commitment: **a non-string `T` value will never silently flatten into a `string` parameter**. If you try to pipe a styled fragment into a function declared with `argTypes: ["string"]`, you get a `TypeMismatchError` naming the function, the argument index, and a suggestion to call your `unstyled` (or equivalent) flatten helper.
 
 ### Lifting and stringification: the boundary bridges
@@ -118,6 +121,7 @@ Functions declare `argTypes` and `arity`, both required. The engine uses `argTyp
 ```ts
 const engine = createEngine<Frag>({
   fromString: (s) => ({ color: "default", text: s }),
+  isT: (v): v is Frag => typeof v === "object" && v !== null && "color" in v,
   toString: (frag) => frag.text,
 });
 ```
@@ -135,6 +139,7 @@ import { createEngine, marked } from "@promptctl/go-template-js";
 
 const engine = createEngine<Frag>({
   fromString: (s) => ({ color: "default", text: s }),
+  isT: (v): v is Frag => typeof v === "object" && v !== null && "color" in v,
   funcs: {
     pulse: {
       fn: () => marked(frame.t < 0.5 ? "red" : "blue", { changesAt: 0.5 }),
@@ -164,7 +169,7 @@ Every entry in `argTypes` is one of:
 | `"truncating-int"` | finite `number` or safe-integer-range `bigint` — the numeric half of sprig's `cast.ToInt64` read of an `interface{}` parameter (the cast's string/bool/nil conversions are refused); gate truncates toward zero (`max 1.5 2.5` → `2`, as in Go) | `add`, `add1`, `sub`, `mul`, `div`, `mod`, `max`, `min`, sprig's list `slice` |
 | `"float"` | any `number` (including `NaN`/`±Infinity` — legitimate IEEE-754 floats) or `bigint` whose `Number()` is finite; gate normalizes to `number` via `Number(v)` | `addf`, `subf`, `mulf`, `divf`, `maxf`, `minf` |
 | `"bool"` | `typeof === "boolean"` | (rare; most boolean slots use `"truthy"`) |
-| `"T"` | Any non-primitive (consumer-defined fragment) | consumer-defined typed funcs returning `T` |
+| `"T"` | A value the engine's `isT` accepts (default: a string) | consumer-defined typed funcs returning `T` |
 | `"ordered"` | `string`, `number`, `bigint`, or `boolean` | `lt`, `le`, `gt`, `ge` — additionally requires both slots share a kind |
 | `"comparable"` | `"ordered"` ∪ nil ∪ arrays / Maps / Sets / plain objects (deep-equal) | `eq`, `ne` |
 | `"list"` | `Array.isArray` | `first`, `last`, `rest`, `uniq`, `concat`, `chunk` |

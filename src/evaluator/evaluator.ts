@@ -416,6 +416,20 @@ export type { Delims };
 // time instead of producing pathological tokenization later. Returns
 // `undefined` for "no override" so the parser falls back to its own
 // default and we never need a separate "are delims set" boolean.
+// [LAW:no-silent-failure] `fromString` builds the engine's T, so its result
+// must be a T by the engine's own predicate. An object-T engine that leaves
+// `isT` at the string default would otherwise print its own fragments as
+// `map[…]` text; checked once here, it fails at construction instead.
+function validateIsT<T>(fromString: (s: string) => T, isT: IsT): IsT {
+  const probe = fromString("");
+  if (!isT(probe)) {
+    throw new Error(
+      `EngineConfig.isT: fromString("") returned ${describeBoundaryValue(probe)}, which isT does not accept as a T; an engine whose T is not a string must declare isT`,
+    );
+  }
+  return isT;
+}
+
 function validateDelims(value: Delims | undefined): Delims | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null) {
@@ -993,7 +1007,7 @@ export class Engine<T> {
     // engines.
     const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
     this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
-    this.isT = config.isT ?? DEFAULT_IS_T;
+    this.isT = validateIsT(config.fromString, config.isT ?? DEFAULT_IS_T);
     // [LAW:no-defensive-null-guards] exception: trust boundary — the
     // EngineConfig flows in from JS callers (no compile-time guard) and
     // TS callers using `as` casts. A typo like `"erro"` would silently

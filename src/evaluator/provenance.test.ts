@@ -351,6 +351,7 @@ describe("provenance: a pipe that throws reports what it read through `decided`"
   it("a throw while lifting the value reports too", () => {
     const decided: unknown[][] = [];
     const strict = createEngine<Frag>({
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "text" in v,
       fromString: (text) => {
         if (text === "BAD") throw new Error("bad markup");
         return { text };

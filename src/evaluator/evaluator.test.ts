@@ -19,6 +19,8 @@ describe("evaluator — text and dot", () => {
   it("emits text literals through fromString", () => {
     const eng = createEngine<{ kind: "txt"; v: string }>({
       fromString: (s) => ({ kind: "txt", v: s }),
+      isT: (v): v is { kind: "txt"; v: string } =>
+        typeof v === "object" && v !== null && "kind" in v,
     });
     expect(eng.parse("hello").evaluate(null)).toEqual([{ kind: "txt", v: "hello" }]);
   });
@@ -296,6 +298,7 @@ describe("evaluator — generic over T", () => {
   it("returns T[] without flattening to string", () => {
     const eng = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "color" in v,
     });
     const frags = eng.parse("hi {{ . }}!").evaluate("world");
     expect(frags).toEqual([
@@ -483,5 +486,15 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
 
   it("without isT only a string is a T: a plain object prints as Go's %v, never as a fragment", () => {
     expect(stringEngine().parse("{{ . }}").evaluate({ a: 1 })).toEqual(["map[a:1]"]);
+  });
+
+  it("an engine whose fromString builds a non-string T must declare isT, or construction throws", () => {
+    expect(() => createEngine({ fromString: (s) => ({ text: s }) })).toThrow(/must declare isT/);
+    expect(() =>
+      createEngine({
+        fromString: (s) => ({ text: s }),
+        isT: (v): v is { text: string } => v instanceof Object,
+      }),
+    ).not.toThrow();
   });
 });
