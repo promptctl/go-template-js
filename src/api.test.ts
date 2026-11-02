@@ -6,12 +6,15 @@
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
+  EvalError,
   FuncNotFoundError,
+  marked,
   type ReferencedArg,
   type ReferencedLiteral,
   sprigDefaults,
   sprigStrings,
   staticDictEntries,
+  TemplateError,
   type TemplateFunc,
 } from "./index.js";
 
@@ -283,5 +286,83 @@ describe("parse with inherited defines", () => {
     const mid = engine.parse('{{ define "quiet" }}{{ lower . }}{{ end }}', helpers);
     const tpl = engine.parse('{{ template "quiet" .a }}{{ template "shout" .b }}', mid.defines());
     expect(tpl.evaluate({ a: "AB", b: "cd" }).join("")).toBe("abCD!");
+  });
+});
+
+describe("public API — Template.evaluateDefine", () => {
+  const engine = createEngine<string>({ fromString: (s) => s });
+
+  it("renders one define with the scope as its dot and $, not the whole template", () => {
+    const t = engine.parse(
+      'body{{ define "card" }}[{{ .title }}|{{ $.title }}]{{ end }}{{ define "other" }}no{{ end }}',
+    );
+    expect(t.evaluateDefine("card", { title: "hi" }).join("")).toBe("[hi|hi]");
+  });
+
+  it("renders an inherited define, and a define that invokes another", () => {
+    const helpers = engine.parse('{{ define "name" }}<{{ . }}>{{ end }}').defines();
+    const t = engine.parse('{{ define "greet" }}hi {{ template "name" .who }}{{ end }}', helpers);
+    expect(t.evaluateDefine("greet", { who: "ada" }).join("")).toBe("hi <ada>");
+    expect(t.evaluateDefine("name", "go").join("")).toBe("<go>");
+  });
+
+  it("produces typed output through emitted, as a whole-template render does", () => {
+    type Frag = { kind: "text"; v: string } | { kind: "node"; n: number };
+    const typed = createEngine<Frag>({
+      fromString: (v) => ({ kind: "text", v }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "kind" in v,
+      emitted: (f) => (f.kind === "text" ? { kind: "text", v: f.v.toUpperCase() } : f),
+    });
+    const node: Frag = { kind: "node", n: 42 };
+    const t = typed.parse('{{ define "d" }}a{{ .n }}{{ end }}');
+    expect(t.evaluateDefine("d", { n: node })).toEqual([{ kind: "text", v: "A" }, node]);
+  });
+
+  it("reports the define's decisions and emissions with their marks", () => {
+    const PULSE = Symbol("pulse");
+    const pulse = {
+      fn: () => marked(true, PULSE),
+      argTypes: [],
+      arity: { kind: "exact" } as const,
+    };
+    const decided: ReadonlySet<unknown>[] = [];
+    const emitted: ReadonlySet<unknown>[] = [];
+    createEngine<string>({
+      fromString: (s) => s,
+      funcs: { pulse },
+      decided: (marks) => decided.push(marks),
+      emitted: (value, marks) => {
+        emitted.push(marks);
+        return value;
+      },
+    })
+      .parse('{{ define "d" }}{{ if pulse }}{{ end }}{{ pulse }}{{ end }}')
+      .evaluateDefine("d", {});
+    expect(decided.some((m) => m.has(PULSE))).toBe(true);
+    expect(emitted.some((m) => m.has(PULSE))).toBe(true);
+  });
+
+  it("throws a plain Error for a name that was never defined, the host's mistake", () => {
+    let caught: unknown;
+    try {
+      engine.parse('line one\n{{ define "a" }}{{ end }}').evaluateDefine("b", {});
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(TemplateError);
+    expect((caught as Error).message).toBe('template "b" is not defined');
+  });
+
+  it("points an overflow inside an inherited define into the source that declared it", () => {
+    const helpers = engine.parse('{{ define "r" }}{{ template "r" . }}{{ end }}').defines();
+    let caught: unknown;
+    try {
+      engine.parse("xx", helpers).evaluateDefine("r", 1);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect((caught as EvalError).source).toBe('{{ define "r" }}{{ template "r" . }}{{ end }}');
   });
 });

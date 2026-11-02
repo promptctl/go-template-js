@@ -19,13 +19,30 @@ const realExecError = `template: negative-arity-upper-too-many:1:3: ` +
 	`wrong number of args for upper: want 1 got 2`
 
 func TestGoErrorCoreStripsTheWrapper(t *testing.T) {
-	core, err := goErrorCore("negative-arity-upper-too-many", errors.New(realExecError))
+	core, err := goErrorCore(errors.New(realExecError))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// The core keeps its own colon-space; only the wrapper is removed.
 	if want := "wrong number of args for upper: want 1 got 2"; core != want {
 		t.Errorf("core = %q, want %q", core, want)
+	}
+}
+
+// Go names the template executing when the error happened: a define the
+// fixture invoked, or the one `execute` named, never the fixture itself.
+func TestGenerateStripsARefusalInsideADefine(t *testing.T) {
+	dir := fixtureWith(t,
+		`{{ define "card" }}{{ template "inner" . }}{{ end }}{{ define "inner" }}{{ upper "a" "b" }}{{ end }}`,
+		"expected-go-error.txt")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"execute":"card"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := generate(dir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, want := readBack(t, dir, "expected-go-error.txt"), "wrong number of args for upper: want 1 got 2\n"; got != want {
+		t.Errorf("recorded %q, want %q", got, want)
 	}
 }
 
@@ -39,15 +56,14 @@ func TestGoErrorCoreRefusesToGuess(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		fn   string
 		text string
 	}{
-		{"ambiguous context end", "negative-arity-trim-too-many", ambiguous},
-		{"no context marker at all", "somefixture", "template: somefixture: some other failure"},
-		{"context never closed", "somefixture", `template: somefixture:1:3: executing "somefixture" at <upper`},
+		{"ambiguous context end", ambiguous},
+		{"no context marker at all", "template: somefixture: some other failure"},
+		{"context never closed", `template: somefixture:1:3: executing "somefixture" at <upper`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			core, err := goErrorCore(tc.fn, errors.New(tc.text))
+			core, err := goErrorCore(errors.New(tc.text))
 			if err == nil {
 				t.Fatalf("expected a refusal, got core %q", core)
 			}

@@ -308,6 +308,17 @@ It behaves as Helm's `include` does, and the conformance corpus checks it agains
 - With a non-string `T`, the body's fragments are flattened through the engine's `toString` and the result is one string. An engine with a non-string `T` and no `toString` fails loudly the first time `include` runs.
 - Provenance carries through: every mark the body read, including those of a decision whose arm emitted nothing, and every mark on the data argument, reach the emission that uses the result.
 
+### Rendering a define by name
+
+`template.evaluateDefine(name, scope)` renders one define from a parsed template, as Go's `ExecuteTemplate` does. `scope` is the define's `.` and `$`. Inherited defines can be rendered too. The result is the same `T[]` that `evaluate` returns, and it goes through the same `emitted` and `decided` hooks:
+
+```ts
+const tpl = engine.parse('{{ define "card" }}[{{ .title }}]{{ end }}');
+tpl.evaluateDefine("card", { title: "hi" }).join(""); // "[hi]"
+```
+
+An undefined name is the host's mistake, not the template's: it throws a plain `Error` (not a `TemplateError`) reading `template "name" is not defined`, where Go returns `no template "name" associated with template "..."`. Errors inside the define, a stack overflow included, point into the source that declared it.
+
 ## Divergences from Go
 
 The engine matches Go's `text/template` semantics aggressively. The remaining divergences are host-imposed — JavaScript cannot represent the relevant Go type, or the standard libraries differ:

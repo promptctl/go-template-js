@@ -675,6 +675,10 @@ type Piped = { readonly kind: "none" } | { readonly kind: "value"; readonly valu
 
 const NO_PIPE: Piped = { kind: "none" };
 
+// The one wording for a by-name render whose name nothing defines, whether
+// a template or the host asked.
+const notDefined = (name: string): string => `template ${JSON.stringify(name)} is not defined`;
+
 /**
  * A parsed template bound to its parent engine.
  *
@@ -694,6 +698,7 @@ const NO_PIPE: Piped = { kind: "none" };
 let internalCreateTemplate: <U>(
   source: string,
   evaluate: (scope: unknown) => U[],
+  evaluateDefine: (name: string, scope: unknown) => U[],
   defines: Defines,
   referencedFunctions: ReadonlySet<string>,
   referencedCalls: readonly ReferencedCall[],
@@ -751,6 +756,7 @@ export type ReferencedArg =
 export class Template<T> {
   readonly source: string;
   private readonly _evaluate: (scope: unknown) => T[];
+  private readonly _evaluateDefine: (name: string, scope: unknown) => T[];
   private readonly _defines: Defines;
   // [LAW:types-are-the-program] The set of FuncMap names this template
   // references, computed ONCE from the parsed AST at construction. A name here
@@ -768,12 +774,14 @@ export class Template<T> {
   private constructor(
     source: string,
     evaluate: (scope: unknown) => T[],
+    evaluateDefine: (name: string, scope: unknown) => T[],
     defines: Defines,
     referencedFunctions: ReadonlySet<string>,
     referencedCalls: readonly ReferencedCall[],
   ) {
     this.source = source;
     this._evaluate = evaluate;
+    this._evaluateDefine = evaluateDefine;
     this._defines = defines;
     this._referencedFunctions = referencedFunctions;
     this._referencedCalls = referencedCalls;
@@ -783,10 +791,12 @@ export class Template<T> {
     internalCreateTemplate = <U>(
       source: string,
       evaluate: (scope: unknown) => U[],
+      evaluateDefine: (name: string, scope: unknown) => U[],
       defines: Defines,
       referencedFunctions: ReadonlySet<string>,
       referencedCalls: readonly ReferencedCall[],
-    ) => new Template(source, evaluate, defines, referencedFunctions, referencedCalls);
+    ) =>
+      new Template(source, evaluate, evaluateDefine, defines, referencedFunctions, referencedCalls);
   }
 
   /**
@@ -804,6 +814,16 @@ export class Template<T> {
 
   evaluate(scope: unknown): T[] {
     return this._evaluate(scope);
+  }
+
+  /**
+   * Render one named sub-template — any `{{ define }}` in {@link defines}, its
+   * own or inherited — with `scope` as its dot and `$`, as Go's
+   * `ExecuteTemplate` does. The output is the same `T[]` a whole-template
+   * {@link evaluate} produces, through the same `emitted` / `decided` hooks.
+   */
+  evaluateDefine(name: string, scope: unknown): T[] {
+    return this._evaluateDefine(name, scope);
   }
 
   /**
@@ -1015,7 +1035,22 @@ export class Engine<T> {
     const parsed = parseSource(source, this.delims, inherit);
     return internalCreateTemplate(
       parsed.source,
-      (scope) => this.evalParsed(parsed, scope),
+      (scope) =>
+        this.evalParsed(parsed, scope, (root, ctx) => this.evalList(parsed.root, root, ctx)),
+      (name, scope) => {
+        // The call is the host's, at no place in any source. A name it
+        // cannot find is the host's mistake, as Go's ExecuteTemplate returns
+        // a plain error; the define itself runs as if called from its own
+        // body, in the source that declared it.
+        const entry = lookupDefine(parsed.defines, name);
+        if (!entry) throw new Error(notDefined(name));
+        return this.evalParsed(parsed, scope, (root, ctx) =>
+          this.renderDefine(name, entry, root.dot, entry.list.pos, {
+            ...ctx,
+            source: entry.source,
+          }),
+        );
+      },
       parsed.defines,
       collectReferencedFunctions(parsed),
       collectReferencedCalls(parsed),
@@ -1045,7 +1080,11 @@ export class Engine<T> {
 
   // [LAW:single-enforcer] All evaluation flows through here; the
   // Template closure built in `parse()` calls back into this method.
-  private evalParsed(parsed: ParseResult, scope: unknown): T[] {
+  private evalParsed(
+    parsed: ParseResult,
+    scope: unknown,
+    body: (root: Scope, ctx: EvalContext<T>) => void,
+  ): T[] {
     const out: T[] = [];
     const root = rootScope({ value: scope, marks: NO_MARKS });
     const ctx: EvalContext<T> = {
@@ -1056,7 +1095,7 @@ export class Engine<T> {
       marks: NO_MARKS,
       depth: 0,
     };
-    this.evalList(parsed.root, root, ctx);
+    body(root, ctx);
     return out;
   }
 
@@ -1235,15 +1274,17 @@ export class Engine<T> {
     ctx: EvalContext<T>,
   ): void {
     const entry = this.definedEntry(node.name, node.pos, ctx);
-    this.renderDefine(node.name, entry, this.invocationDot(node.pipe, scope, ctx), node.pos, ctx);
+    const dot = this.invocationDot(node.pipe, scope, ctx);
+    this.renderDefine(node.name, entry, dot, node.pos, ctx);
   }
 
-  // [LAW:single-enforcer] The one lookup a by-name render (`{{ template }}`,
-  // `include`) goes through, and so the one "is not defined" error.
+  // [LAW:single-enforcer] The one lookup a by-name render inside a template
+  // (`{{ template }}`, `include`) goes through, and so the one "is not
+  // defined" error at a place in a source.
   private definedEntry(name: string, pos: Pos, ctx: EvalContext<T>): DefineEntry {
     const entry = lookupDefine(ctx.defines, name);
     if (!entry) {
-      throw new EvalError(`template ${JSON.stringify(name)} is not defined`, pos, {
+      throw new EvalError(notDefined(name), pos, {
         source: ctx.source,
       });
     }
@@ -2231,10 +2272,12 @@ function innermost(e: TemplateError): TemplateError {
 // a RangeError, SpiderMonkey an InternalError, each naming the condition.
 // A template error never matches, whatever its text: a func that overflowed
 // was already reported at its own call, as `error calling <func>`.
+// No regex: V8 compiles one on first use, which at the deepest frame
+// overflows into a SyntaxError that is no longer recognised.
 function isStackOverflow(e: unknown): boolean {
   return (
     (e instanceof RangeError || (e instanceof Error && e.name === "InternalError")) &&
-    /call stack|too much recursion/i.test(e.message)
+    (e.message.includes("call stack") || e.message.includes("too much recursion"))
   );
 }
 

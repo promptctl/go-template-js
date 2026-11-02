@@ -17,9 +17,6 @@
  * a string-typed sprig func and trip the guard.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
@@ -34,6 +31,7 @@ import {
   sprigTypes,
   TypeMismatchError,
 } from "../../src/index.js";
+import { listFixtures, readFixtureInput, readOutcome, renderFixture } from "./fixtures.js";
 
 interface TaggedFragment {
   readonly tag: string;
@@ -44,34 +42,6 @@ interface ExpectedError {
   readonly kind: "TypeMismatchError";
   readonly funcName: string;
   readonly argIndex: number;
-}
-
-const FIXTURES_DIR = fileURLToPath(new URL("../../conformance/fixtures", import.meta.url));
-
-function listFixtures(): string[] {
-  if (!existsSync(FIXTURES_DIR)) return [];
-  return readdirSync(FIXTURES_DIR)
-    .filter((name) => statSync(join(FIXTURES_DIR, name)).isDirectory())
-    .filter((name) => existsSync(join(FIXTURES_DIR, name, "expected-error.json")))
-    .sort();
-}
-
-function readFixture(name: string): {
-  template: string;
-  scope: unknown;
-  expected: ExpectedError;
-} {
-  const dir = join(FIXTURES_DIR, name);
-  const template = readFileSync(join(dir, "template.tmpl"), "utf8");
-  const expected = JSON.parse(
-    readFileSync(join(dir, "expected-error.json"), "utf8"),
-  ) as ExpectedError;
-  let scope: unknown = null;
-  const scopePath = join(dir, "scope.json");
-  if (existsSync(scopePath)) {
-    scope = JSON.parse(readFileSync(scopePath, "utf8"));
-  }
-  return { template, scope, expected };
 }
 
 const stylingFuncs: FuncMap = {
@@ -97,7 +67,7 @@ const allSprig = (): FuncMap => ({
   ...sprigConversions(),
 });
 
-const fixtures = listFixtures();
+const fixtures = listFixtures("expected-error.json");
 
 describe("conformance — error-parity (TypeMismatchError)", () => {
   if (fixtures.length === 0) {
@@ -107,15 +77,19 @@ describe("conformance — error-parity (TypeMismatchError)", () => {
 
   for (const name of fixtures) {
     it(name, () => {
-      const { template, scope, expected } = readFixture(name);
-      const engine = createEngine<TaggedFragment>({
-        fromString: (s) => ({ tag: "text", text: s }),
-        funcs: { ...allSprig(), ...stylingFuncs },
-      });
+      const expected = JSON.parse(readOutcome(name, "expected-error.json")) as ExpectedError;
 
       let caught: unknown;
       try {
-        engine.parse(template).evaluate(scope);
+        renderFixture(
+          (config) =>
+            createEngine<TaggedFragment>({
+              fromString: (s) => ({ tag: "text", text: s }),
+              funcs: { ...allSprig(), ...stylingFuncs },
+              ...config,
+            }),
+          readFixtureInput(name),
+        );
       } catch (err) {
         caught = err;
       }

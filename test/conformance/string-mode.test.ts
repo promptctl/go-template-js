@@ -9,13 +9,9 @@
  * own vitest test for greppability — failures name the fixture directly.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
-  type Delims,
   include,
   sprigConversions,
   sprigDatetime,
@@ -31,60 +27,13 @@ import {
   sprigTypes,
   TemplateError,
 } from "../../src/index.js";
-
-const FIXTURES_DIR = fileURLToPath(new URL("../../conformance/fixtures", import.meta.url));
-
-/**
- * Fixtures whose Go outcome is recorded in `outcomeFile`. A fixture
- * declares which outcome it is about by which file it carries, so the
- * two harnesses below partition the corpus rather than filtering each
- * other's cases out by hand.
- */
-function listFixtures(outcomeFile: string): string[] {
-  if (!existsSync(FIXTURES_DIR)) return [];
-  return readdirSync(FIXTURES_DIR)
-    .filter((name) => statSync(join(FIXTURES_DIR, name)).isDirectory())
-    .filter((name) => existsSync(join(FIXTURES_DIR, name, outcomeFile)))
-    .sort();
-}
-
-interface FixtureInput {
-  template: string;
-  scope: unknown;
-  delims: Delims | undefined;
-}
-
-// [LAW:single-enforcer] Mirrors `conformance/gen/main.go`'s fixtureConfig.
-// The same on-disk JSON shape configures both engines, so the conformance
-// guarantee is "same inputs → same outputs" with no harness-side
-// divergence in how the inputs are interpreted.
-interface FixtureConfig {
-  delims?: [string, string];
-}
-
-/** The inputs Go was given — everything about a fixture except its outcome. */
-function readFixtureInput(name: string): FixtureInput {
-  const dir = join(FIXTURES_DIR, name);
-  const template = readFileSync(join(dir, "template.tmpl"), "utf8");
-  let scope: unknown = null;
-  const scopePath = join(dir, "scope.json");
-  if (existsSync(scopePath)) {
-    scope = JSON.parse(readFileSync(scopePath, "utf8"));
-  }
-  let delims: Delims | undefined;
-  const configPath = join(dir, "config.json");
-  if (existsSync(configPath)) {
-    const cfg = JSON.parse(readFileSync(configPath, "utf8")) as FixtureConfig;
-    if (cfg.delims) {
-      delims = { left: cfg.delims[0], right: cfg.delims[1] };
-    }
-  }
-  return { template, scope, delims };
-}
-
-function readOutcome(name: string, outcomeFile: string): string {
-  return readFileSync(join(FIXTURES_DIR, name, outcomeFile), "utf8");
-}
+import {
+  type FixtureEngineConfig,
+  listFixtures,
+  readFixtureInput,
+  readOutcome,
+  renderFixture,
+} from "./fixtures.js";
 
 const allSprig = () => ({
   ...sprigDefaults(),
@@ -105,13 +54,15 @@ const allSprig = () => ({
 // same engine. A refusal fixture proving the engine matches Go's message
 // would prove nothing if it were rendered by a differently-configured
 // engine than the one the rendering fixtures pin.
-function makeEngine(delims: Delims | undefined) {
+function makeEngine(config: FixtureEngineConfig) {
   return createEngine<string>({
     fromString: (s) => s,
     funcs: { ...allSprig(), include },
-    ...(delims ? { delims } : {}),
+    ...config,
   });
 }
+
+const render = (name: string) => renderFixture(makeEngine, readFixtureInput(name));
 
 const renderFixtures = listFixtures("expected.txt");
 const refusalFixtures = listFixtures("expected-go-error.txt");
@@ -130,9 +81,8 @@ describe("conformance — string-mode (T = string)", () => {
   // configuration problem.
   for (const name of renderFixtures) {
     it(name, () => {
-      const { template, scope, delims } = readFixtureInput(name);
       const expected = readOutcome(name, "expected.txt");
-      const output = makeEngine(delims).parse(template).evaluate(scope).join("");
+      const output = render(name).join("");
       if (output !== expected) {
         // Show first divergence offset to aid debugging.
         let offset = 0;
@@ -177,14 +127,13 @@ describe("conformance — Go refusal parity (T = string)", () => {
 
   for (const name of refusalFixtures) {
     it(name, () => {
-      const { template, scope, delims } = readFixtureInput(name);
       // The generator writes the message as a line; the newline is the
       // file's, not Go's.
       const expected = readOutcome(name, "expected-go-error.txt").replace(/\n$/, "");
 
       let caught: unknown;
       try {
-        makeEngine(delims).parse(template).evaluate(scope);
+        render(name);
       } catch (err) {
         caught = err;
       }
