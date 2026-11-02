@@ -175,7 +175,7 @@ Every entry in `argTypes` is one of:
 | `"list"` | `Array.isArray` | `first`, `last`, `rest`, `uniq`, `concat`, `chunk` |
 | `"dict"` | plain object only (not `Map`, not class instance) | `get`, `keys`, `values`, `pluck`, `merge` |
 | `"sized"` | `string` ∪ array ∪ `Map` ∪ `Set` ∪ plain object | `len` |
-| `"stringifiable"` | a value Go's `%v` can print: `string`, nil, a scalar, a T the engine's `toString` flattens, an object with its own `toString`, or a list/map of those (a `Set`, a function, or a class instance without `toString` is refused) | `print`, `println`, `printf`, `html`, `js`, `urlquery` |
+| `"stringifiable"` | a value Go's `%v` can print: `string`, nil, a scalar, a T the engine's `toString` flattens, an object with its own `toString`, a class instance (printed as a Go struct, `{alice 30}`), or a list/map of those (a `Set`, a function or a symbol is refused) | `print`, `println`, `printf`, `html`, `js`, `urlquery` |
 | `"liftable"` | `T`, or `string` (lifted to `T` via the engine's `fromString` before the body runs) | consumer-defined funcs that accept either a `T` fragment or a bare text literal at a slot |
 | `"callable"` | `typeof === "function"` | `call` (first slot) |
 | `"collection"` | `string` ∪ array ∪ `Map` ∪ plain object | `index` (receiver slot) |

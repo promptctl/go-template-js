@@ -544,8 +544,9 @@ function sprintf(
     }
     const verb = format[j];
     const spec = format.slice(i + 1, j);
+    const missing = argIdx >= args.length;
     const arg = args[argIdx++];
-    out += formatVerb(verb ?? "", spec, arg, toString, isT);
+    out += missing ? `%!${verb ?? ""}(MISSING)` : formatVerb(verb ?? "", spec, arg, toString, isT);
     i = j + 1;
   }
   return out;
@@ -561,6 +562,14 @@ function formatVerb(
   toString: (v: unknown) => string,
   isT: IsT,
 ): string {
+  // A Uint8Array is Go's []byte, which %s and %q print as text and %x as
+  // the bytes' hex; every other verb walks it as a slice.
+  if (arg instanceof Uint8Array && (verb === "s" || verb === "q")) {
+    return formatLeafVerb(verb, spec, new TextDecoder().decode(arg), toString, isT);
+  }
+  if (arg instanceof Uint8Array && verb === "x") {
+    return applyWidth(spec, Array.from(arg, (b) => b.toString(16).padStart(2, "0")).join(""));
+  }
   return formatWalk(arg, (leaf) => formatLeafVerb(verb, spec, leaf, toString, isT), toString, isT);
 }
 
@@ -578,7 +587,7 @@ function formatLeafVerb(
       // [LAW:single-enforcer] Non-numeric primitives route to the same
       // diagnostic format as the `default:` arm — no silent NaN.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
+        return badVerb(verb, arg, toString, isT);
       }
       const n = typeof arg === "bigint" ? arg : Math.trunc(arg);
       return applyWidth(spec, String(n));
@@ -590,7 +599,7 @@ function formatLeafVerb(
     case "f": {
       // [LAW:single-enforcer] See %d.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
+        return badVerb(verb, arg, toString, isT);
       }
       const precision = spec.includes(".") ? Number(spec.split(".")[1]) : 6;
       const n = Number(arg);
@@ -599,7 +608,7 @@ function formatLeafVerb(
     case "t":
       // [LAW:single-enforcer] Go's %t takes a bool; see %d.
       if (typeof arg !== "boolean") {
-        return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
+        return badVerb(verb, arg, toString, isT);
       }
       return applyWidth(spec, String(arg));
     case "x": {
@@ -612,15 +621,22 @@ function formatLeafVerb(
       }
       // [LAW:single-enforcer] See %d.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
+        return badVerb(verb, arg, toString, isT);
       }
       if (typeof arg === "bigint") return applyWidth(spec, arg.toString(16));
       const n = Math.trunc(arg);
       return applyWidth(spec, n.toString(16));
     }
     default:
-      return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
+      return badVerb(verb, arg, toString, isT);
   }
+}
+
+// [LAW:single-enforcer] Go's one diagnostic for a verb its operand does not
+// take: `%!d(string=a)`, and `%!d(<nil>)` for nil.
+function badVerb(verb: string, arg: unknown, toString: ToString, isT: IsT): string {
+  if (arg === null || arg === undefined) return `%!${verb}(<nil>)`;
+  return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
 }
 
 function applyWidth(spec: string, body: string): string {
@@ -666,15 +682,24 @@ function formatWalk(
   }
   if (value instanceof Map) return formatEntries([...value.entries()], walk, toString, isT);
   if (isPlainObject(value)) return formatEntries(Object.entries(value), walk, toString, isT);
+  // A class instance is Go's struct: `%v` prints its field values in
+  // order, `{alice 30}`, unless it is a Stringer.
+  if (isStruct(value)) return `{${Object.values(value).map(walk).join(" ")}}`;
   return leaf(value);
+}
+
+function isStruct(value: unknown): value is object {
+  return (
+    typeof value === "object" && value !== null && !(value instanceof Set) && !hasOwnString(value)
+  );
 }
 
 // A leaf has a `%v` text form when it is nil, a scalar, a T the engine's
 // `toString` flattens, or an object with its own String — a Date, a
-// RegExp, a class that defines `toString`, Go's Stringer. A Set, a class
-// instance without one, a function or a symbol has none: printing it
-// would be the silent "[object Object]" flatten, so it is refused, and
-// a `toString` that cannot flatten a T is a refusal too.
+// RegExp, a class that defines `toString`, Go's Stringer. A Set, a
+// function or a symbol has none: printing it would be the silent
+// "[object Set]" flatten, so it is refused, and a `toString` that cannot
+// flatten a T is a refusal too.
 function formatLeafV(value: unknown, toString: ToString, isT: IsT): string {
   if (value === null || value === undefined) return "<nil>";
   if (typeof value === "string") return value;
@@ -683,7 +708,7 @@ function formatLeafV(value: unknown, toString: ToString, isT: IsT): string {
     return String(value);
   }
   if (typeof value === "object" && hasOwnString(value)) return String(value);
-  throw unprintable(value);
+  throw new UnprintableError(value);
 }
 
 function flattenT(value: unknown, toString: ToString): string {
@@ -691,33 +716,36 @@ function flattenT(value: unknown, toString: ToString): string {
     return toString(value);
   } catch (err) {
     if (err instanceof TypeMismatchError) throw err;
-    throw unprintable(value, err);
+    throw new UnprintableError(value, err);
   }
 }
 
-// Go's Stringer: a callable `toString` other than the `[object …]` default.
+// Go's Stringer: a callable `toString` other than the `[object …]`
+// default, which is the one on the root of the prototype chain — read
+// there, not off this realm's `Object.prototype`, so an object from a
+// vm context or an iframe is judged the same.
 function hasOwnString(value: object): boolean {
+  let root: object = value;
+  for (let p = Object.getPrototypeOf(root); p !== null; p = Object.getPrototypeOf(p)) root = p;
   const own = (value as { toString?: unknown }).toString;
-  return typeof own === "function" && own !== Object.prototype.toString;
+  return typeof own === "function" && own !== (root as { toString?: unknown }).toString;
+}
+
+/** A value Go's `%v` has no text form for: a Set, a function, a symbol, or
+ * a T the engine's `toString` cannot flatten. The action and the call that
+ * met it report it at their position. */
+export class UnprintableError extends Error {
+  override readonly name = "UnprintableError";
+  constructor(value: unknown, cause?: unknown) {
+    super(`cannot print ${describeLeaf(value)}: it has no text form`, { cause });
+  }
 }
 
 function describeLeaf(value: unknown): string {
-  if (typeof value !== "object" || value === null) return typeof value;
+  if (typeof value !== "object" || value === null) return `a ${typeof value}`;
   const name = (Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null)
     ?.constructor?.name;
-  return name ? `${name} instance` : "object with no prototype";
-}
-
-function unprintable(value: unknown, cause?: unknown): TypeMismatchError {
-  const err = new TypeMismatchError(
-    "<%v>",
-    1,
-    "a value with a text form (nil, a scalar, a flattenable T, a list, a map, or an object with its own toString)",
-    describeLeaf(value),
-    { line: 0, column: 0, offset: 0 },
-  );
-  if (cause !== undefined) err.cause = cause;
-  return err;
+  return name ? `a ${name}` : "an object with no constructor";
 }
 
 type ToString = (value: unknown) => string;
@@ -749,8 +777,9 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   if (value === null || typeof value !== "object") return false;
   if (Array.isArray(value)) return false;
   if (value instanceof Map || value instanceof Set) return false;
-  // Reject typed arrays, Dates, RegExps, and other built-ins by
-  // requiring a null prototype or the plain Object prototype.
+  // Reject typed arrays, Dates, RegExps, class instances and other
+  // built-ins by requiring a null prototype or one whose own prototype is
+  // null — any realm's `Object.prototype`.
   const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
+  return proto === null || Object.getPrototypeOf(proto) === null;
 }

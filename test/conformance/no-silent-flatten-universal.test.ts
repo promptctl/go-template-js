@@ -480,7 +480,7 @@ describe("conformance — per-kind positive/negative fixtures", () => {
       { label: "function", value: FN, pass: false },
       { label: "symbol", value: SYM, pass: false },
       { label: "Set", value: new Set([1]), pass: false },
-      { label: "class instance with no toString", value: new (class Foo {})(), pass: false },
+      { label: "class instance, printed as a Go struct", value: new (class Foo {})(), pass: true },
       { label: "Set nested in a map", value: { s: new Set([1]) }, pass: false },
     ];
     for (const { label, value, pass } of cases) {

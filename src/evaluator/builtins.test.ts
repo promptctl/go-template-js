@@ -304,6 +304,20 @@ describe("builtins — print / println / printf", () => {
     expect(render('{{ printf "%x" . }}', [255, [16]])).toBe("[ff [10]]");
   });
 
+  it("a cyclic structure at an action fails at the action, positioned", () => {
+    const c: Record<string, unknown> = {};
+    c.self = c;
+    let caught: unknown;
+    try {
+      render("x\n{{ . }}", c);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect((caught as EvalError).pos.line).toBe(2);
+    expect((caught as EvalError).cause).toBeInstanceOf(RangeError);
+  });
+
   it("a cyclic structure fails at the call as itself, not as a misleading type mismatch", () => {
     const c: Record<string, unknown> = {};
     c.self = c;
@@ -327,9 +341,29 @@ describe("builtins — print / println / printf", () => {
     expect(render("{{ print . }}", new Uint8Array([1, 2]))).toBe("[1 2]");
   });
 
-  it("an object whose toString is not callable is refused, not crashed on", () => {
-    expect(() => render("{{ print . }}", Object.create(Object.create(null)))).toThrow(
-      TypeMismatchError,
+  it("an object whose toString is not callable prints by its fields, not crashed on", () => {
+    const o = Object.assign(Object.create({ toString: 5 }), { a: 1 });
+    expect(render("{{ print . }}", o)).toBe("{1}");
+  });
+
+  it("printf diagnoses a nil operand and a missing one as Go does", () => {
+    expect(render('{{ printf "%d" . }}', null)).toBe("%!d(<nil>)");
+    expect(render('{{ printf "%t %t" true }}')).toBe("true %!t(MISSING)");
+  });
+
+  it("a Uint8Array is Go's []byte: text under %s and %q, hex under %x, a slice under %v", () => {
+    const b = new Uint8Array([104, 105]);
+    expect(render('{{ printf "%s|%q|%x|%v" . . . . }}', b)).toBe('hi|"hi"|6869|[104 105]');
+  });
+
+  it("a plain object from another realm prints as a map", async () => {
+    const { runInNewContext } = await import("node:vm");
+    expect(render("{{ . }}", runInNewContext("({ a: 1 })"))).toBe("map[a:1]");
+  });
+
+  it("sprig toString of a Set fails at the call, naming the call", () => {
+    expect(() => render("{{ toString . }}", new Set([1]))).toThrow(
+      /error calling toString: cannot print a Set/,
     );
   });
 

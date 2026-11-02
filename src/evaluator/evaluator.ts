@@ -46,7 +46,7 @@ import {
 import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
-import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
+import { defaultBuiltins, formatV, type IsT, isPlainObject, UnprintableError } from "./builtins.js";
 import { isInclude } from "./include.js";
 import { isLazy } from "./lazy.js";
 import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
@@ -175,7 +175,8 @@ const ARG_TYPES = [
  *   equality routes through `deepEqual` in `eq`/`ne` bodies.
  * - "stringifiable" — a value Go's `%v` can print: a string, nil, a
  *   scalar, a T the engine's `toString` flattens, an object with its own
- *   toString, or a list/map of those. The matcher *probes* `formatV`;
+ *   toString, a class instance (Go's struct), or a list/map of those; a
+ *   Set, function or symbol has no text form. The matcher *probes* `formatV`;
  *   downstream func bodies call it again to actually print.
  * - "callable" — `typeof v === "function"`.
  * - "collection" — string | array | Map | plain object. The receiver
@@ -1767,11 +1768,15 @@ export class Engine<T> {
     try {
       return this.fromString(formatV(value, this.toString, this.isT));
     } catch (err) {
-      if (!(err instanceof TypeMismatchError)) throw err;
-      throw new EvalError(`cannot print a ${err.receivedSummary}: expected ${err.expected}`, pos, {
-        source,
-        cause: err,
-      });
+      // Every failure to print — a refusal, a T with no flattener, a
+      // cyclic structure — is reported at the action.
+      const message =
+        err instanceof TypeMismatchError
+          ? `cannot print this ${err.receivedSummary}: expected ${err.expected}`
+          : err instanceof UnprintableError
+            ? err.message
+            : `cannot print: ${errorText(err)}`;
+      throw new EvalError(message, pos, { source, cause: err });
     }
   }
 }
@@ -2118,7 +2123,7 @@ function matchesArgType(
       } catch (err) {
         // Only a refusal to print is a verdict; anything else — a stack
         // overflow on a cyclic structure — surfaces as itself.
-        if (err instanceof TypeMismatchError) return false;
+        if (err instanceof TypeMismatchError || err instanceof UnprintableError) return false;
         throw err;
       }
     }
@@ -2247,7 +2252,7 @@ function humanArgType(t: ArgType): string {
     case "comparable":
       return "comparable value (orderable primitive, nil, list, dict, Map, or Set)";
     case "stringifiable":
-      return "stringifiable value (string, nil, scalar, a T the engine's toString flattens, an object with its own toString, or a list/map of those)";
+      return "stringifiable value (string, nil, scalar, a T the engine's toString flattens, an object with its own toString, a class instance, or a list/map of those; not a Set, function or symbol)";
     case "liftable":
       return "liftable value (T or string, the latter lifted via the engine's fromString)";
     case "callable":

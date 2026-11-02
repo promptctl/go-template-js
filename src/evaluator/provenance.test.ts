@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { EvalError } from "../errors.js";
 import { marked, unmarked } from "../index.js";
 import { sprigConversions } from "../sprig/conversions/index.js";
 import { sprigDefaults } from "../sprig/defaults/index.js";
@@ -311,11 +310,6 @@ describe("provenance: the obligations a func author can meet", () => {
     "{{ box }}",
     "{{ $b := box }}{{ $b }}",
     '{{ printf "%v" (box) }}',
-  ])("a nested carrier has no text form, so printing it is refused: %s", (src) => {
-    expect(() => run(src)).toThrow(EvalError);
-  });
-
-  it.each([
     "{{ (box).c.d }}",
     "{{ eq (box) (box) }}",
   ])("a nested carrier stays opaque: its value never reaches output: %s", (src) => {
