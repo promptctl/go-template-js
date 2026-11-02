@@ -105,7 +105,7 @@ tpl.evaluate({ label: "warn", value: "ALERT" });
 // ]
 ```
 
-`isT` tells the engine which values are fragments: a T is emitted as itself, and anything else is printed as Go's `%v` prints it (`map[k:v]`, `[a b]`). It defaults to "is a string", so an engine whose `T` is not a string must declare it; `createEngine` throws if `fromString("")` is not a T by its `isT`.
+`isT` tells the engine which values are fragments: an action that yields a T emits it as itself, and an action that yields anything else emits it as Go's `%v` prints it (`map[k:v]`, `[a b]`). It defaults to "is a string", so an engine whose `T` is not a string must declare it: the `EngineConfig` type requires it, and `createEngine` throws if `fromString("")` is not a T by its `isT`.
 
 Functions declare `argTypes` and `arity`, both required. The engine uses `argTypes` to enforce one architectural commitment: **a non-string `T` value will never silently flatten into a `string` parameter**. If you try to pipe a styled fragment into a function declared with `argTypes: ["string"]`, you get a `TypeMismatchError` naming the function, the argument index, and a suggestion to call your `unstyled` (or equivalent) flatten helper.
 

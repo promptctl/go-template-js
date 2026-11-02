@@ -424,7 +424,7 @@ function validateIsT<T>(fromString: (s: string) => T, isT: IsT): IsT {
   const probe = fromString("");
   if (!isT(probe)) {
     throw new Error(
-      `EngineConfig.isT: fromString("") returned ${describeBoundaryValue(probe)}, which isT does not accept as a T; an engine whose T is not a string must declare isT`,
+      `EngineConfig.isT: fromString("") returned ${formatV(probe, defaultToString, isT)}, which isT does not accept as a T; an engine whose T is not a string must declare isT`,
     );
   }
   return isT;
@@ -536,7 +536,14 @@ function validateArgSpecs(funcs: FuncMap): FuncMap {
   return funcs;
 }
 
-export interface EngineConfig<T> {
+// [LAW:types-are-the-program] `isT` may be left at its string default only
+// when T is a string; any other T — an object, or `string | Frag` whose
+// funcs return fragments — must name its fragments, or they print as
+// `map[…]` text. The compiler enforces it; `validateIsT` catches JS callers.
+export type EngineConfig<T> = EngineConfigFields<T> &
+  ([T] extends [string] ? unknown : { readonly isT: (value: unknown) => value is T });
+
+interface EngineConfigFields<T> {
   /** Convert a text literal (or string-returning function result) into T. */
   readonly fromString: (s: string) => T;
   /**
@@ -1007,7 +1014,6 @@ export class Engine<T> {
     // engines.
     const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
     this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
-    this.isT = validateIsT(config.fromString, config.isT ?? DEFAULT_IS_T);
     // [LAW:no-defensive-null-guards] exception: trust boundary — the
     // EngineConfig flows in from JS callers (no compile-time guard) and
     // TS callers using `as` casts. A typo like `"erro"` would silently
@@ -1021,6 +1027,7 @@ export class Engine<T> {
     // tokenization at parse time. Fail loud at the only place the
     // mistake can be detected.
     this.delims = validateDelims(config.delims);
+    this.isT = validateIsT(config.fromString, config.isT ?? DEFAULT_IS_T);
     this.emitted = config.emitted ?? ((value) => value);
     this.decided = config.decided ?? (() => {});
     // [LAW:single-enforcer] Built-ins live in one registry; consumer

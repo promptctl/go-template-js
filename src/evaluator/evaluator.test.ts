@@ -488,8 +488,16 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     expect(stringEngine().parse("{{ . }}").evaluate({ a: 1 })).toEqual(["map[a:1]"]);
   });
 
-  it("an engine whose fromString builds a non-string T must declare isT, or construction throws", () => {
-    expect(() => createEngine({ fromString: (s) => ({ text: s }) })).toThrow(/must declare isT/);
+  it("an engine whose T is not a string must declare isT: the type requires it", () => {
+    // @ts-expect-error a T of `string | Frag` — fragments from funcs — needs isT too
+    createEngine<string | { c: string }>({ fromString: (s) => s });
+  });
+
+  it("a JS caller whose fromString builds no T by isT fails at construction, naming the value", () => {
+    // @ts-expect-error simulates a JS caller: the type already refuses this config
+    expect(() => createEngine({ fromString: (s) => ({ text: s }) })).toThrow(
+      /returned map\[text:\], which isT does not accept.*must declare isT/,
+    );
     expect(() =>
       createEngine({
         fromString: (s) => ({ text: s }),
