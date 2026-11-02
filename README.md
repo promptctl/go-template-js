@@ -387,6 +387,8 @@ Reaching into `dist/` subpaths or `src/` deep imports is unsupported.
 
 ## Development
 
+The toolchain needs Node 22.12+ (vitest 5's range), above the package's 20.19 runtime floor.
+
 ```bash
 pnpm install
 pnpm build       # tsdown → dist/
