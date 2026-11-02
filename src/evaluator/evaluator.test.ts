@@ -493,16 +493,14 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     createEngine<string | { c: string }>({ fromString: (s) => s });
   });
 
-  it("a JS caller whose fromString builds no T by isT fails at construction, naming the value", () => {
-    // @ts-expect-error simulates a JS caller: the type already refuses this config
-    expect(() => createEngine({ fromString: (s) => ({ text: s }) })).toThrow(
-      /returned map\[text:\], which isT does not accept.*must declare isT/,
-    );
-    expect(() =>
-      createEngine({
-        fromString: (s) => ({ text: s }),
-        isT: (v): v is { text: string } => v instanceof Object,
-      }),
-    ).not.toThrow();
+  it("a T nested in a walked value, with no toString configured, is refused loudly", () => {
+    class Rich {
+      constructor(readonly s: string) {}
+    }
+    const rich = createEngine<Rich>({
+      fromString: (s) => new Rich(s),
+      isT: (v): v is Rich => v instanceof Rich,
+    });
+    expect(() => rich.parse("{{ . }}").evaluate([new Rich("x")])).toThrow(TypeMismatchError);
   });
 });

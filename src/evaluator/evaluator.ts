@@ -416,20 +416,6 @@ export type { Delims };
 // time instead of producing pathological tokenization later. Returns
 // `undefined` for "no override" so the parser falls back to its own
 // default and we never need a separate "are delims set" boolean.
-// [LAW:no-silent-failure] `fromString` builds the engine's T, so its result
-// must be a T by the engine's own predicate. An object-T engine that leaves
-// `isT` at the string default would otherwise print its own fragments as
-// `map[…]` text; checked once here, it fails at construction instead.
-function validateIsT<T>(fromString: (s: string) => T, isT: IsT): IsT {
-  const probe = fromString("");
-  if (!isT(probe)) {
-    throw new Error(
-      `EngineConfig.isT: fromString("") returned ${formatV(probe, defaultToString, isT)}, which isT does not accept as a T; an engine whose T is not a string must declare isT`,
-    );
-  }
-  return isT;
-}
-
 function validateDelims(value: Delims | undefined): Delims | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null) {
@@ -539,7 +525,7 @@ function validateArgSpecs(funcs: FuncMap): FuncMap {
 // [LAW:types-are-the-program] `isT` may be left at its string default only
 // when T is a string; any other T — an object, or `string | Frag` whose
 // funcs return fragments — must name its fragments, or they print as
-// `map[…]` text. The compiler enforces it; `validateIsT` catches JS callers.
+// `map[…]` text. The compiler is the one enforcer.
 export type EngineConfig<T> = EngineConfigFields<T> &
   ([T] extends [string] ? unknown : { readonly isT: (value: unknown) => value is T });
 
@@ -569,10 +555,12 @@ interface EngineConfigFields<T> {
    * Date's own String); at a call, a `"T"` ArgType slot accepts exactly
    * what this says.
    *
-   * [LAW:single-enforcer] The one predicate, consulted first and alone.
+   * [LAW:single-enforcer] The one predicate for what is a T. At the output
+   * stream a string, number, boolean or nil is lifted through `fromString`
+   * before it is asked, so it decides only for structured values.
    * Default: a string — the T the default `fromString`/`toString` pair
    * supports — so a plain object prints `map[k:v …]` as Go's `%v` does.
-   * A consumer whose T is an object declares it here, e.g.
+   * Required by the type whenever T is not a string, e.g.
    * `isT: (v) => v instanceof RichText`.
    */
   readonly isT?: (value: unknown) => value is T;
@@ -1027,7 +1015,7 @@ export class Engine<T> {
     // tokenization at parse time. Fail loud at the only place the
     // mistake can be detected.
     this.delims = validateDelims(config.delims);
-    this.isT = validateIsT(config.fromString, config.isT ?? DEFAULT_IS_T);
+    this.isT = config.isT ?? DEFAULT_IS_T;
     this.emitted = config.emitted ?? ((value) => value);
     this.decided = config.decided ?? (() => {});
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
@@ -2226,7 +2214,7 @@ function humanArgType(t: ArgType): string {
     case "float":
       return "float (number, including NaN/Infinity, or finite-convertible bigint)";
     case "T":
-      return "T (consumer-defined fragment)";
+      return "T (a value the engine's isT accepts)";
     case "ordered":
       return "orderable primitive";
     case "list":
