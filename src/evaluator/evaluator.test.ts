@@ -534,7 +534,7 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
       isT: (v): v is Rich => v instanceof Rich,
     });
     expect(() => rich.parse("{{ . }}").evaluate([new Rich("x")])).toThrow(
-      /cannot print an array holding a Rich: expected .*consumer-supplied toString/,
+      /cannot print a value of type array holding Rich: expected .*consumer-supplied toString/,
     );
   });
 });

@@ -410,7 +410,7 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
   };
 
   it("names a Set nested in a list, and the list around it", () => {
-    expect(refusal([1, new Set([2])]).receivedSummary).toBe("array holding a Set");
+    expect(refusal([1, new Set([2])]).receivedSummary).toBe("array holding Set");
   });
 
   it("names a top-level Set alone", () => {
@@ -421,8 +421,17 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
     expect(refusal(new (class extends Set {})()).receivedSummary).toBe("Set");
   });
 
-  it("puts the article on the summary, not before it", () => {
-    expect(refusal([new Set()]).message).toContain("but an array holding a Set flowed in");
+  it("frames the summary as a value of its type, with no article of its own", () => {
+    expect(refusal([new Set()]).message).toContain(
+      "but a value of type array holding Set flowed in",
+    );
+  });
+
+  it.each([
+    ["an acronym-led name", class HTMLElement extends Set {}],
+    ["a U-sound name", class Uint8Array extends Set {}],
+  ])("reads %s the same as any other, without guessing its article", (_label, Named) => {
+    expect(refusal(new Named()).message).toContain(`but a value of type ${Named.name} flowed in`);
   });
 
   it("names the action's refusal as the call's", () => {
@@ -430,7 +439,16 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
       printEngine()
         .parse("{{ . }}")
         .evaluate([new Set([1])]),
-    ).toThrow("cannot print an array holding a Set: it has no text form");
+    ).toThrow("cannot print a value of type array holding Set: it has no text form");
+  });
+
+  it.each([
+    ["an acronym-led name", class HTMLElement extends Set {}],
+    ["a U-sound name", class Uint8Array extends Set {}],
+  ])("prints %s in the unprintable refusal with the same frame", (_label, Named) => {
+    expect(() => printEngine().parse("{{ . }}").evaluate(new Named())).toThrow(
+      `cannot print a value of type ${Named.name}: it has no text form`,
+    );
   });
 
   describe("a T whose flattener refuses", () => {
@@ -460,7 +478,7 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
     });
 
     it("names a nested T and the value holding it", () => {
-      expect(styledRefusal([new Styled("x")]).receivedSummary).toBe("array holding a Styled");
+      expect(styledRefusal([new Styled("x")]).receivedSummary).toBe("array holding Styled");
     });
   });
 
@@ -472,14 +490,14 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
     }
     const err = refusal(new Broken());
     expect(err.receivedSummary).toBe("Broken");
-    expect(err.message).toContain("but a Broken flowed in");
+    expect(err.message).toContain("but a value of type Broken flowed in");
   });
 
   it("names a prototype-linked plain object as an object, not as its Object constructor", () => {
     const holder = Object.create({});
     holder.run = () => 1;
     const err = refusal(holder);
-    expect(err.receivedSummary).toBe("object holding a function");
+    expect(err.receivedSummary).toBe("object holding function");
   });
 });
 
