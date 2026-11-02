@@ -397,6 +397,27 @@ describe("matchesArgType — stringifiable", () => {
   });
 });
 
+describe("matchesArgType — stringifiable refusal names what cannot print", () => {
+  const printEngine = () => createEngine({ fromString: (s: string) => s, funcs: {} });
+  const refusal = (scope: unknown): TypeMismatchError => {
+    try {
+      printEngine().parse("{{ print . }}").evaluate(scope);
+    } catch (err) {
+      if (err instanceof TypeMismatchError) return err;
+      throw err;
+    }
+    throw new Error("print accepted an unprintable value");
+  };
+
+  it("names a Set nested in a list, and the list around it", () => {
+    expect(refusal([1, new Set([2])]).receivedSummary).toBe("array holding a Set");
+  });
+
+  it("names a top-level Set alone", () => {
+    expect(refusal(new Set([2])).receivedSummary).toBe("Set");
+  });
+});
+
 describe("matchesArgType — serializable", () => {
   it("accepts plain JSON-encodable shapes", () => {
     const eng = engineWithKind("f", {

@@ -736,16 +736,23 @@ function hasOwnString(value: object): boolean {
  * met it report it at their position. */
 export class UnprintableError extends Error {
   override readonly name = "UnprintableError";
-  constructor(value: unknown, cause?: unknown) {
-    super(`cannot print ${describeLeaf(value)}: it has no text form`, { cause });
+  /** What has no text form: `value` itself, or a leaf inside it. */
+  readonly leafKind: string;
+  constructor(
+    readonly leaf: unknown,
+    cause?: unknown,
+  ) {
+    const kind = leafKind(leaf);
+    super(`cannot print a ${kind}: it has no text form`, { cause });
+    this.leafKind = kind;
   }
 }
 
-function describeLeaf(value: unknown): string {
-  if (typeof value !== "object" || value === null) return `a ${typeof value}`;
+function leafKind(value: unknown): string {
+  if (typeof value !== "object" || value === null) return typeof value;
   const name = (Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null)
     ?.constructor?.name;
-  return name ? `a ${name}` : "an object with no constructor";
+  return name || "constructorless object";
 }
 
 type ToString = (value: unknown) => string;
