@@ -61,7 +61,7 @@ export interface DefineEntry {
 /**
  * The named sub-templates a template can invoke: the ones its own source
  * declared plus, transitively, the ones it inherited at parse. Opaque: only
- * `has` and the `EMPTY` identity are public, so a consumer can neither build
+ * `has`, `names` and the `EMPTY` identity are public, so a consumer can neither build
  * one by hand (the parser is the single enforcer of the redefinition invariant
  * below) nor reach the AST inside — the entry lookup is `lookupDefine`, a
  * module export index.ts never re-exports.
@@ -106,6 +106,20 @@ export class Defines {
 
   has(name: string): boolean {
     return readDefine(this, name) !== undefined;
+  }
+
+  /**
+   * Every name this set can render, own and inherited, sorted — what a
+   * consumer reads after `evaluateDefine` reports a name as not defined.
+   * The parser forbids redeclaring an inherited name, so the chain repeats
+   * none; the Set keeps the listing duplicate-free without leaning on that.
+   */
+  names(): string[] {
+    const names = new Set<string>();
+    for (let d: Defines | undefined = this; d; d = d.#parent) {
+      for (const name of d.#own.keys()) names.add(name);
+    }
+    return [...names].sort();
   }
 }
 

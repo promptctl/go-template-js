@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
+  Defines,
   EvalError,
   FuncNotFoundError,
   marked,
@@ -364,5 +365,28 @@ describe("public API — Template.evaluateDefine", () => {
     }
     expect(caught).toBeInstanceOf(EvalError);
     expect((caught as EvalError).source).toBe('{{ define "r" }}{{ template "r" . }}{{ end }}');
+  });
+});
+
+describe("public API — Defines.names", () => {
+  const engine = createEngine<string>({ fromString: (s) => s });
+
+  it("lists every name a template can render, own and inherited through the whole chain, sorted", () => {
+    const base = engine.parse('{{ define "z" }}{{ end }}').defines();
+    const mid = engine.parse('{{ block "b" . }}{{ end }}', base).defines();
+    const top = engine.parse('{{ define "m" }}{{ end }}', mid).defines();
+    expect(top.names()).toEqual(["b", "m", "z"]);
+  });
+
+  it("lists a block over an inherited define once, and the inherited body is what renders", () => {
+    const base = engine.parse('{{ define "b" }}base{{ end }}').defines();
+    const tpl = engine.parse('{{ block "b" . }}block{{ end }}', base);
+    expect(tpl.defines().names()).toEqual(["b"]);
+    expect(tpl.evaluateDefine("b", {}).join("")).toBe("base");
+  });
+
+  it("is empty for EMPTY and for a template that declares nothing", () => {
+    expect(Defines.EMPTY.names()).toEqual([]);
+    expect(engine.parse("plain").defines().names()).toEqual([]);
   });
 });
