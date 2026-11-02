@@ -24,6 +24,7 @@ Go template syntax + Sprig subset, generic over output type, in TypeScript.
 - [Syntax and built-ins](#syntax-and-built-ins)
 - [Sprig subset](#sprig-subset)
 - [Composing funcs from multiple sources](#composing-funcs-from-multiple-sources)
+- [Rendering a define as a value: `include`](#rendering-a-define-as-a-value-include)
 - [Divergences from Go](#divergences-from-go)
 - [Errors](#errors)
 - [Versioning policy](#versioning-policy)
@@ -148,7 +149,7 @@ const engine = createEngine<Frag>({
 });
 ```
 
-A mark follows the value into every scope it is bound into: a variable, the dot that `with` and `range` push, and the dot a `template` or `block` invocation pushes. It then reaches every action that reads any of these. `eq`, `printf`, `default`, sprig maths and every other func pass it through simply by being called on the value. A func that stores anything it was handed, whether in place in an argument (sprig `set` and `unset`) or in a closure or module variable that a later call returns, says so with `writes: true` on its registration. So does a func that runs code it was handed, since that code may store. Where such a write lands is beyond what the engine can follow: an object read later, a fragment already emitted, or your data for the next evaluation. So each call of such a func reports the marks of all its inputs (target and key included, since a marked value can choose where the write goes) through `decided` as it runs. The builtin `call` declares it too, because the function it runs comes from your data and has no registration to say whether it writes. An `if`/`with`/`range` pipe's marks also go to `decided`, including when the arm taken is empty. They also reach every emission inside the arm, and every variable an arm could assign with `=`, whichever arm runs, because that variable's value afterwards depends on the decision. Every report to `decided` also carries the marks of the arms it sits in. The rule is that a mark may be reported early but never late. Tracking is per action, so an emission can carry a mark it did not strictly need. A mark bound somewhere nobody reads, as in `{{ $t := pulse }}still`, is reported nowhere.
+A mark follows the value into every scope it is bound into: a variable, the dot that `with` and `range` push, the dot a `template` or `block` invocation pushes, and the dot `include` hands its body. Every mark the body reads reaches the result of the `include` call. It then reaches every action that reads any of these. `eq`, `printf`, `default`, sprig maths and every other func pass it through simply by being called on the value. A func that stores anything it was handed, whether in place in an argument (sprig `set` and `unset`) or in a closure or module variable that a later call returns, says so with `writes: true` on its registration. So does a func that runs code it was handed, since that code may store. Where such a write lands is beyond what the engine can follow: an object read later, a fragment already emitted, or your data for the next evaluation. So each call of such a func reports the marks of all its inputs (target and key included, since a marked value can choose where the write goes) through `decided` as it runs. The builtin `call` declares it too, because the function it runs comes from your data and has no registration to say whether it writes. An `if`/`with`/`range` pipe's marks also go to `decided`, including when the arm taken is empty. They also reach every emission inside the arm, and every variable an arm could assign with `=`, whichever arm runs, because that variable's value afterwards depends on the decision. Every report to `decided` also carries the marks of the arms it sits in. The rule is that a mark may be reported early but never late. Tracking is per action, so an emission can carry a mark it did not strictly need. A mark bound somewhere nobody reads, as in `{{ $t := pulse }}still`, is reported nowhere.
 
 The engine sees only what flows through arguments and returns, so a store the func does not declare is reported late. Code in your data that runs on a read must not write state the output later reads: getters, Proxy traps, `toJSON` and `toString`. As in Go, a read is a read. Among the builtins, only `call` runs data code as a call; a registered func that does so declares `writes`, as above. An action or control pipe that throws, whether in its pipe, in `fromString`, or in `emitted`, reports what it had read through `decided` before the error propagates, because the error may clear when a mark changes. `marked(...)` must be the func's return value itself. One nested inside a returned object or list is not read where it is returned: there it is opaque, an object with no fields that prints and compares the same at every frame, so the output never varies with it. A func that later returns it on its own, as `index` or `get` does, reads it with its marks, so its value never reaches the output without them. A template operand that is one (`(box).c`) raises an error naming the likely mistake. To build on a marking func from JS, `unmarked(result)` gives back `{ value, marks }` to compute with. Re-mark what you derive from it with `marked(f(value), ...marks)`; a result that drops them reports late. A func whose failure depends on a value that changes throws `marked(error, ...tokens)`, and the throw reports those tokens through `decided`. With neither hook configured, output is unchanged, and so are `referencedCalls()` and the other static facts.
 
@@ -271,6 +272,42 @@ const engine = createEngine<string>({
 
 Go template's runtime built-ins (the names listed under "Built-in functions" above) are always merged in by `createEngine` itself; you do not register them. A consumer-supplied entry with the same name overrides the built-in.
 
+## Rendering a define as a value: `include`
+
+`{{ template "name" . }}` writes a define's output straight into the result, where nothing can touch it. `include` is Helm's answer: it renders the define and returns the text as a string, so the output can be piped, tested, defaulted or stored like any other value.
+
+```gotemplate
+{{ define "user" }}{{ .first }} {{ .last }}{{ end }}
+{{ define "badge" }}{{ if .admin }}admin{{ end }}{{ end }}
+{{ define "list" }}{{ range . }}- {{ . }}
+{{ end }}{{ end }}
+
+{{ include "user" .owner | upper }}
+{{ include "list" .items | indent 4 }}
+{{ if include "badge" .owner }}<span>{{ include "badge" .owner }}</span>{{ end }}
+{{ include "badge" .owner | default "guest" }}
+{{ $name := include "user" .owner }}
+```
+
+Go's `text/template` has no `include`, so it is not a built-in. Register it like a sprig category, under whatever name you like:
+
+```ts
+import { createEngine, include, sprigStrings } from "@promptctl/go-template-js";
+
+const engine = createEngine<string>({
+  fromString: (s) => s,
+  funcs: { ...sprigStrings(), include },   // or { partial: include }
+});
+```
+
+It behaves as Helm's `include` does, and the conformance corpus checks it against that implementation in Go (`conformance/fixtures/include-helm-uses`):
+
+- The body sees its data argument as both `.` and `$`, never the caller's variables, the same as with `{{ template }}`. With no data to pass, pass `.` or `nil` explicitly.
+- It renders any define it can see, inherited ones included (`engine.parse(src, helpers.defines())`).
+- An undefined name fails at the call with `template "name" is not defined`. An error inside the body points at the body, in the source that declared it.
+- With a non-string `T`, the body's fragments are flattened through the engine's `toString` and the result is one string. An engine with a non-string `T` and no `toString` fails loudly the first time `include` runs.
+- Provenance carries through: every mark the body read, and every mark on the data argument, reaches the emission that uses the result.
+
 ## Divergences from Go
 
 The engine matches Go's `text/template` semantics aggressively. The remaining divergences are host-imposed — JavaScript cannot represent the relevant Go type, or the standard libraries differ:
@@ -330,6 +367,7 @@ The package exports exactly the following from `"@promptctl/go-template-js"` —
 
 - Engine: `createEngine`, `Engine`, `Template`, `EngineConfig`, `FuncMap`, `TemplateFunc`, `ArgType`, `Arity`, `MissingKeyOption`, `Delims`.
 - Provenance: `marked`, `unmarked`, `Marked`.
+- Sub-templates: `include`.
 - Errors: `TemplateError`, `ParseError`, `EvalError`, `FuncNotFoundError`, `ArgCountError`, `ArgCount`, `TypeMismatchError`, `MissingFieldError`, `FailError`, `ErrorKind`.
 - Sprig categories: `sprigDefaults`, `sprigStrings`, `sprigMath`, `sprigLists`, `sprigDicts`, `sprigRegex`, `sprigTypes`, `sprigConversions`, `sprigSemver`, `sprigFlow`, `sprigRandom`, `sprigHash`, `sprigDatetime`.
 

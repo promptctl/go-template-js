@@ -1,0 +1,5 @@
+{
+  "user": { "first": "Grace", "last": "Hopper" },
+  "admin": { "first": "Ada", "last": "Lovelace", "admin": true },
+  "items": ["a", "b"]
+}

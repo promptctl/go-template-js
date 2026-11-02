@@ -17,6 +17,7 @@
  * - Sub-template inheritance: Defines, the opaque set a parse can invoke
  *   (Template.defines, Engine.parse's `inherit` parameter).
  * - Error classes: FailError (thrown by sprig `fail`).
+ * - `include`: Helm's render-a-define-to-a-string func, opt-in via `funcs`.
  * - Provenance: `marked` / `unmarked` / Marked, the carrier a func returns to mark its
  *   call (reported through EngineConfig.emitted / decided).
  *
@@ -54,6 +55,7 @@ export {
   Template,
   type TemplateFunc,
 } from "./evaluator/evaluator.js";
+export { include } from "./evaluator/include.js";
 export { type Marked, marked, unmarked } from "./evaluator/marks.js";
 export { Defines } from "./parser/parser.js";
 export { sprigConversions } from "./sprig/conversions/index.js";

@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   createEngine,
   type Delims,
+  include,
   sprigConversions,
   sprigDatetime,
   sprigDefaults,
@@ -107,7 +108,7 @@ const allSprig = () => ({
 function makeEngine(delims: Delims | undefined) {
   return createEngine<string>({
     fromString: (s) => s,
-    funcs: allSprig(),
+    funcs: { ...allSprig(), include },
     ...(delims ? { delims } : {}),
   });
 }
