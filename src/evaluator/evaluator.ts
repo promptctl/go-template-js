@@ -46,7 +46,14 @@ import {
 import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
-import { defaultBuiltins, formatV, type IsT, isPlainObject, UnprintableError } from "./builtins.js";
+import {
+  defaultBuiltins,
+  formatV,
+  type IsT,
+  isPlainObject,
+  kindOf,
+  UnprintableError,
+} from "./builtins.js";
 import { isInclude } from "./include.js";
 import { isLazy } from "./lazy.js";
 import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
@@ -1771,11 +1778,7 @@ export class Engine<T> {
       // Every failure to print — a refusal, a T with no flattener, a
       // cyclic structure — is reported at the action.
       const message =
-        err instanceof TypeMismatchError
-          ? `cannot print this ${err.receivedSummary}: expected ${err.expected}`
-          : err instanceof UnprintableError
-            ? err.message
-            : `cannot print: ${errorText(err)}`;
+        err instanceof UnprintableError ? err.message : `cannot print: ${errorText(err)}`;
       throw new EvalError(message, pos, { source, cause: err });
     }
   }
@@ -1857,8 +1860,7 @@ export function enforceArgTypes(
   for (let i = 0; i < values.length; i++) {
     const declared = lookup(i);
     const value = values[i];
-    const refused = matchesArgType(declared, value, toString, isT);
-    if (refused !== undefined) {
+    if (!matchesArgType(declared, value, toString, isT)) {
       // An integer slot refusing a number is Go's `expected integer`
       // refusal, and says so with the value; every other refusal is a
       // kind mismatch.
@@ -1868,9 +1870,14 @@ export function enforceArgTypes(
       ) {
         throw new NotIntegerError(funcName, i + 1, value, pos, { source: src });
       }
-      throw new TypeMismatchError(funcName, i + 1, humanArgType(declared), refused, pos, {
-        source: src,
-      });
+      throw new TypeMismatchError(
+        funcName,
+        i + 1,
+        humanArgType(declared),
+        refusedSummary(declared, value, toString, isT),
+        pos,
+        { source: src },
+      );
     }
     // [LAW:single-enforcer] The lift lives at the gate, never in func
     // bodies — bodies of "liftable" slots see T, full stop. Mirrors the
@@ -1906,8 +1913,8 @@ export function enforceArgTypes(
         throw new TypeMismatchError(
           funcName,
           i + 1,
-          `${humanArgType("ordered")} of the same kind as ${describeValue(values[firstOrdered])}`,
-          describeValue(value),
+          `${humanArgType("ordered")} of the same kind as ${kindOf(values[firstOrdered])}`,
+          kindOf(value),
           pos,
           { source: src },
         );
@@ -1924,8 +1931,8 @@ export function enforceArgTypes(
         throw new TypeMismatchError(
           funcName,
           i + 1,
-          `${humanArgType("comparable")} of the same kind as ${describeValue(values[firstComparable])}`,
-          describeValue(value),
+          `${humanArgType("comparable")} of the same kind as ${kindOf(values[firstComparable])}`,
+          kindOf(value),
           pos,
           { source: src },
         );
@@ -1987,15 +1994,12 @@ function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number)
   }
 }
 
-// Whether a value fits its declared slot: `undefined` when it does,
-// otherwise the received summary the gate's TypeMismatchError prints.
 function matchesArgType(
   declared: ArgType,
   value: unknown,
   toString: (value: unknown) => string,
   isT: IsT,
-): string | undefined {
-  const verdict = (fits: boolean): string | undefined => (fits ? undefined : describeValue(value));
+): boolean {
   switch (declared) {
     case "truthy":
     case "reflective":
@@ -2005,27 +2009,27 @@ function matchesArgType(
       // distinguish "we accept anything because we inspect the type"
       // from "we accept anything because we run truthiness"
       // from "any escape-hatch leftover". Migration target for .8.
-      return undefined;
+      return true;
     case "string":
-      return verdict(typeof value === "string");
+      return typeof value === "string";
     case "int":
       // [LAW:types-are-the-program] Strongest true theorem for an "int"
       // slot: the value is a safe integer, whichever carrier holds it.
       // `Number.isSafeInteger` refuses NaN, Infinity, fractionals, and
       // integers past 2^53 in one predicate — the same bound the bigint
       // arm holds, since past it `Number()` silently corrupts the value.
-      return verdict(
+      return (
         (typeof value === "number" && Number.isSafeInteger(value)) ||
-          (typeof value === "bigint" && Number.isSafeInteger(Number(value))),
+        (typeof value === "bigint" && Number.isSafeInteger(Number(value)))
       );
     case "truncating-int":
       // [LAW:types-are-the-program] sprig's cast admits a fractional and
       // truncates it, so this slot admits every finite number; NaN and
       // Infinity have no integer interpretation (`Math.trunc(NaN)` is
       // NaN) and are refused like "int" refuses them.
-      return verdict(
+      return (
         (typeof value === "number" && Number.isFinite(value)) ||
-          (typeof value === "bigint" && Number.isSafeInteger(Number(value))),
+        (typeof value === "bigint" && Number.isSafeInteger(Number(value)))
       );
     case "float":
       // [LAW:types-are-the-program] "float" mirrors IEEE 754: NaN and
@@ -2036,38 +2040,38 @@ function matchesArgType(
       // that's a magnitude failure, not a float-precision tradeoff.
       // Bigints in the merely-precision-losing range (e.g. 2n**100n)
       // are accepted; float never promised exact preservation.
-      return verdict(
-        typeof value === "number" || (typeof value === "bigint" && Number.isFinite(Number(value))),
+      return (
+        typeof value === "number" || (typeof value === "bigint" && Number.isFinite(Number(value)))
       );
     case "bool":
-      return verdict(typeof value === "boolean");
+      return typeof value === "boolean";
     case "ordered":
-      return verdict(
+      return (
         typeof value === "string" ||
-          typeof value === "number" ||
-          typeof value === "bigint" ||
-          typeof value === "boolean",
+        typeof value === "number" ||
+        typeof value === "bigint" ||
+        typeof value === "boolean"
       );
     case "T":
       // [LAW:single-enforcer] What the engine's output stream calls a T.
-      return verdict(isT(value));
+      return isT(value);
     case "list":
       // Go-parity: a string is not a list to sprig, even though it is
       // iterable. Excluding string here forces consumers to spell out
       // string-vs-list intent at the slot.
-      return verdict(Array.isArray(value));
+      return Array.isArray(value);
     case "dict":
       // Plain object only. Maps, arrays, Sets, class instances, and
       // null are not "dicts" — the dict slot expects bag-of-keys
       // semantics with `Object.keys` / `Record<string, unknown>` shape.
-      return verdict(isPlainObject(value));
+      return isPlainObject(value);
     case "sized":
-      return verdict(
+      return (
         typeof value === "string" ||
-          Array.isArray(value) ||
-          value instanceof Map ||
-          value instanceof Set ||
-          isPlainObject(value),
+        Array.isArray(value) ||
+        value instanceof Map ||
+        value instanceof Set ||
+        isPlainObject(value)
       );
     case "comparable":
       // [LAW:one-source-of-truth] Membership is "anything JSON-shaped":
@@ -2075,41 +2079,39 @@ function matchesArgType(
       // Functions and symbols are rejected. The cross-slot same-kind
       // rule (with nil-as-wildcard) is enforced in `enforceArgTypes`
       // alongside the per-slot match.
-      return verdict(
+      return (
         value === null ||
-          value === undefined ||
-          typeof value === "string" ||
-          typeof value === "number" ||
-          typeof value === "bigint" ||
-          typeof value === "boolean" ||
-          Array.isArray(value) ||
-          value instanceof Map ||
-          value instanceof Set ||
-          isPlainObject(value),
+        value === undefined ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "bigint" ||
+        typeof value === "boolean" ||
+        Array.isArray(value) ||
+        value instanceof Map ||
+        value instanceof Set ||
+        isPlainObject(value)
       );
     case "callable":
-      return verdict(typeof value === "function");
+      return typeof value === "function";
     case "collection":
       // Receiver shape for `index`. Sets and class instances are
       // rejected (Sets aren't keyed; class instances aren't sprig
       // dicts). Nil is rejected so the body never has to defend.
-      return verdict(
+      return (
         typeof value === "string" ||
-          Array.isArray(value) ||
-          value instanceof Map ||
-          isPlainObject(value),
+        Array.isArray(value) ||
+        value instanceof Map ||
+        isPlainObject(value)
       );
     case "index-key":
       // Key shape for `index`. The body decides which collection kind
       // a key actually fits (array wants integer; object wants string;
       // Map's get accepts the key as-is for whatever it stores).
-      return verdict(
-        typeof value === "string" || typeof value === "number" || typeof value === "bigint",
-      );
+      return typeof value === "string" || typeof value === "number" || typeof value === "bigint";
     case "sliceable":
       // Receiver shape for `slice`: string or array. Maps/dicts/Sets
       // are not sliceable in Go's `text/template`.
-      return verdict(typeof value === "string" || Array.isArray(value));
+      return typeof value === "string" || Array.isArray(value);
     case "stringifiable": {
       // Probe (do not transform). String passes through trivially —
       // avoids invoking the consumer's `toString` for the common case.
@@ -2117,35 +2119,18 @@ function matchesArgType(
       // `formatV`, Go's `%v`, which hands every T (nested included) to
       // `engine.toString`: a return means the value can print, a throw
       // means it cannot.
-      if (typeof value === "string") return undefined;
-      try {
-        formatV(value, toString, isT);
-        return undefined;
-      } catch (err) {
-        // Only a refusal to print is a verdict; anything else — a stack
-        // overflow on a cyclic structure — surfaces as itself.
-        // The refusal names the leaf `formatV` stopped at, and the
-        // argument around it when the leaf sits inside one.
-        const leaf =
-          err instanceof UnprintableError
-            ? { kind: err.leafKind, isArg: err.leaf === value }
-            : err instanceof TypeMismatchError
-              ? { kind: err.receivedSummary, isArg: isT(value) }
-              : undefined;
-        if (leaf === undefined) throw err;
-        return leaf.isArg ? leaf.kind : `${describeValue(value)} holding a ${leaf.kind}`;
-      }
+      return typeof value === "string" || printRefusal(value, toString, isT) === undefined;
     }
     case "liftable":
       // Mirror of "stringifiable" in the opposite direction: a T, or a
       // string `enforceArgTypes` lifts once through `engine.fromString`.
       // [LAW:single-enforcer] The T half is the same predicate the "T" slot reads.
-      return verdict(typeof value === "string" || isT(value));
+      return typeof value === "string" || isT(value);
     case "serializable":
       // Runtime-validate JSON encodability. `JSON.stringify` returns
       // `undefined` for functions/symbols and throws on circular refs;
       // either result fails the gate.
-      return verdict(isJsonSerializable(value));
+      return isJsonSerializable(value);
     default: {
       // [LAW:types-are-the-program] Explicit exhaustiveness check.
       // The `never` assignment is what makes adding a future ArgType
@@ -2193,7 +2178,7 @@ function defaultToString(value: unknown): string {
     "<engine.toString>",
     1,
     "string (or a consumer-supplied toString that flattens T)",
-    describeValue(value),
+    kindOf(value),
     { line: 0, column: 0, offset: 0 },
   );
 }
@@ -2328,12 +2313,36 @@ function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function describeValue(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (Array.isArray(value)) return "array";
-  if (value instanceof Map) return "Map";
-  return typeof value;
+// What a refused argument is, as the gate's TypeMismatchError names it: a
+// "stringifiable" refusal names what `formatV` could not print — the
+// argument, or the argument holding it — and every other refusal names
+// the argument's kind. Computed only once an argument is refused.
+function refusedSummary(
+  declared: ArgType,
+  value: unknown,
+  toString: (value: unknown) => string,
+  isT: IsT,
+): string {
+  const unprintable = declared === "stringifiable" ? printRefusal(value, toString, isT) : undefined;
+  return unprintable?.summary ?? kindOf(value);
+}
+
+// The flatten the "stringifiable" bodies perform — `formatV`, Go's `%v`,
+// which hands every T (nested included) to `engine.toString` — returning its
+// refusal. Only a refusal to print is an answer; anything else, a stack
+// overflow on a cyclic structure, surfaces as itself.
+function printRefusal(
+  value: unknown,
+  toString: (value: unknown) => string,
+  isT: IsT,
+): UnprintableError | undefined {
+  try {
+    formatV(value, toString, isT);
+    return undefined;
+  } catch (err) {
+    if (err instanceof UnprintableError) return err;
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

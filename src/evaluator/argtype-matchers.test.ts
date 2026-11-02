@@ -416,6 +416,53 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
   it("names a top-level Set alone", () => {
     expect(refusal(new Set([2])).receivedSummary).toBe("Set");
   });
+
+  it("names an anonymous subclass by the class it extends", () => {
+    expect(refusal(new (class extends Set {})()).receivedSummary).toBe("Set");
+  });
+
+  it("puts the article on the summary, not before it", () => {
+    expect(refusal([new Set()]).message).toContain("but an array holding a Set flowed in");
+  });
+
+  it("names the action's refusal as the call's", () => {
+    expect(() =>
+      printEngine()
+        .parse("{{ . }}")
+        .evaluate([new Set([1])]),
+    ).toThrow("cannot print an array holding a Set: it has no text form");
+  });
+
+  describe("a T whose flattener refuses", () => {
+    class Styled {
+      constructor(readonly s: string) {}
+    }
+    const styledRefusal = (scope: unknown): TypeMismatchError => {
+      const eng = createEngine<Styled>({
+        fromString: (s) => new Styled(s),
+        isT: (v): v is Styled => v instanceof Styled,
+        toString: () => {
+          throw new TypeMismatchError("flatten", 1, "plain text", "bool", pos(1, 1, 0));
+        },
+        funcs: {},
+      });
+      try {
+        eng.parse("{{ print . }}").evaluate(scope);
+      } catch (err) {
+        if (err instanceof TypeMismatchError) return err;
+        throw err;
+      }
+      throw new Error("print accepted an unflattenable T");
+    };
+
+    it("names the T, not what the flattener rejected", () => {
+      expect(styledRefusal(new Styled("x")).receivedSummary).toBe("Styled");
+    });
+
+    it("names a nested T and the value holding it", () => {
+      expect(styledRefusal([new Styled("x")]).receivedSummary).toBe("array holding a Styled");
+    });
+  });
 });
 
 describe("matchesArgType — serializable", () => {

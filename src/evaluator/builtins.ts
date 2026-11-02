@@ -14,7 +14,7 @@
  * consumers an escape hatch).
  */
 
-import { TypeMismatchError } from "../errors.js";
+import { TypeMismatchError, withArticle } from "../errors.js";
 import { deepEqual } from "../sprig/types/deepEqual.js";
 import type { FuncMap } from "./evaluator.js";
 import { markLazy } from "./lazy.js";
@@ -663,7 +663,14 @@ export type IsT = (value: unknown) => boolean;
 // walked — an array, a Map, a plain object (printed as Go prints a map:
 // `map[k:v …]`, keys sorted the way fmt orders them).
 export function formatV(value: unknown, toString: ToString, isT: IsT): string {
-  return formatWalk(value, (leaf) => formatLeafV(leaf, toString, isT), toString, isT);
+  try {
+    return formatWalk(value, (leaf) => formatLeafV(leaf, toString, isT), toString, isT);
+  } catch (err) {
+    // The leaf that refused knows only itself; the walk's root is named
+    // here, once, so every reporter describes the refusal the same way.
+    if (err instanceof UnprintableError) throw new UnprintableError(err.leaf, err.cause, value);
+    throw err;
+  }
 }
 
 // [LAW:single-enforcer] The one structural walk every verb shares; the
@@ -715,7 +722,6 @@ function flattenT(value: unknown, toString: ToString): string {
   try {
     return toString(value);
   } catch (err) {
-    if (err instanceof TypeMismatchError) throw err;
     throw new UnprintableError(value, err);
   }
 }
@@ -736,23 +742,39 @@ function hasOwnString(value: object): boolean {
  * met it report it at their position. */
 export class UnprintableError extends Error {
   override readonly name = "UnprintableError";
-  /** What has no text form: `value` itself, or a leaf inside it. */
-  readonly leafKind: string;
+  /** What cannot print, named from the printed value: the leaf alone, or
+   * the value holding it. */
+  readonly summary: string;
   constructor(
     readonly leaf: unknown,
     cause?: unknown,
+    root: unknown = leaf,
   ) {
-    const kind = leafKind(leaf);
-    super(`cannot print a ${kind}: it has no text form`, { cause });
-    this.leafKind = kind;
+    const summary =
+      root === leaf ? kindOf(leaf) : `${kindOf(root)} holding ${withArticle(kindOf(leaf))}`;
+    // A flattener that names what it expected says why; any other refusal
+    // is a value with no text form.
+    const why =
+      cause instanceof TypeMismatchError ? `expected ${cause.expected}` : "it has no text form";
+    super(`cannot print ${withArticle(summary)}: ${why}`, { cause });
+    this.summary = summary;
   }
 }
 
-function leafKind(value: unknown): string {
-  if (typeof value !== "object" || value === null) return typeof value;
-  const name = (Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null)
-    ?.constructor?.name;
-  return name || "constructorless object";
+// [LAW:one-source-of-truth] The one name every error gives a value's kind:
+// the typeof of a primitive, `array` and `object` for the shapes Go walks
+// as slice and map, and otherwise the nearest named constructor — so an
+// anonymous `class extends Set` is still a Set.
+export function kindOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value !== "object") return typeof value;
+  if (isPlainObject(value)) return "object";
+  for (let p = Object.getPrototypeOf(value); p !== null; p = Object.getPrototypeOf(p)) {
+    const name = (p as { constructor?: { name?: unknown } }).constructor?.name;
+    if (typeof name === "string" && name !== "") return name;
+  }
+  return "object";
 }
 
 type ToString = (value: unknown) => string;

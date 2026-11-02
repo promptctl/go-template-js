@@ -168,6 +168,11 @@ export class ArgCountError extends EvalError {
   }
 }
 
+/** A kind's name with its indefinite article: `an array`, `a Set`. */
+export function withArticle(noun: string): string {
+  return /^[aeiou]/i.test(noun) ? `an ${noun}` : `a ${noun}`;
+}
+
 export class TypeMismatchError extends EvalError {
   override readonly name = "TypeMismatchError";
   override readonly kind: ErrorKind = "TypeMismatchError";
@@ -187,7 +192,7 @@ export class TypeMismatchError extends EvalError {
   ) {
     super(
       `function ${JSON.stringify(funcName)} arg ${argIndex}: expected ${expected}, ` +
-        `but a ${receivedSummary} flowed in. Pass it through \`unstyled\` (or your ` +
+        `but ${withArticle(receivedSummary)} flowed in. Pass it through \`unstyled\` (or your ` +
         `engine's flatten function) to convert.`,
       pos,
       ctx,
