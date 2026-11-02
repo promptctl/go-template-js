@@ -292,15 +292,15 @@ Go template's runtime built-ins (the names listed under "Built-in functions" abo
 Go's `text/template` has no `include`, so it is not a built-in. Register it like a sprig category, under whatever name you like:
 
 ```ts
-import { createEngine, include, sprigStrings } from "@promptctl/go-template-js";
+import { createEngine, include, sprigDefaults, sprigStrings } from "@promptctl/go-template-js";
 
 const engine = createEngine<string>({
   fromString: (s) => s,
-  funcs: { ...sprigStrings(), include },   // or { partial: include }
+  funcs: { ...sprigStrings(), ...sprigDefaults(), include },   // or { partial: include }
 });
 ```
 
-It behaves as Helm's `include` does, and the conformance corpus checks it against that implementation in Go (`conformance/fixtures/include-helm-uses`):
+It behaves as Helm's `include` does, and the conformance corpus checks it against that implementation in Go (`conformance/fixtures/include-helm-uses`). The one exception is recursion depth: Helm stops a define recursing past 1000 levels, and here the JS host's stack runs out first (see [Divergences from Go](#divergences-from-go)).
 
 - The body sees its data argument as both `.` and `$`, never the caller's variables, the same as with `{{ template }}`. With no data to pass, pass `.` or `nil` explicitly.
 - It renders any define it can see, inherited ones included (`engine.parse(src, helpers.defines())`).

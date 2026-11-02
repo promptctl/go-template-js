@@ -1286,6 +1286,7 @@ export class Engine<T> {
   // output, and its text is the call's value. What the body's fragments
   // depend on is what that value depends on, so their marks join `reads`.
   private include(
+    registered: string,
     name: string,
     data: unknown,
     pos: Pos,
@@ -1311,7 +1312,7 @@ export class Engine<T> {
     try {
       this.renderDefine(name, entry, dot, pos, { ...ctx, emit, decided });
     } catch (e) {
-      // `error calling include` at the call, with the body's own error —
+      // `error calling <registered name>` at the call, with the body's own error —
       // its class, position and source — as the cause. The text is the
       // innermost error's, not every level's again: a chain of includes
       // otherwise repeats itself once per level. A `fail` stays a
@@ -1320,7 +1321,7 @@ export class Engine<T> {
       if (!(e instanceof TemplateError)) throw e;
       const root = innermost(e);
       const Wrap = root instanceof FailError ? FailError : EvalError;
-      throw new Wrap(`error calling include ${JSON.stringify(name)}: ${root.message}`, pos, {
+      throw new Wrap(`error calling ${registered} ${JSON.stringify(name)}: ${root.message}`, pos, {
         source: ctx.source,
         cause: e,
       });
@@ -1540,7 +1541,7 @@ export class Engine<T> {
       // runs, because its body is a render the evaluator owns.
       result = readCarrier(
         isInclude(fn)
-          ? this.include(args[0] as string, args[1], pos, ctx, reads)
+          ? this.include(name, args[0] as string, args[1], pos, ctx, reads)
           : (fn.fn as (...a: unknown[]) => unknown)(...args),
         reads,
       );
@@ -2226,10 +2227,15 @@ function innermost(e: TemplateError): TemplateError {
   return e.cause instanceof TemplateError ? innermost(e.cause) : e;
 }
 
-// The host ran out of stack: V8 and JSC throw a RangeError, SpiderMonkey
-// an InternalError, and each names the condition in its message.
+// The host ran out of stack in the template's own frames: V8 and JSC throw
+// a RangeError, SpiderMonkey an InternalError, each naming the condition.
+// A template error never matches, whatever its text: a func that overflowed
+// was already reported at its own call, as `error calling <func>`.
 function isStackOverflow(e: unknown): boolean {
-  return e instanceof Error && /call stack|too much recursion/i.test(e.message);
+  return (
+    (e instanceof RangeError || (e instanceof Error && e.name === "InternalError")) &&
+    /call stack|too much recursion/i.test(e.message)
+  );
 }
 
 // A body may throw anything; Go's `%v` of an error is its message.

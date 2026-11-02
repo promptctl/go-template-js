@@ -83,6 +83,25 @@ describe("include", () => {
     );
   });
 
+  it("leaves a fail whose text mentions the call stack as the fail it is", () => {
+    const e = thrown(() =>
+      stringEngine({ ...sprigFlow() })
+        .parse('{{ define "a" }}{{ fail "call stack broken" }}{{ end }}{{ template "a" . }}')
+        .evaluate({}),
+    ) as FailError;
+    expect(e).toBeInstanceOf(FailError);
+    expect(e.message).toBe("call stack broken");
+  });
+
+  it("names the func as it was registered in a body error", () => {
+    const e = thrown(() =>
+      createEngine<string>({ fromString: (s) => s, funcs: { ...sprigFlow(), partial: include } })
+        .parse('{{ define "a" }}{{ fail "x" }}{{ end }}{{ partial "a" . }}')
+        .evaluate({}),
+    ) as FailError;
+    expect(e.message).toBe('error calling partial "a": x');
+  });
+
   it("turns unbounded {{ template }} recursion into the same error", () => {
     const e = thrown(() =>
       stringEngine()
