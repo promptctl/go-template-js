@@ -442,6 +442,15 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
     ).toThrow("cannot print a value of type array holding Set: it has no text form");
   });
 
+  it.each([
+    ["an acronym-led name", class HTMLElement extends Set {}],
+    ["a U-sound name", class Uint8Array extends Set {}],
+  ])("prints %s in the unprintable refusal with the same frame", (_label, Named) => {
+    expect(() => printEngine().parse("{{ . }}").evaluate(new Named())).toThrow(
+      `cannot print a value of type ${Named.name}: it has no text form`,
+    );
+  });
+
   describe("a T whose flattener refuses", () => {
     class Styled {
       constructor(readonly s: string) {}
