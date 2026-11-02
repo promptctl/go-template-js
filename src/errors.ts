@@ -168,6 +168,22 @@ export class ArgCountError extends EvalError {
   }
 }
 
+// A template error never matches, whatever its text: a func that overflowed
+// was already reported at its own call, as `error calling <func>`.
+// No regex: V8 compiles one on first use, which at the deepest frame
+// overflows into a SyntaxError that is no longer recognised.
+export function isStackOverflow(e: unknown): boolean {
+  return (
+    (e instanceof RangeError || (e instanceof Error && e.name === "InternalError")) &&
+    (e.message.includes("call stack") || e.message.includes("too much recursion"))
+  );
+}
+
+/** A kind's name with its indefinite article: `an array`, `a Set`. */
+export function withArticle(noun: string): string {
+  return /^[aeiou]/i.test(noun) ? `an ${noun}` : `a ${noun}`;
+}
+
 export class TypeMismatchError extends EvalError {
   override readonly name = "TypeMismatchError";
   override readonly kind: ErrorKind = "TypeMismatchError";
@@ -187,7 +203,7 @@ export class TypeMismatchError extends EvalError {
   ) {
     super(
       `function ${JSON.stringify(funcName)} arg ${argIndex}: expected ${expected}, ` +
-        `but a ${receivedSummary} flowed in. Pass it through \`unstyled\` (or your ` +
+        `but ${withArticle(receivedSummary)} flowed in. Pass it through \`unstyled\` (or your ` +
         `engine's flatten function) to convert.`,
       pos,
       ctx,

@@ -14,7 +14,7 @@
  * consumers an escape hatch).
  */
 
-import { TypeMismatchError } from "../errors.js";
+import { isStackOverflow, TypeMismatchError, withArticle } from "../errors.js";
 import { deepEqual } from "../sprig/types/deepEqual.js";
 import type { FuncMap } from "./evaluator.js";
 import { markLazy } from "./lazy.js";
@@ -25,8 +25,8 @@ import { isTruthy } from "./truthy.js";
 //
 // [LAW:single-enforcer] The print/printf family flattens through
 // `formatV` over the engine's `toString`/`isT` — the same function the
-// `"stringifiable"` matcher probes with. Two callsites (probe at the
-// gate, flatten in the body) — one source of truth.
+// gate's "stringifiable" probe runs (`printRefusal` in src/evaluator/evaluator.ts).
+// Two callsites (probe at the gate, flatten in the body) — one source of truth.
 // ---------------------------------------------------------------------------
 
 function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
@@ -663,7 +663,14 @@ export type IsT = (value: unknown) => boolean;
 // walked — an array, a Map, a plain object (printed as Go prints a map:
 // `map[k:v …]`, keys sorted the way fmt orders them).
 export function formatV(value: unknown, toString: ToString, isT: IsT): string {
-  return formatWalk(value, (leaf) => formatLeafV(leaf, toString, isT), toString, isT);
+  try {
+    return formatWalk(value, (leaf) => formatLeafV(leaf, toString, isT), toString, isT);
+  } catch (err) {
+    // The leaf that refused knows only itself; the walk's root is named
+    // here, once, so every reporter describes the refusal the same way.
+    if (err instanceof UnprintableError) throw new UnprintableError(err.leaf, err.cause, value);
+    throw err;
+  }
 }
 
 // [LAW:single-enforcer] The one structural walk every verb shares; the
@@ -707,7 +714,7 @@ function formatLeafV(value: unknown, toString: ToString, isT: IsT): string {
   if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
     return String(value);
   }
-  if (typeof value === "object" && hasOwnString(value)) return String(value);
+  if (typeof value === "object" && hasOwnString(value)) return stringerText(value);
   throw new UnprintableError(value);
 }
 
@@ -715,7 +722,18 @@ function flattenT(value: unknown, toString: ToString): string {
   try {
     return toString(value);
   } catch (err) {
-    if (err instanceof TypeMismatchError) throw err;
+    if (isStackOverflow(err)) throw err;
+    throw new UnprintableError(value, err);
+  }
+}
+
+// A Stringer whose text form throws is refused as a T is: the same
+// UnprintableError, so every print refusal has one type.
+function stringerText(value: object): string {
+  try {
+    return String(value);
+  } catch (err) {
+    if (isStackOverflow(err)) throw err;
     throw new UnprintableError(value, err);
   }
 }
@@ -736,16 +754,45 @@ function hasOwnString(value: object): boolean {
  * met it report it at their position. */
 export class UnprintableError extends Error {
   override readonly name = "UnprintableError";
-  constructor(value: unknown, cause?: unknown) {
-    super(`cannot print ${describeLeaf(value)}: it has no text form`, { cause });
+  /** What cannot print, named from the printed value: the leaf alone, or
+   * the value holding it. */
+  readonly summary: string;
+  constructor(
+    readonly leaf: unknown,
+    cause?: unknown,
+    root: unknown = leaf,
+  ) {
+    const summary =
+      root === leaf
+        ? typeNameOf(leaf)
+        : `${typeNameOf(root)} holding ${withArticle(typeNameOf(leaf))}`;
+    // A flattener that names what it expected says why; any other refusal
+    // is a value with no text form.
+    const why =
+      cause instanceof TypeMismatchError ? `expected ${cause.expected}` : "it has no text form";
+    super(`cannot print ${withArticle(summary)}: ${why}`, { cause });
+    this.summary = summary;
   }
 }
 
-function describeLeaf(value: unknown): string {
-  if (typeof value !== "object" || value === null) return `a ${typeof value}`;
-  const name = (Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null)
-    ?.constructor?.name;
-  return name ? `a ${name}` : "an object with no constructor";
+// [LAW:one-source-of-truth] The one name every error gives a value's type. A
+// JS constructor name, not Go's %T: `Rich`, not `*main.Rich`. Not `kindOf`
+// in src/sprig/types/kindOf.ts, the template-visible kind, which answers a
+// different question.
+// the typeof of a primitive, `array` and `object` for the shapes Go walks
+// as slice and map, and otherwise the nearest named constructor — so an
+// anonymous `class extends Set` is still a Set.
+export function typeNameOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value !== "object") return typeof value;
+  if (isPlainObject(value)) return "object";
+  for (let p = Object.getPrototypeOf(value); p !== null; p = Object.getPrototypeOf(p)) {
+    const name = (p as { constructor?: { name?: unknown } }).constructor?.name;
+    // `Object.create({})` is a plain object too: its chain ends in `Object`.
+    if (typeof name === "string" && name !== "") return name === "Object" ? "object" : name;
+  }
+  return "object";
 }
 
 type ToString = (value: unknown) => string;

@@ -22,6 +22,7 @@ import {
   EvalError,
   FailError,
   FuncNotFoundError,
+  isStackOverflow,
   MissingFieldError,
   NotIntegerError,
   TemplateError,
@@ -46,7 +47,14 @@ import {
 import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
-import { defaultBuiltins, formatV, type IsT, isPlainObject, UnprintableError } from "./builtins.js";
+import {
+  defaultBuiltins,
+  formatV,
+  type IsT,
+  isPlainObject,
+  typeNameOf,
+  UnprintableError,
+} from "./builtins.js";
 import { isInclude } from "./include.js";
 import { isLazy } from "./lazy.js";
 import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
@@ -1771,11 +1779,7 @@ export class Engine<T> {
       // Every failure to print — a refusal, a T with no flattener, a
       // cyclic structure — is reported at the action.
       const message =
-        err instanceof TypeMismatchError
-          ? `cannot print this ${err.receivedSummary}: expected ${err.expected}`
-          : err instanceof UnprintableError
-            ? err.message
-            : `cannot print: ${errorText(err)}`;
+        err instanceof UnprintableError ? err.message : `cannot print: ${errorText(err)}`;
       throw new EvalError(message, pos, { source, cause: err });
     }
   }
@@ -1857,7 +1861,8 @@ export function enforceArgTypes(
   for (let i = 0; i < values.length; i++) {
     const declared = lookup(i);
     const value = values[i];
-    if (!matchesArgType(declared, value, toString, isT)) {
+    const refusal = refusalOf(declared, value, toString, isT);
+    if (refusal !== undefined) {
       // An integer slot refusing a number is Go's `expected integer`
       // refusal, and says so with the value; every other refusal is a
       // kind mismatch.
@@ -1867,14 +1872,9 @@ export function enforceArgTypes(
       ) {
         throw new NotIntegerError(funcName, i + 1, value, pos, { source: src });
       }
-      throw new TypeMismatchError(
-        funcName,
-        i + 1,
-        humanArgType(declared),
-        describeValue(value),
-        pos,
-        { source: src },
-      );
+      throw new TypeMismatchError(funcName, i + 1, humanArgType(declared), refusal, pos, {
+        source: src,
+      });
     }
     // [LAW:single-enforcer] The lift lives at the gate, never in func
     // bodies — bodies of "liftable" slots see T, full stop. Mirrors the
@@ -1910,8 +1910,8 @@ export function enforceArgTypes(
         throw new TypeMismatchError(
           funcName,
           i + 1,
-          `${humanArgType("ordered")} of the same kind as ${describeValue(values[firstOrdered])}`,
-          describeValue(value),
+          `${humanArgType("ordered")} of the same kind as ${typeNameOf(values[firstOrdered])}`,
+          typeNameOf(value),
           pos,
           { source: src },
         );
@@ -1928,8 +1928,8 @@ export function enforceArgTypes(
         throw new TypeMismatchError(
           funcName,
           i + 1,
-          `${humanArgType("comparable")} of the same kind as ${describeValue(values[firstComparable])}`,
-          describeValue(value),
+          `${humanArgType("comparable")} of the same kind as ${typeNameOf(values[firstComparable])}`,
+          typeNameOf(value),
           pos,
           { source: src },
         );
@@ -1992,9 +1992,8 @@ function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number)
 }
 
 function matchesArgType(
-  declared: ArgType,
+  declared: Exclude<ArgType, "stringifiable">,
   value: unknown,
-  toString: (value: unknown) => string,
   isT: IsT,
 ): boolean {
   switch (declared) {
@@ -2109,24 +2108,6 @@ function matchesArgType(
       // Receiver shape for `slice`: string or array. Maps/dicts/Sets
       // are not sliceable in Go's `text/template`.
       return typeof value === "string" || Array.isArray(value);
-    case "stringifiable": {
-      // Probe (do not transform). String passes through trivially —
-      // avoids invoking the consumer's `toString` for the common case.
-      // For non-strings, attempt the flatten the bodies perform —
-      // `formatV`, Go's `%v`, which hands every T (nested included) to
-      // `engine.toString`: a return means the value can print, a throw
-      // means it cannot.
-      if (typeof value === "string") return true;
-      try {
-        formatV(value, toString, isT);
-        return true;
-      } catch (err) {
-        // Only a refusal to print is a verdict; anything else — a stack
-        // overflow on a cyclic structure — surfaces as itself.
-        if (err instanceof TypeMismatchError || err instanceof UnprintableError) return false;
-        throw err;
-      }
-    }
     case "liftable":
       // Mirror of "stringifiable" in the opposite direction: a T, or a
       // string `enforceArgTypes` lifts once through `engine.fromString`.
@@ -2184,7 +2165,7 @@ function defaultToString(value: unknown): string {
     "<engine.toString>",
     1,
     "string (or a consumer-supplied toString that flattens T)",
-    describeValue(value),
+    typeNameOf(value),
     { line: 0, column: 0, offset: 0 },
   );
 }
@@ -2303,28 +2284,42 @@ function innermost(e: TemplateError): TemplateError {
 
 // The host ran out of stack in the template's own frames: V8 and JSC throw
 // a RangeError, SpiderMonkey an InternalError, each naming the condition.
-// A template error never matches, whatever its text: a func that overflowed
-// was already reported at its own call, as `error calling <func>`.
-// No regex: V8 compiles one on first use, which at the deepest frame
-// overflows into a SyntaxError that is no longer recognised.
-function isStackOverflow(e: unknown): boolean {
-  return (
-    (e instanceof RangeError || (e instanceof Error && e.name === "InternalError")) &&
-    (e.message.includes("call stack") || e.message.includes("too much recursion"))
-  );
-}
-
 // A body may throw anything; Go's `%v` of an error is its message.
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function describeValue(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (Array.isArray(value)) return "array";
-  if (value instanceof Map) return "Map";
-  return typeof value;
+// What a refused argument is, as the gate's TypeMismatchError names it, or
+// undefined when the argument is accepted. A "stringifiable" refusal names
+// what `formatV` could not print — the argument, or the argument holding
+// it — from the one probe that decided it, so `toString` runs once. Every
+// other refusal names the argument's type.
+function refusalOf(
+  declared: ArgType,
+  value: unknown,
+  toString: (value: unknown) => string,
+  isT: IsT,
+): string | undefined {
+  if (declared === "stringifiable") return printRefusal(value, toString, isT)?.summary;
+  return matchesArgType(declared, value, isT) ? undefined : typeNameOf(value);
+}
+
+// The flatten the "stringifiable" bodies perform — `formatV`, Go's `%v`,
+// which hands every T (nested included) to `engine.toString` — returning its
+// refusal. Only a refusal to print is an answer; anything else, a stack
+// overflow on a cyclic structure, surfaces as itself.
+function printRefusal(
+  value: unknown,
+  toString: (value: unknown) => string,
+  isT: IsT,
+): UnprintableError | undefined {
+  try {
+    formatV(value, toString, isT);
+    return undefined;
+  } catch (err) {
+    if (err instanceof UnprintableError) return err;
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
