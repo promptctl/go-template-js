@@ -14,7 +14,7 @@
  * consumers an escape hatch).
  */
 
-import { TypeMismatchError, withArticle } from "../errors.js";
+import { isStackOverflow, TypeMismatchError, withArticle } from "../errors.js";
 import { deepEqual } from "../sprig/types/deepEqual.js";
 import type { FuncMap } from "./evaluator.js";
 import { markLazy } from "./lazy.js";
@@ -25,8 +25,8 @@ import { isTruthy } from "./truthy.js";
 //
 // [LAW:single-enforcer] The print/printf family flattens through
 // `formatV` over the engine's `toString`/`isT` — the same function the
-// `"stringifiable"` matcher probes with. Two callsites (probe at the
-// gate, flatten in the body) — one source of truth.
+// gate's "stringifiable" probe runs (`printRefusal` in src/evaluator/evaluator.ts).
+// Two callsites (probe at the gate, flatten in the body) — one source of truth.
 // ---------------------------------------------------------------------------
 
 function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
@@ -722,6 +722,7 @@ function flattenT(value: unknown, toString: ToString): string {
   try {
     return toString(value);
   } catch (err) {
+    if (isStackOverflow(err)) throw err;
     throw new UnprintableError(value, err);
   }
 }
@@ -732,6 +733,7 @@ function stringerText(value: object): string {
   try {
     return String(value);
   } catch (err) {
+    if (isStackOverflow(err)) throw err;
     throw new UnprintableError(value, err);
   }
 }
@@ -773,9 +775,10 @@ export class UnprintableError extends Error {
   }
 }
 
-// [LAW:one-source-of-truth] The one name every error gives a value's type, as
-// Go's %T names it. Not `kindOf` in src/sprig/types/kindOf.ts, the template-
-// visible kind, which answers a different question.
+// [LAW:one-source-of-truth] The one name every error gives a value's type. A
+// JS constructor name, not Go's %T: `Rich`, not `*main.Rich`. Not `kindOf`
+// in src/sprig/types/kindOf.ts, the template-visible kind, which answers a
+// different question.
 // the typeof of a primitive, `array` and `object` for the shapes Go walks
 // as slice and map, and otherwise the nearest named constructor — so an
 // anonymous `class extends Set` is still a Set.
@@ -786,7 +789,8 @@ export function typeNameOf(value: unknown): string {
   if (isPlainObject(value)) return "object";
   for (let p = Object.getPrototypeOf(value); p !== null; p = Object.getPrototypeOf(p)) {
     const name = (p as { constructor?: { name?: unknown } }).constructor?.name;
-    if (typeof name === "string" && name !== "") return name;
+    // `Object.create({})` is a plain object too: its chain ends in `Object`.
+    if (typeof name === "string" && name !== "") return name === "Object" ? "object" : name;
   }
   return "object";
 }

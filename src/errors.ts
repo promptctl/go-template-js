@@ -168,6 +168,17 @@ export class ArgCountError extends EvalError {
   }
 }
 
+// A template error never matches, whatever its text: a func that overflowed
+// was already reported at its own call, as `error calling <func>`.
+// No regex: V8 compiles one on first use, which at the deepest frame
+// overflows into a SyntaxError that is no longer recognised.
+export function isStackOverflow(e: unknown): boolean {
+  return (
+    (e instanceof RangeError || (e instanceof Error && e.name === "InternalError")) &&
+    (e.message.includes("call stack") || e.message.includes("too much recursion"))
+  );
+}
+
 /** A kind's name with its indefinite article: `an array`, `a Set`. */
 export function withArticle(noun: string): string {
   return /^[aeiou]/i.test(noun) ? `an ${noun}` : `a ${noun}`;

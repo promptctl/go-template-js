@@ -19,6 +19,7 @@
  * with the correct call-site pos.
  */
 
+import { typeNameOf } from "../../evaluator/builtins.js";
 import { bodyTypeMismatch } from "../../evaluator/errors.js";
 
 export function dig(...args: unknown[]): unknown {
@@ -36,11 +37,11 @@ export function dig(...args: unknown[]): unknown {
   const keys = args.slice(0, -2);
 
   if (!isPlainDict(dict)) {
-    throw bodyTypeMismatch("dig", args.length - 1, "dict", describeKind(dict));
+    throw bodyTypeMismatch("dig", args.length - 1, "dict", typeNameOf(dict));
   }
   for (let i = 0; i < keys.length; i++) {
     if (typeof keys[i] !== "string") {
-      throw bodyTypeMismatch("dig", i, "string", describeKind(keys[i]));
+      throw bodyTypeMismatch("dig", i, "string", typeNameOf(keys[i]));
     }
   }
 
@@ -62,7 +63,7 @@ function digFromDict(
   // rather than letting JS coerce silently.
   if (!isPlainDict(step)) {
     // Attribute to dict arg (last arg position).
-    throw bodyTypeMismatch("dig", argCount - 1, "dict at intermediate key", describeKind(step));
+    throw bodyTypeMismatch("dig", argCount - 1, "dict at intermediate key", typeNameOf(step));
   }
   return digFromDict(step as Record<string, unknown>, def, ks.slice(1), argCount);
 }
@@ -75,12 +76,4 @@ function isPlainDict(v: unknown): v is Record<string, unknown> {
     !(v instanceof Map) &&
     !(v instanceof Set)
   );
-}
-
-function describeKind(v: unknown): string {
-  if (v === null) return "null";
-  if (Array.isArray(v)) return "array";
-  if (v instanceof Map) return "Map";
-  if (v instanceof Set) return "Set";
-  return typeof v;
 }

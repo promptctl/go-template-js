@@ -22,6 +22,7 @@ import {
   EvalError,
   FailError,
   FuncNotFoundError,
+  isStackOverflow,
   MissingFieldError,
   NotIntegerError,
   TemplateError,
@@ -2283,17 +2284,6 @@ function innermost(e: TemplateError): TemplateError {
 
 // The host ran out of stack in the template's own frames: V8 and JSC throw
 // a RangeError, SpiderMonkey an InternalError, each naming the condition.
-// A template error never matches, whatever its text: a func that overflowed
-// was already reported at its own call, as `error calling <func>`.
-// No regex: V8 compiles one on first use, which at the deepest frame
-// overflows into a SyntaxError that is no longer recognised.
-function isStackOverflow(e: unknown): boolean {
-  return (
-    (e instanceof RangeError || (e instanceof Error && e.name === "InternalError")) &&
-    (e.message.includes("call stack") || e.message.includes("too much recursion"))
-  );
-}
-
 // A body may throw anything; Go's `%v` of an error is its message.
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

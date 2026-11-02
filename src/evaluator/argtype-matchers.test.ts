@@ -474,6 +474,13 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
     expect(err.receivedSummary).toBe("Broken");
     expect(err.message).toContain("but a Broken flowed in");
   });
+
+  it("names a prototype-linked plain object as an object, not as its Object constructor", () => {
+    const holder = Object.create({});
+    holder.run = () => 1;
+    const err = refusal(holder);
+    expect(err.receivedSummary).toBe("object holding a function");
+  });
 });
 
 describe("matchesArgType — serializable", () => {

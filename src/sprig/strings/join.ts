@@ -1,3 +1,4 @@
+import { typeNameOf } from "../../evaluator/builtins.js";
 import { bodyTypeMismatch } from "../../evaluator/errors.js";
 
 /**
@@ -19,17 +20,10 @@ export function join(sep: string, list: readonly unknown[]): string {
         "join",
         2,
         "list of strings/primitives",
-        `list element of type ${describe(v)}`,
+        `list element of type ${typeNameOf(v)}`,
       );
     }
     parts.push(String(v));
   }
   return parts.join(sep);
-}
-
-function describe(v: unknown): string {
-  if (Array.isArray(v)) return "array";
-  if (v instanceof Map) return "Map";
-  if (v instanceof Set) return "Set";
-  return "object";
 }
