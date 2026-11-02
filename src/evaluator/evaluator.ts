@@ -51,7 +51,7 @@ import {
   formatV,
   type IsT,
   isPlainObject,
-  kindOf,
+  typeNameOf,
   UnprintableError,
 } from "./builtins.js";
 import { isInclude } from "./include.js";
@@ -1860,7 +1860,8 @@ export function enforceArgTypes(
   for (let i = 0; i < values.length; i++) {
     const declared = lookup(i);
     const value = values[i];
-    if (!matchesArgType(declared, value, toString, isT)) {
+    const refusal = refusalOf(declared, value, toString, isT);
+    if (refusal !== undefined) {
       // An integer slot refusing a number is Go's `expected integer`
       // refusal, and says so with the value; every other refusal is a
       // kind mismatch.
@@ -1870,14 +1871,9 @@ export function enforceArgTypes(
       ) {
         throw new NotIntegerError(funcName, i + 1, value, pos, { source: src });
       }
-      throw new TypeMismatchError(
-        funcName,
-        i + 1,
-        humanArgType(declared),
-        refusedSummary(declared, value, toString, isT),
-        pos,
-        { source: src },
-      );
+      throw new TypeMismatchError(funcName, i + 1, humanArgType(declared), refusal, pos, {
+        source: src,
+      });
     }
     // [LAW:single-enforcer] The lift lives at the gate, never in func
     // bodies — bodies of "liftable" slots see T, full stop. Mirrors the
@@ -1913,8 +1909,8 @@ export function enforceArgTypes(
         throw new TypeMismatchError(
           funcName,
           i + 1,
-          `${humanArgType("ordered")} of the same kind as ${kindOf(values[firstOrdered])}`,
-          kindOf(value),
+          `${humanArgType("ordered")} of the same kind as ${typeNameOf(values[firstOrdered])}`,
+          typeNameOf(value),
           pos,
           { source: src },
         );
@@ -1931,8 +1927,8 @@ export function enforceArgTypes(
         throw new TypeMismatchError(
           funcName,
           i + 1,
-          `${humanArgType("comparable")} of the same kind as ${kindOf(values[firstComparable])}`,
-          kindOf(value),
+          `${humanArgType("comparable")} of the same kind as ${typeNameOf(values[firstComparable])}`,
+          typeNameOf(value),
           pos,
           { source: src },
         );
@@ -1995,9 +1991,8 @@ function makeSlotLookup(argTypes: readonly ArgType[], arity: Arity): (i: number)
 }
 
 function matchesArgType(
-  declared: ArgType,
+  declared: Exclude<ArgType, "stringifiable">,
   value: unknown,
-  toString: (value: unknown) => string,
   isT: IsT,
 ): boolean {
   switch (declared) {
@@ -2112,15 +2107,6 @@ function matchesArgType(
       // Receiver shape for `slice`: string or array. Maps/dicts/Sets
       // are not sliceable in Go's `text/template`.
       return typeof value === "string" || Array.isArray(value);
-    case "stringifiable": {
-      // Probe (do not transform). String passes through trivially —
-      // avoids invoking the consumer's `toString` for the common case.
-      // For non-strings, attempt the flatten the bodies perform —
-      // `formatV`, Go's `%v`, which hands every T (nested included) to
-      // `engine.toString`: a return means the value can print, a throw
-      // means it cannot.
-      return typeof value === "string" || printRefusal(value, toString, isT) === undefined;
-    }
     case "liftable":
       // Mirror of "stringifiable" in the opposite direction: a T, or a
       // string `enforceArgTypes` lifts once through `engine.fromString`.
@@ -2178,7 +2164,7 @@ function defaultToString(value: unknown): string {
     "<engine.toString>",
     1,
     "string (or a consumer-supplied toString that flattens T)",
-    kindOf(value),
+    typeNameOf(value),
     { line: 0, column: 0, offset: 0 },
   );
 }
@@ -2313,18 +2299,19 @@ function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-// What a refused argument is, as the gate's TypeMismatchError names it: a
-// "stringifiable" refusal names what `formatV` could not print — the
-// argument, or the argument holding it — and every other refusal names
-// the argument's kind. Computed only once an argument is refused.
-function refusedSummary(
+// What a refused argument is, as the gate's TypeMismatchError names it, or
+// undefined when the argument is accepted. A "stringifiable" refusal names
+// what `formatV` could not print — the argument, or the argument holding
+// it — from the one probe that decided it, so `toString` runs once. Every
+// other refusal names the argument's type.
+function refusalOf(
   declared: ArgType,
   value: unknown,
   toString: (value: unknown) => string,
   isT: IsT,
-): string {
-  const unprintable = declared === "stringifiable" ? printRefusal(value, toString, isT) : undefined;
-  return unprintable?.summary ?? kindOf(value);
+): string | undefined {
+  if (declared === "stringifiable") return printRefusal(value, toString, isT)?.summary;
+  return matchesArgType(declared, value, isT) ? undefined : typeNameOf(value);
 }
 
 // The flatten the "stringifiable" bodies perform — `formatV`, Go's `%v`,

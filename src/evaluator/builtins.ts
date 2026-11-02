@@ -714,13 +714,23 @@ function formatLeafV(value: unknown, toString: ToString, isT: IsT): string {
   if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
     return String(value);
   }
-  if (typeof value === "object" && hasOwnString(value)) return String(value);
+  if (typeof value === "object" && hasOwnString(value)) return stringerText(value);
   throw new UnprintableError(value);
 }
 
 function flattenT(value: unknown, toString: ToString): string {
   try {
     return toString(value);
+  } catch (err) {
+    throw new UnprintableError(value, err);
+  }
+}
+
+// A Stringer whose text form throws is refused as a T is: the same
+// UnprintableError, so every print refusal has one type.
+function stringerText(value: object): string {
+  try {
+    return String(value);
   } catch (err) {
     throw new UnprintableError(value, err);
   }
@@ -751,7 +761,9 @@ export class UnprintableError extends Error {
     root: unknown = leaf,
   ) {
     const summary =
-      root === leaf ? kindOf(leaf) : `${kindOf(root)} holding ${withArticle(kindOf(leaf))}`;
+      root === leaf
+        ? typeNameOf(leaf)
+        : `${typeNameOf(root)} holding ${withArticle(typeNameOf(leaf))}`;
     // A flattener that names what it expected says why; any other refusal
     // is a value with no text form.
     const why =
@@ -761,11 +773,13 @@ export class UnprintableError extends Error {
   }
 }
 
-// [LAW:one-source-of-truth] The one name every error gives a value's kind:
+// [LAW:one-source-of-truth] The one name every error gives a value's type, as
+// Go's %T names it. Not `kindOf` in src/sprig/types/kindOf.ts, the template-
+// visible kind, which answers a different question.
 // the typeof of a primitive, `array` and `object` for the shapes Go walks
 // as slice and map, and otherwise the nearest named constructor — so an
 // anonymous `class extends Set` is still a Set.
-export function kindOf(value: unknown): string {
+export function typeNameOf(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
   if (typeof value !== "object") return typeof value;

@@ -463,6 +463,17 @@ describe("matchesArgType — stringifiable refusal names what cannot print", () 
       expect(styledRefusal([new Styled("x")]).receivedSummary).toBe("array holding a Styled");
     });
   });
+
+  it("refuses a Stringer whose toString throws, naming the class, not escaping the gate", () => {
+    class Broken {
+      toString(): string {
+        throw new Error("no text");
+      }
+    }
+    const err = refusal(new Broken());
+    expect(err.receivedSummary).toBe("Broken");
+    expect(err.message).toContain("but a Broken flowed in");
+  });
 });
 
 describe("matchesArgType — serializable", () => {
