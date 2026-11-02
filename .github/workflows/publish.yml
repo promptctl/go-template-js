@@ -94,16 +94,16 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          # The gate runs vitest 5, which needs Node >= 22.12; ci.yml's
-          # runtime-floor job proves the engines floor on the built dist.
+          # The gate runs vitest 5, which needs Node >= 22.12. The engines
+          # floor (20.19) is ci.yml's runtime-floor job, which the master-ancestry
+          # check below makes a precondition of publishing.
           node-version: 22.22.0
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
       # Trusted Publishing needs npm CLI >= 11.5.1, which Node 22 does not
       # bundle. Pinned exactly, for the same reason the actions are: this is the
-      # binary that performs the publish. Move to npm 12 only deliberately: it
-      # requires Node >= 22.22, so it also ties node-version here. pnpm owns installing and
+      # binary that performs the publish. pnpm owns installing and
       # gating; npm owns packing and publishing, because OIDC publishing is an
       # npm CLI feature.
       - name: Pin npm for Trusted Publishing

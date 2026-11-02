@@ -80,8 +80,10 @@ jobs:
             exit 1
           fi
 
-  # engines.node promises Node 20.19, which the toolchain no longer runs on.
-  # Build on a toolchain Node, then load and run the shipped dist on the floor.
+  # engines.node promises Node 20.19, below vitest 5's supported range.
+  # The suite still runs here: tests run src on the floor, the smoke runs
+  # the built dist. If a vitest release stops starting on 20.19, this job
+  # fails on its own and the quality job stays green.
   runtime-floor:
     runs-on: ubuntu-24.04
     steps:
@@ -90,30 +92,19 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Setup Node (toolchain)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.22.0
-          cache: pnpm
-
-      - name: Install and build
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
-
-      - name: Setup Node (engines floor)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20.19.0
+          cache: pnpm
 
-      - name: Run dist on the floor
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test on the floor
+        run: pnpm test
+
+      - name: Run built dist on the floor
         run: |
-          node --version
-          node --input-type=module -e '
-            import { createEngine, sprigHash, sprigStrings } from "./dist/index.js";
-            const engine = createEngine({ fromString: (s) => s, funcs: { ...sprigStrings(), ...sprigHash() } });
-            const out = engine.parse("{{ .name | upper }} {{ sha256sum .name }}").evaluate({ name: "ada" }).join("");
-            const want = "ADA fdee430d40bd57deeac186cd9790033d0f06f909a8806e7ce6e717ab7c7d5029";
-            if (out !== want) { console.error(`got  ${out}\nwant ${want}`); process.exit(1); }
-            console.log(out);
-          '
+          pnpm build
+          node scripts/floor-smoke.mjs
