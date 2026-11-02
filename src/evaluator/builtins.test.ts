@@ -304,7 +304,7 @@ describe("builtins — print / println / printf", () => {
     expect(render('{{ printf "%x" . }}', [255, [16]])).toBe("[ff [10]]");
   });
 
-  it("a cyclic structure fails as itself, not as a misleading type mismatch", () => {
+  it("a cyclic structure fails at the call as itself, not as a misleading type mismatch", () => {
     const c: Record<string, unknown> = {};
     c.self = c;
     let caught: unknown;
@@ -313,7 +313,24 @@ describe("builtins — print / println / printf", () => {
     } catch (err) {
       caught = err;
     }
-    expect(caught).toBeInstanceOf(RangeError);
+    expect(caught).toBeInstanceOf(EvalError);
+    expect(caught).not.toBeInstanceOf(TypeMismatchError);
+    expect((caught as EvalError).message).toMatch(/error calling print/);
+    expect((caught as EvalError).cause).toBeInstanceOf(RangeError);
+  });
+
+  it("printf %t takes a bool, as Go's does, and diagnoses anything else per element", () => {
+    expect(render('{{ printf "%t" . }}', [true, "a"])).toBe("[true %!t(string=a)]");
+  });
+
+  it("a typed array prints as Go prints a slice", () => {
+    expect(render("{{ print . }}", new Uint8Array([1, 2]))).toBe("[1 2]");
+  });
+
+  it("an object whose toString is not callable is refused, not crashed on", () => {
+    expect(() => render("{{ print . }}", Object.create(Object.create(null)))).toThrow(
+      TypeMismatchError,
+    );
   });
 
   it("println adds a trailing newline", () => {

@@ -573,14 +573,12 @@ function formatLeafVerb(
 ): string {
   switch (verb) {
     case "s":
-      return typeof arg === "string"
-        ? applyWidth(spec, arg)
-        : applyWidth(spec, formatV(arg, toString, isT));
+      return applyWidth(spec, formatLeafV(arg, toString, isT));
     case "d": {
       // [LAW:single-enforcer] Non-numeric primitives route to the same
       // diagnostic format as the `default:` arm — no silent NaN.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${formatV(arg, toString, isT)})`;
+        return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
       }
       const n = typeof arg === "bigint" ? arg : Math.trunc(arg);
       return applyWidth(spec, String(n));
@@ -588,18 +586,22 @@ function formatLeafVerb(
     case "v":
       return applyWidth(spec, formatLeafV(arg, toString, isT));
     case "q":
-      return applyWidth(spec, JSON.stringify(formatV(arg, toString, isT)));
+      return applyWidth(spec, JSON.stringify(formatLeafV(arg, toString, isT)));
     case "f": {
       // [LAW:single-enforcer] See %d.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${formatV(arg, toString, isT)})`;
+        return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
       }
       const precision = spec.includes(".") ? Number(spec.split(".")[1]) : 6;
       const n = Number(arg);
       return applyWidth(spec, n.toFixed(precision));
     }
     case "t":
-      return applyWidth(spec, isTruthy(arg) ? "true" : "false");
+      // [LAW:single-enforcer] Go's %t takes a bool; see %d.
+      if (typeof arg !== "boolean") {
+        return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
+      }
+      return applyWidth(spec, String(arg));
     case "x": {
       // Go's %x on a string emits the hex of its UTF-8 bytes.
       if (typeof arg === "string") {
@@ -610,14 +612,14 @@ function formatLeafVerb(
       }
       // [LAW:single-enforcer] See %d.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${formatV(arg, toString, isT)})`;
+        return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
       }
       if (typeof arg === "bigint") return applyWidth(spec, arg.toString(16));
       const n = Math.trunc(arg);
       return applyWidth(spec, n.toString(16));
     }
     default:
-      return `%!${verb}(${goPrintfType(arg)}=${formatV(arg, toString, isT)})`;
+      return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
   }
 }
 
@@ -659,6 +661,9 @@ function formatWalk(
   if (isT(value)) return leaf(value);
   const walk = (v: unknown): string => formatWalk(v, leaf, toString, isT);
   if (Array.isArray(value)) return `[${value.map(walk).join(" ")}]`;
+  if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
+    return `[${Array.from(value as unknown as ArrayLike<unknown>, walk).join(" ")}]`;
+  }
   if (value instanceof Map) return formatEntries([...value.entries()], walk, toString, isT);
   if (isPlainObject(value)) return formatEntries(Object.entries(value), walk, toString, isT);
   return leaf(value);
@@ -690,8 +695,17 @@ function flattenT(value: unknown, toString: ToString): string {
   }
 }
 
+// Go's Stringer: a callable `toString` other than the `[object …]` default.
 function hasOwnString(value: object): boolean {
-  return (value as { toString: unknown }).toString !== Object.prototype.toString;
+  const own = (value as { toString?: unknown }).toString;
+  return typeof own === "function" && own !== Object.prototype.toString;
+}
+
+function describeLeaf(value: unknown): string {
+  if (typeof value !== "object" || value === null) return typeof value;
+  const name = (Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null)
+    ?.constructor?.name;
+  return name ? `${name} instance` : "object with no prototype";
 }
 
 function unprintable(value: unknown, cause?: unknown): TypeMismatchError {
@@ -699,7 +713,7 @@ function unprintable(value: unknown, cause?: unknown): TypeMismatchError {
     "<%v>",
     1,
     "a value with a text form (nil, a scalar, a flattenable T, a list, a map, or an object with its own toString)",
-    value instanceof Set ? "Set" : typeof value,
+    describeLeaf(value),
     { line: 0, column: 0, offset: 0 },
   );
   if (cause !== undefined) err.cause = cause;
@@ -716,18 +730,18 @@ function formatEntries(
   toString: ToString,
   isT: IsT,
 ): string {
-  const fmt = (v: unknown): string => formatV(v, toString, isT);
   const isNumeric = (k: unknown): k is number | bigint =>
     typeof k === "number" || typeof k === "bigint";
-  const byKey = ([a]: readonly [unknown, unknown], [b]: readonly [unknown, unknown]): number => {
-    if (isNumeric(a) && isNumeric(b)) return a < b ? -1 : a > b ? 1 : 0;
-    if (isNumeric(a) !== isNumeric(b)) return isNumeric(a) ? -1 : 1;
-    const [as, bs] = [fmt(a), fmt(b)];
-    return as < bs ? -1 : as > bs ? 1 : 0;
+  type Keyed = { readonly k: unknown; readonly v: unknown; readonly text: string };
+  const byKey = (a: Keyed, b: Keyed): number => {
+    if (isNumeric(a.k) && isNumeric(b.k)) return a.k < b.k ? -1 : a.k > b.k ? 1 : 0;
+    if (isNumeric(a.k) !== isNumeric(b.k)) return isNumeric(a.k) ? -1 : 1;
+    return a.text < b.text ? -1 : a.text > b.text ? 1 : 0;
   };
-  return `map[${[...entries]
+  return `map[${entries
+    .map(([k, v]): Keyed => ({ k, v, text: formatV(k, toString, isT) }))
     .sort(byKey)
-    .map(([k, v]) => `${walk(k)}:${walk(v)}`)
+    .map(({ k, v }) => `${walk(k)}:${walk(v)}`)
     .join(" ")}]`;
 }
 

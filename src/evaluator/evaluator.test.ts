@@ -390,8 +390,16 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     ["a function", () => 1],
     ["a symbol", Symbol("s")],
   ])("refuses to print %s rather than flatten it to [object …]", (_label, value) => {
-    expect(() => text("{{ . }}", value)).toThrow(TypeMismatchError);
-    expect(() => text("{{ . }}", [value])).toThrow(TypeMismatchError);
+    let caught: unknown;
+    try {
+      text("x\n{{ . }}", value);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect((caught as EvalError).message).toMatch(/cannot print a/);
+    expect((caught as EvalError).pos.line).toBe(2);
+    expect(() => text("{{ . }}", [value])).toThrow(/cannot print a/);
     expect(() => text("{{ print . }}", value)).toThrow(TypeMismatchError);
     expect(() => text('{{ printf "%d" . }}', [value])).toThrow(TypeMismatchError);
   });
@@ -514,6 +522,8 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
       fromString: (s) => new Rich(s),
       isT: (v): v is Rich => v instanceof Rich,
     });
-    expect(() => rich.parse("{{ . }}").evaluate([new Rich("x")])).toThrow(TypeMismatchError);
+    expect(() => rich.parse("{{ . }}").evaluate([new Rich("x")])).toThrow(
+      /cannot print a .*consumer-supplied toString/,
+    );
   });
 });

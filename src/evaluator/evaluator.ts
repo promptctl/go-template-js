@@ -1134,7 +1134,7 @@ export class Engine<T> {
           // (`{{ $x := pipe }}`) contribute no output — they're pure
           // assignment statements. Only assignment-free actions emit.
           if (node.pipe.decls.length === 0) {
-            ctx.emit(this.lift(value), unionMarks(reads, ctx.marks));
+            ctx.emit(this.lift(value, node.pos, ctx.source), unionMarks(reads, ctx.marks));
           }
         });
         return;
@@ -1568,16 +1568,27 @@ export class Engine<T> {
     ctx: EvalContext<T>,
     reads: Set<unknown>,
   ): unknown {
-    enforceArgTypes(
-      name,
-      fn,
-      args,
-      pos,
-      ctx.source,
-      this.toString,
-      this.fromString as (s: string) => unknown,
-      this.isT,
-    );
+    try {
+      enforceArgTypes(
+        name,
+        fn,
+        args,
+        pos,
+        ctx.source,
+        this.toString,
+        this.fromString as (s: string) => unknown,
+        this.isT,
+      );
+    } catch (e) {
+      // The gate's own errors are positioned already; a failure it meets
+      // while probing (a cyclic structure) is reported at the call as Go
+      // reports a function's error.
+      if (e instanceof TemplateError) throw e;
+      throw new EvalError(`error calling ${name}: ${errorText(e)}`, pos, {
+        source: ctx.source,
+        cause: e,
+      });
+    }
     // [LAW:single-enforcer] One cast at the dispatch site. `TemplateFunc.fn`
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
     // their parameter types; we erase that here, having already validated
@@ -1741,7 +1752,7 @@ export class Engine<T> {
   // -------------------------------------------------------------------
 
   // The fragment an action's value becomes on the output stream.
-  private lift(value: unknown): T {
+  private lift(value: unknown, pos: Pos, source: string | undefined): T {
     // Matches Go's text/template, which prints `<no value>` for a nil
     // pipeline rather than skipping the emit.
     if (value === null || value === undefined) return this.fromString("<no value>");
@@ -1753,7 +1764,15 @@ export class Engine<T> {
     // `fmt.Sprintf("%v", v)` would (`[a b c]`, `map[k:v]`), which keeps the
     // conformance corpus byte-equal.
     if (this.isT(value)) return value as T;
-    return this.fromString(formatV(value, this.toString, this.isT));
+    try {
+      return this.fromString(formatV(value, this.toString, this.isT));
+    } catch (err) {
+      if (!(err instanceof TypeMismatchError)) throw err;
+      throw new EvalError(`cannot print a ${err.receivedSummary}: expected ${err.expected}`, pos, {
+        source,
+        cause: err,
+      });
+    }
   }
 }
 
