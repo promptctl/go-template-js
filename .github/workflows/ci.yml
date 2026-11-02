@@ -25,9 +25,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
-      # The toolchain (vitest 5) needs Node >= 22.12, above the engines
-      # floor; the runtime-floor job proves the floor on the built output.
-      - name: Setup Node
+      # engines.node promises 20.19; the toolchain (vitest 5) needs 22.12+.
+      # Both get installed: 22 is on PATH, the floor is called by path below.
+      - name: Setup Node (engines floor)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+
+      - name: Setup Node (toolchain)
         uses: actions/setup-node@v4
         with:
           node-version: 22.22.0
@@ -54,6 +59,15 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # Same suite and the same dist on the floor. vitest 5 does not support
+      # Node 20 but runs there; if a release stops starting, this step names it.
+      - name: Test and run dist on the engines floor
+        run: |
+          floor="$RUNNER_TOOL_CACHE/node/20.19.0/x64/bin/node"
+          "$floor" node_modules/vitest/vitest.mjs run
+          pnpm build
+          "$floor" scripts/floor-smoke.mjs
+
       # The generator decides what each fixture means and what Go actually
       # said. Both are places it can be wrong in a way the corpus would
       # then enforce on the engine, and the regen step below cannot catch
@@ -79,32 +93,3 @@ jobs:
             git diff
             exit 1
           fi
-
-  # engines.node promises Node 20.19, below vitest 5's supported range.
-  # The suite still runs here: tests run src on the floor, the smoke runs
-  # the built dist. If a vitest release stops starting on 20.19, this job
-  # fails on its own and the quality job stays green.
-  runtime-floor:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.19.0
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Test on the floor
-        run: pnpm test
-
-      - name: Run built dist on the floor
-        run: |
-          pnpm build
-          node scripts/floor-smoke.mjs

@@ -91,12 +91,16 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
-      - name: Setup Node
+      # engines.node promises 20.19; the gate's vitest 5 needs 22.12+. The
+      # floor is installed first and called by path after the gate.
+      - name: Setup Node (engines floor)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          # The gate runs vitest 5, which needs Node >= 22.12. The engines
-          # floor (20.19) is ci.yml's runtime-floor job, which the master-ancestry
-          # check below makes a precondition of publishing.
+          node-version: 20.19.0
+
+      - name: Setup Node (toolchain)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
           node-version: 22.22.0
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
@@ -174,6 +178,15 @@ jobs:
       # YAML is a copy that drifts.
       - name: Gate
         run: pnpm run prepublishOnly
+
+      # The gate ran on the toolchain Node; the tarball promises 20.19. Run the
+      # suite and the dist the gate just built, which Pack ships, on the floor.
+      - name: Engines floor
+        run: |
+          set -euo pipefail
+          floor="$RUNNER_TOOL_CACHE/node/20.19.0/x64/bin/node"
+          "$floor" node_modules/vitest/vitest.mjs run
+          "$floor" scripts/floor-smoke.mjs
 
       # One artifact serves both channels: this tarball becomes the release
       # asset AND the thing npm publishes, so the two can never disagree about
