@@ -1783,11 +1783,11 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 //
 // `toString` is optional so the harness (and any other deep-import
 // caller) keeps compiling unchanged. When omitted, the default
-// stringifier is used; that only affects `"stringifiable"` slots, whose
-// verdict then follows `defaultToString` — every scalar flattens, only
-// structures are refused. The print family and the escapers declare
-// those slots, so a deep-import caller passing no `toString` is probing
-// a stricter engine than one a consumer configured with its own.
+// stringifier is used; that only affects `"stringifiable"` slots, where
+// a T then follows `defaultToString` — a string flattens, any other T is
+// refused. The print family and the escapers declare those slots, so a
+// deep-import caller passing no `toString` is probing a stricter engine
+// than one a consumer configured with its own.
 export function enforceArgTypes(
   funcName: string,
   spec: ArgSpec,
@@ -2087,13 +2087,13 @@ function matchesArgType(
     case "stringifiable": {
       // Probe (do not transform). String passes through trivially —
       // avoids invoking the consumer's `toString` for the common case.
-      // For non-strings, attempt the conversion: a successful return
-      // means the value can flatten, a throw means it cannot. The
-      // matcher reports the boolean; downstream func bodies (.6) call
-      // `engine.toString` again to actually flatten.
+      // For non-strings, attempt the flatten the bodies perform —
+      // `formatV`, Go's `%v`, which hands every T (nested included) to
+      // `engine.toString`: a return means the value can print, a throw
+      // means it cannot.
       if (typeof value === "string") return true;
       try {
-        toString(value);
+        formatV(value, toString, isT);
         return true;
       } catch {
         return false;

@@ -8,6 +8,15 @@ const render = (src: string, scope: unknown = null): string =>
     .evaluate(scope)
     .join("");
 
+// The typed-T suites below hand the engine a `{ text }` fragment and
+// declare it a T, so it reaches `engine.toString` rather than printing
+// as Go's `%v` of a map.
+interface TextFrag {
+  readonly text: string;
+}
+const fragIsT = (v: unknown): v is string | TextFrag =>
+  typeof v === "string" || (typeof v === "object" && v !== null && "text" in v);
+
 describe("builtins — comparison", () => {
   it("eq with two args", () => {
     expect(render("{{ eq 1 1 }}")).toBe("true");
@@ -324,16 +333,17 @@ describe("builtins — print / println / printf", () => {
     const color = (text: string): Frag => ({ tag: "color", text });
 
     it("print throws TypeMismatchError when no engine.toString is configured for typed-T", () => {
-      const eng = createEngine<string>({ fromString: (s) => s });
+      const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
       expect(() => eng.parse("{{ print .frag }}").evaluate({ frag: color("x") })).toThrow(
         TypeMismatchError,
       );
     });
 
     it("print routes typed-T through consumer-supplied engine.toString", () => {
-      const eng = createEngine<string>({
+      const eng = createEngine<string | TextFrag>({
         fromString: (s) => s,
-        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+        isT: fragIsT,
+        toString: (v: unknown) => (v as Frag).text,
       });
       expect(
         eng
@@ -344,9 +354,10 @@ describe("builtins — print / println / printf", () => {
     });
 
     it('printf "%s" routes typed-T through consumer-supplied engine.toString', () => {
-      const eng = createEngine<string>({
+      const eng = createEngine<string | TextFrag>({
         fromString: (s) => s,
-        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+        isT: fragIsT,
+        toString: (v: unknown) => (v as Frag).text,
       });
       expect(
         eng
@@ -357,9 +368,10 @@ describe("builtins — print / println / printf", () => {
     });
 
     it('printf "%q" wraps the consumer-flattened text in JSON escape', () => {
-      const eng = createEngine<string>({
+      const eng = createEngine<string | TextFrag>({
         fromString: (s) => s,
-        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+        isT: fragIsT,
+        toString: (v: unknown) => (v as Frag).text,
       });
       expect(
         eng
@@ -370,7 +382,7 @@ describe("builtins — print / println / printf", () => {
     });
 
     it("println throws when no engine.toString is configured for typed-T", () => {
-      const eng = createEngine<string>({ fromString: (s) => s });
+      const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
       expect(() => eng.parse("{{ println .frag }}").evaluate({ frag: color("x") })).toThrow(
         TypeMismatchError,
       );
@@ -419,7 +431,7 @@ describe("builtins — html escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({ fromString: (s) => s });
+    const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
     expect(() => eng.parse("{{ html .frag }}").evaluate({ frag: { text: "x" } as Frag })).toThrow(
       TypeMismatchError,
     );
@@ -429,9 +441,10 @@ describe("builtins — html escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({
+    const eng = createEngine<string | TextFrag>({
       fromString: (s) => s,
-      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      isT: fragIsT,
+      toString: (v: unknown) => (v as Frag).text,
     });
     expect(
       eng
@@ -488,7 +501,7 @@ describe("builtins — js escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({ fromString: (s) => s });
+    const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
     expect(() => eng.parse("{{ js .frag }}").evaluate({ frag: { text: "x" } as Frag })).toThrow(
       TypeMismatchError,
     );
@@ -498,9 +511,10 @@ describe("builtins — js escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({
+    const eng = createEngine<string | TextFrag>({
       fromString: (s) => s,
-      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      isT: fragIsT,
+      toString: (v: unknown) => (v as Frag).text,
     });
     expect(
       eng
@@ -565,7 +579,7 @@ describe("builtins — urlquery escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({ fromString: (s) => s });
+    const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
     expect(() =>
       eng.parse("{{ urlquery .frag }}").evaluate({ frag: { text: "x" } as Frag }),
     ).toThrow(TypeMismatchError);
@@ -575,9 +589,10 @@ describe("builtins — urlquery escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({
+    const eng = createEngine<string | TextFrag>({
       fromString: (s) => s,
-      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      isT: fragIsT,
+      toString: (v: unknown) => (v as Frag).text,
     });
     expect(
       eng

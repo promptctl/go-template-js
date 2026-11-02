@@ -26,6 +26,13 @@
 
 import type { ArgType } from "../../src/evaluator/evaluator.js";
 
+// Not a plain object, so `%v` prints it by `String()` — which throws.
+const UNPRINTABLE: unknown = Object.create({
+  [Symbol.toPrimitive]: () => {
+    throw new Error("unprintable");
+  },
+});
+
 /**
  * Kinds whose matcher returns `true` for every value. They have no
  * reject witness because no value exists that would serve as one —
@@ -88,10 +95,9 @@ export const REJECTED: Readonly<Record<Exclude<ArgType, PermissiveArgType>, unkn
   // Functions are neither comparable nor JSON-encodable.
   comparable: () => undefined,
   serializable: () => undefined,
-  // The default `toString` flattens every scalar (numbers, bigints,
-  // booleans, nil) and refuses only structures, so the witness has to be
-  // one — a number would be accepted here.
-  stringifiable: {},
+  // A string engine prints every non-T value as Go's `%v`, structures
+  // included, so the witness has to be a value that cannot print at all.
+  stringifiable: UNPRINTABLE,
   // Keys are string | number | bigint; a boolean is not one.
   "index-key": true,
   callable: "x",

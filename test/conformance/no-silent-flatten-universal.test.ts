@@ -17,7 +17,7 @@
  * is not part of the public stability surface.
  */
 import { describe, expect, it } from "vitest";
-import { defaultBuiltins } from "../../src/evaluator/builtins.js";
+import { defaultBuiltins, type IsT } from "../../src/evaluator/builtins.js";
 import {
   type ArgType,
   DEFAULT_IS_T,
@@ -44,6 +44,10 @@ interface TaggedFragment {
 }
 
 const TAGGED: TaggedFragment = { tag: "color", text: "x" };
+
+// The property is about T values, so the harness declares its fragment
+// one: a non-T structure prints as Go's `%v` and is no flatten to guard.
+const TAGGED_IS_T: IsT = (v) => typeof v === "string" || v === TAGGED;
 
 // Bodies are never executed by this harness — it inspects argTypes /
 // arity only, then drives `enforceArgTypes` directly. The
@@ -170,7 +174,7 @@ describe("conformance — no-silent-flatten universal property", () => {
         // One value per declared slot, so the count the gate derives
         // from `fn.arity` is always satisfied and the slot-type verdict
         // below is what the probe actually measures.
-        enforceArgTypes(funcName, fn, values, POS, undefined);
+        enforceArgTypes(funcName, fn, values, POS, undefined, undefined, undefined, TAGGED_IS_T);
       } catch (err) {
         caught = err;
       }
@@ -423,7 +427,12 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
   ],
 };
 
-function probe(declared: ArgType, value: unknown, toString?: (v: unknown) => string): boolean {
+function probe(
+  declared: ArgType,
+  value: unknown,
+  toString?: (v: unknown) => string,
+  isT?: IsT,
+): boolean {
   try {
     enforceArgTypes(
       "__probe__",
@@ -432,6 +441,8 @@ function probe(declared: ArgType, value: unknown, toString?: (v: unknown) => str
       POS,
       undefined,
       toString,
+      undefined,
+      isT,
     );
     return true;
   } catch (err) {
@@ -454,29 +465,29 @@ describe("conformance — per-kind positive/negative fixtures", () => {
 
   // "stringifiable" — default toString throws on non-string.
   describe("stringifiable (default toString)", () => {
-    // Default `toString` flattens primitives (number/bigint/bool/null
-    // → String(v) or "<nil>") and throws for objects/functions/symbols.
-    // The "no silent flatten" property protects typed-T objects, not
-    // primitives — primitives have an unambiguous textual form.
+    // A non-T value prints as Go's `%v`; a T goes to the default
+    // `toString`, which throws for anything but a string. The "no silent
+    // flatten" property protects T values, not values `%v` can print.
     const cases: Fixture[] = [
       { label: "string", value: "x", pass: true },
       { label: "empty string", value: "", pass: true },
       { label: "number", value: 1, pass: true },
       { label: "bool", value: true, pass: true },
       { label: "null", value: null, pass: true },
-      { label: "TaggedFragment", value: TAGGED, pass: false },
-      { label: "function", value: FN, pass: false },
-      { label: "symbol", value: SYM, pass: false },
+      { label: "non-T structure", value: { a: [1, { b: 2 }] }, pass: true },
+      { label: "TaggedFragment declared a T", value: TAGGED, pass: false },
+      { label: "TaggedFragment nested in a list", value: [TAGGED], pass: false },
     ];
     for (const { label, value, pass } of cases) {
       it(`${pass ? "accepts" : "rejects"} ${label}`, () => {
-        expect(probe("stringifiable", value)).toBe(pass);
+        expect(probe("stringifiable", value, undefined, TAGGED_IS_T)).toBe(pass);
       });
     }
   });
 
   // "stringifiable" — consumer toString that flattens any object.
   describe("stringifiable (consumer toString flattens objects)", () => {
+    const UNFLATTENABLE_T = { tag: "color" };
     const flatten = (v: unknown): string => {
       if (typeof v === "string") return v;
       if (v && typeof v === "object" && "text" in (v as Record<string, unknown>))
@@ -486,12 +497,12 @@ describe("conformance — per-kind positive/negative fixtures", () => {
     const cases: Fixture[] = [
       { label: "string", value: "x", pass: true },
       { label: "TaggedFragment", value: TAGGED, pass: true },
-      { label: "number", value: 1, pass: false },
-      { label: "null", value: null, pass: false },
+      { label: "a T it cannot flatten", value: UNFLATTENABLE_T, pass: false },
     ];
+    const isT: IsT = (v) => TAGGED_IS_T(v) || v === UNFLATTENABLE_T;
     for (const { label, value, pass } of cases) {
       it(`${pass ? "accepts" : "rejects"} ${label}`, () => {
-        expect(probe("stringifiable", value, flatten)).toBe(pass);
+        expect(probe("stringifiable", value, flatten, isT)).toBe(pass);
       });
     }
   });

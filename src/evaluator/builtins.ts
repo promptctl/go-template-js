@@ -22,10 +22,10 @@ import { isTruthy } from "./truthy.js";
 // ---------------------------------------------------------------------------
 // Eager built-ins.
 //
-// [LAW:single-enforcer] The print/printf family closes over the
-// engine's `toString` so that the value flattening uses the same
-// function the `"stringifiable"` matcher probes with. Two callsites
-// (probe at the gate, flatten in the body) — one source of truth.
+// [LAW:single-enforcer] The print/printf family flattens through
+// `formatV` over the engine's `toString`/`isT` — the same function the
+// `"stringifiable"` matcher probes with. Two callsites (probe at the
+// gate, flatten in the body) — one source of truth.
 // ---------------------------------------------------------------------------
 
 function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
@@ -118,13 +118,13 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // truth as the matcher. Closes audit findings B1–B4: typed-T no
     // longer silently `String(v)`-flattens to "[object Object]".
     print: {
-      fn: (...args: unknown[]) => goPrint(args, toString),
+      fn: (...args: unknown[]) => goPrint(args, toString, isT),
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
     },
     println: {
-      fn: (...args: unknown[]) => `${goPrint(args, toString)}\n`,
+      fn: (...args: unknown[]) => `${goPrint(args, toString, isT)}\n`,
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -171,7 +171,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // the no-silent-flatten contract uniform across every builtin that
     // produces a string from heterogeneous arg values.
     html: {
-      fn: (...args: unknown[]) => htmlEscape(goPrint(args, toString)),
+      fn: (...args: unknown[]) => htmlEscape(goPrint(args, toString, isT)),
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -182,7 +182,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // differing only in the escape table. The shared `"stringifiable"`
     // gate keeps the no-silent-flatten contract uniform.
     js: {
-      fn: (...args: unknown[]) => jsEscape(goPrint(args, toString)),
+      fn: (...args: unknown[]) => jsEscape(goPrint(args, toString, isT)),
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -195,7 +195,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // stream) so multi-byte runes percent-encode to the same bytes Go
     // emits.
     urlquery: {
-      fn: (...args: unknown[]) => urlQueryEscape(goPrint(args, toString)),
+      fn: (...args: unknown[]) => urlQueryEscape(goPrint(args, toString, isT)),
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -389,7 +389,7 @@ function goPrintfType(v: unknown): string {
 // `%!<verb>(<arg>)` matching Go's diagnostic style.
 // ---------------------------------------------------------------------------
 
-function goPrint(args: readonly unknown[], toString: (v: unknown) => string): string {
+function goPrint(args: readonly unknown[], toString: ToString, isT: IsT): string {
   // Go's `fmt.Sprint`: emits a space between adjacent operands when
   // *neither* of the two flanking values is a string. So `x` `1` is
   // joined as `x1` (string adjacent), but `1` `true` is joined as
@@ -400,19 +400,10 @@ function goPrint(args: readonly unknown[], toString: (v: unknown) => string): st
     const arg = args[i];
     const isString = typeof arg === "string";
     if (i > 0 && !prevIsString && !isString) out += " ";
-    out += stringifyForPrint(arg, toString);
+    out += formatV(arg, toString, isT);
     prevIsString = isString;
   }
   return out;
-}
-
-// [LAW:single-enforcer] No `String(value)` here — the gate guarantees
-// each arg is `"stringifiable"`. nil keeps Go-parity ("<nil>"); strings
-// pass through; anything else routes through the engine's `toString`.
-function stringifyForPrint(value: unknown, toString: (v: unknown) => string): string {
-  if (value === null || value === undefined) return "<nil>";
-  if (typeof value === "string") return value;
-  return toString(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -565,12 +556,12 @@ function formatVerb(
     case "s":
       return typeof arg === "string"
         ? applyWidth(spec, arg)
-        : applyWidth(spec, stringifyForPrint(arg, toString));
+        : applyWidth(spec, formatV(arg, toString, isT));
     case "d": {
       // [LAW:single-enforcer] Non-numeric primitives route to the same
       // diagnostic format as the `default:` arm — no silent NaN.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+        return `%!${verb}(${goPrintfType(arg)}=${formatV(arg, toString, isT)})`;
       }
       const n = typeof arg === "bigint" ? arg : Math.trunc(arg);
       return applyWidth(spec, String(n));
@@ -578,11 +569,11 @@ function formatVerb(
     case "v":
       return applyWidth(spec, formatV(arg, toString, isT));
     case "q":
-      return applyWidth(spec, JSON.stringify(stringifyForPrint(arg, toString)));
+      return applyWidth(spec, JSON.stringify(formatV(arg, toString, isT)));
     case "f": {
       // [LAW:single-enforcer] See %d.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+        return `%!${verb}(${goPrintfType(arg)}=${formatV(arg, toString, isT)})`;
       }
       const precision = spec.includes(".") ? Number(spec.split(".")[1]) : 6;
       const n = Number(arg);
@@ -600,14 +591,14 @@ function formatVerb(
       }
       // [LAW:single-enforcer] See %d.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+        return `%!${verb}(${goPrintfType(arg)}=${formatV(arg, toString, isT)})`;
       }
       if (typeof arg === "bigint") return applyWidth(spec, arg.toString(16));
       const n = Math.trunc(arg);
       return applyWidth(spec, n.toString(16));
     }
     default:
-      return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+      return `%!${verb}(${goPrintfType(arg)}=${formatV(arg, toString, isT)})`;
   }
 }
 
