@@ -52,6 +52,8 @@ interface FixtureInput {
   template: string;
   scope: unknown;
   delims: Delims | undefined;
+  /** A define to render by name, as Go's `ExecuteTemplate`. */
+  execute: string | undefined;
 }
 
 // [LAW:single-enforcer] Mirrors `conformance/gen/main.go`'s fixtureConfig.
@@ -60,6 +62,7 @@ interface FixtureInput {
 // divergence in how the inputs are interpreted.
 interface FixtureConfig {
   delims?: [string, string];
+  execute?: string;
 }
 
 /** The inputs Go was given — everything about a fixture except its outcome. */
@@ -72,14 +75,16 @@ function readFixtureInput(name: string): FixtureInput {
     scope = JSON.parse(readFileSync(scopePath, "utf8"));
   }
   let delims: Delims | undefined;
+  let execute: string | undefined;
   const configPath = join(dir, "config.json");
   if (existsSync(configPath)) {
     const cfg = JSON.parse(readFileSync(configPath, "utf8")) as FixtureConfig;
     if (cfg.delims) {
       delims = { left: cfg.delims[0], right: cfg.delims[1] };
     }
+    execute = cfg.execute;
   }
-  return { template, scope, delims };
+  return { template, scope, delims, execute };
 }
 
 function readOutcome(name: string, outcomeFile: string): string {
@@ -113,6 +118,13 @@ function makeEngine(delims: Delims | undefined) {
   });
 }
 
+// The fixture's render, as `conformance/gen/main.go` runs it: the whole
+// template, or the one define `execute` names.
+function render({ template, scope, delims, execute }: FixtureInput): string[] {
+  const parsed = makeEngine(delims).parse(template);
+  return execute === undefined ? parsed.evaluate(scope) : parsed.evaluateDefine(execute, scope);
+}
+
 const renderFixtures = listFixtures("expected.txt");
 const refusalFixtures = listFixtures("expected-go-error.txt");
 
@@ -130,9 +142,8 @@ describe("conformance — string-mode (T = string)", () => {
   // configuration problem.
   for (const name of renderFixtures) {
     it(name, () => {
-      const { template, scope, delims } = readFixtureInput(name);
       const expected = readOutcome(name, "expected.txt");
-      const output = makeEngine(delims).parse(template).evaluate(scope).join("");
+      const output = render(readFixtureInput(name)).join("");
       if (output !== expected) {
         // Show first divergence offset to aid debugging.
         let offset = 0;
@@ -177,14 +188,14 @@ describe("conformance — Go refusal parity (T = string)", () => {
 
   for (const name of refusalFixtures) {
     it(name, () => {
-      const { template, scope, delims } = readFixtureInput(name);
+      const input = readFixtureInput(name);
       // The generator writes the message as a line; the newline is the
       // file's, not Go's.
       const expected = readOutcome(name, "expected-go-error.txt").replace(/\n$/, "");
 
       let caught: unknown;
       try {
-        makeEngine(delims).parse(template).evaluate(scope);
+        render(input);
       } catch (err) {
         caught = err;
       }

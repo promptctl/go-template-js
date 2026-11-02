@@ -317,6 +317,8 @@ const tpl = engine.parse('{{ define "card" }}[{{ .title }}]{{ end }}');
 tpl.evaluateDefine("card", { title: "hi" }).join(""); // "[hi]"
 ```
 
+An undefined name throws an `EvalError` reading `template "name" is not defined`, where Go says `no template "name" associated with template "..."`. The mistake is in the host's call rather than in the template, so the error carries no source snippet.
+
 ## Divergences from Go
 
 The engine matches Go's `text/template` semantics aggressively. The remaining divergences are host-imposed — JavaScript cannot represent the relevant Go type, or the standard libraries differ:

@@ -31,10 +31,13 @@ variants.
 1. Create `fixtures/<descriptive-name>/template.tmpl` with the template source.
 2. If the template needs a scope, add `fixtures/<name>/scope.json` containing
    the scope value as JSON.
-3. If the template needs non-default engine configuration (currently:
-   custom action delimiters), add `fixtures/<name>/config.json`. The
-   schema is `{ "delims": ["<left>", "<right>"] }` — both engines read
-   the same file so neither can drift from the other.
+3. If the template needs non-default configuration, add
+   `fixtures/<name>/config.json`. The schema is
+   `{ "delims": ["<left>", "<right>"], "execute": "<define>" }`, both
+   optional: `delims` sets custom action delimiters, and `execute` renders
+   that define by name (Go's `ExecuteTemplate`, the engine's
+   `evaluateDefine`) instead of the whole template. Both engines read the
+   same file so neither can drift from the other.
 4. If the point of the fixture is that Go *refuses* the template, create an
    empty `fixtures/<name>/expected-go-error.txt` to declare that.
 5. Run `pnpm conformance:regen` to populate the expected-outcome file from

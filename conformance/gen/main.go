@@ -219,7 +219,12 @@ func generate(dir string) (bool, error) {
 	// outcome occurred decides which file is written — and a refusal
 	// never leaves a half-written expected.txt behind.
 	var rendered bytes.Buffer
-	execErr := tpl.Execute(&rendered, scope)
+	var execErr error
+	if cfg.Execute != "" {
+		execErr = tpl.ExecuteTemplate(&rendered, cfg.Execute, scope)
+	} else {
+		execErr = tpl.Execute(&rendered, scope)
+	}
 
 	if kind == outcomeRender {
 		if execErr != nil {
@@ -306,6 +311,9 @@ func exists(path string) (bool, error) {
 type fixtureConfig struct {
 	// Delims, if set, must be a two-element [left, right] pair.
 	Delims []string `json:"delims,omitempty"`
+	// Execute, if set, renders that define by name (ExecuteTemplate)
+	// instead of the whole template.
+	Execute string `json:"execute,omitempty"`
 }
 
 func fail(err error) {

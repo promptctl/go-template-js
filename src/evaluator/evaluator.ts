@@ -1038,9 +1038,12 @@ export class Engine<T> {
       (scope) =>
         this.evalParsed(parsed, scope, (root, ctx) => this.evalList(parsed.root, root, ctx)),
       (name, scope) =>
-        this.evalParsed(parsed, scope, (root, ctx) =>
-          this.renderDefine(name, this.definedEntry(name, TOP, ctx), root.dot, TOP, ctx),
-        ),
+        this.evalParsed(parsed, scope, (root, ctx) => {
+          // The call comes from the host, not from a place in this source,
+          // so its own errors carry no snippet to point a caret into.
+          const host = { ...ctx, source: undefined };
+          this.renderDefine(name, this.definedEntry(name, TOP, host), root.dot, TOP, host);
+        }),
       parsed.defines,
       collectReferencedFunctions(parsed),
       collectReferencedCalls(parsed),

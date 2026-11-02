@@ -6,7 +6,9 @@
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
+  EvalError,
   FuncNotFoundError,
+  marked,
   type ReferencedArg,
   type ReferencedLiteral,
   sprigDefaults,
@@ -315,9 +317,39 @@ describe("public API — Template.evaluateDefine", () => {
     expect(t.evaluateDefine("d", { n: node })).toEqual([{ kind: "text", v: "A" }, node]);
   });
 
-  it("fails for a name that was never defined", () => {
-    expect(() => engine.parse('{{ define "a" }}{{ end }}').evaluateDefine("b", {})).toThrow(
-      /"b" is not defined/,
-    );
+  it("reports the define's decisions and emissions with their marks", () => {
+    const PULSE = Symbol("pulse");
+    const pulse = {
+      fn: () => marked(true, PULSE),
+      argTypes: [],
+      arity: { kind: "exact" } as const,
+    };
+    const decided: ReadonlySet<unknown>[] = [];
+    const emitted: ReadonlySet<unknown>[] = [];
+    createEngine<string>({
+      fromString: (s) => s,
+      funcs: { pulse },
+      decided: (marks) => decided.push(marks),
+      emitted: (value, marks) => {
+        emitted.push(marks);
+        return value;
+      },
+    })
+      .parse('{{ define "d" }}{{ if pulse }}{{ end }}{{ pulse }}{{ end }}')
+      .evaluateDefine("d", {});
+    expect(decided.some((m) => m.has(PULSE))).toBe(true);
+    expect(emitted.some((m) => m.has(PULSE))).toBe(true);
+  });
+
+  it("fails for a name that was never defined, with no snippet of the template", () => {
+    let caught: unknown;
+    try {
+      engine.parse('line one\n{{ define "a" }}{{ end }}').evaluateDefine("b", {});
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect((caught as EvalError).message).toBe('template "b" is not defined');
+    expect((caught as EvalError).sourceSnippet).toBe("");
   });
 });

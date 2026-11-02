@@ -1,0 +1,3 @@
+top level text Go never renders
+{{- define "name" }}{{ .first }} {{ .last }}{{ end -}}
+{{- define "card" }}[{{ template "name" .user }}|{{ $.title }}|{{ block "extra" . }}block {{ .title }}{{ end }}|{{ template "extra" $ }}]{{ end -}}
