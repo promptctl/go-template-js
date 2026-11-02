@@ -14,6 +14,7 @@
  * consumers an escape hatch).
  */
 
+import { TypeMismatchError } from "../errors.js";
 import { deepEqual } from "../sprig/types/deepEqual.js";
 import type { FuncMap } from "./evaluator.js";
 import { markLazy } from "./lazy.js";
@@ -113,10 +114,10 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     },
 
     // [LAW:single-enforcer] Formatted printers declare "stringifiable"
-    // so the gate probes each non-string arg through `engine.toString`.
-    // Bodies re-call `toString` to actually flatten — same source of
-    // truth as the matcher. Closes audit findings B1–B4: typed-T no
-    // longer silently `String(v)`-flattens to "[object Object]".
+    // so the gate probes each non-string arg through `formatV`, the
+    // flatten the bodies perform — a T through `engine.toString`, any
+    // other value as Go's `%v`. Closes audit findings B1–B4: nothing
+    // silently `String(v)`-flattens to "[object Object]".
     print: {
       fn: (...args: unknown[]) => goPrint(args, toString, isT),
       argTypes: ["stringifiable"],
@@ -124,7 +125,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
       returnType: "string",
     },
     println: {
-      fn: (...args: unknown[]) => `${goPrint(args, toString, isT)}\n`,
+      fn: (...args: unknown[]) => `${goPrintln(args, toString, isT)}\n`,
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -406,6 +407,11 @@ function goPrint(args: readonly unknown[], toString: ToString, isT: IsT): string
   return out;
 }
 
+// Go's `fmt.Sprintln`: unlike Sprint, a space between every two operands.
+function goPrintln(args: readonly unknown[], toString: ToString, isT: IsT): string {
+  return args.map((arg) => formatV(arg, toString, isT)).join(" ");
+}
+
 // ---------------------------------------------------------------------------
 // HTML escaping.
 //
@@ -545,7 +551,20 @@ function sprintf(
   return out;
 }
 
+// Go's fmt applies a verb to each element of a slice or map, keys
+// included — `%d` of `[1 2]` is `[1 2]`, `%q` of `{k: "v"}` is
+// `map["k":"v"]` — so the verb formats the leaves of the one `%v` walk.
 function formatVerb(
+  verb: string,
+  spec: string,
+  arg: unknown,
+  toString: (v: unknown) => string,
+  isT: IsT,
+): string {
+  return formatWalk(arg, (leaf) => formatLeafVerb(verb, spec, leaf, toString, isT), toString, isT);
+}
+
+function formatLeafVerb(
   verb: string,
   spec: string,
   arg: unknown,
@@ -567,7 +586,7 @@ function formatVerb(
       return applyWidth(spec, String(n));
     }
     case "v":
-      return applyWidth(spec, formatV(arg, toString, isT));
+      return applyWidth(spec, formatLeafV(arg, toString, isT));
     case "q":
       return applyWidth(spec, JSON.stringify(formatV(arg, toString, isT)));
     case "f": {
@@ -624,16 +643,67 @@ export type IsT = (value: unknown) => boolean;
 // A T flattens through the engine's `toString`, the same function `%s`
 // and `print` use. Of the non-T values, only the shapes Go walks are
 // walked — an array, a Map, a plain object (printed as Go prints a map:
-// `map[k:v …]`, keys sorted the way fmt orders them); a Date, a Set, a
-// class instance prints its own String.
+// `map[k:v …]`, keys sorted the way fmt orders them).
 export function formatV(value: unknown, toString: ToString, isT: IsT): string {
+  return formatWalk(value, (leaf) => formatLeafV(leaf, toString, isT), toString, isT);
+}
+
+// [LAW:single-enforcer] The one structural walk every verb shares; the
+// verb decides only how a leaf prints.
+function formatWalk(
+  value: unknown,
+  leaf: (v: unknown) => string,
+  toString: ToString,
+  isT: IsT,
+): string {
+  if (isT(value)) return leaf(value);
+  const walk = (v: unknown): string => formatWalk(v, leaf, toString, isT);
+  if (Array.isArray(value)) return `[${value.map(walk).join(" ")}]`;
+  if (value instanceof Map) return formatEntries([...value.entries()], walk, toString, isT);
+  if (isPlainObject(value)) return formatEntries(Object.entries(value), walk, toString, isT);
+  return leaf(value);
+}
+
+// A leaf has a `%v` text form when it is nil, a scalar, a T the engine's
+// `toString` flattens, or an object with its own String — a Date, a
+// RegExp, a class that defines `toString`, Go's Stringer. A Set, a class
+// instance without one, a function or a symbol has none: printing it
+// would be the silent "[object Object]" flatten, so it is refused, and
+// a `toString` that cannot flatten a T is a refusal too.
+function formatLeafV(value: unknown, toString: ToString, isT: IsT): string {
   if (value === null || value === undefined) return "<nil>";
   if (typeof value === "string") return value;
-  if (isT(value)) return toString(value);
-  if (Array.isArray(value)) return `[${value.map((v) => formatV(v, toString, isT)).join(" ")}]`;
-  if (value instanceof Map) return formatEntries([...value.entries()], toString, isT);
-  if (isPlainObject(value)) return formatEntries(Object.entries(value), toString, isT);
-  return String(value);
+  if (isT(value)) return flattenT(value, toString);
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "object" && hasOwnString(value)) return String(value);
+  throw unprintable(value);
+}
+
+function flattenT(value: unknown, toString: ToString): string {
+  try {
+    return toString(value);
+  } catch (err) {
+    if (err instanceof TypeMismatchError) throw err;
+    throw unprintable(value, err);
+  }
+}
+
+function hasOwnString(value: object): boolean {
+  return (value as { toString: unknown }).toString !== Object.prototype.toString;
+}
+
+function unprintable(value: unknown, cause?: unknown): TypeMismatchError {
+  const err = new TypeMismatchError(
+    "<%v>",
+    1,
+    "a value with a text form (nil, a scalar, a flattenable T, a list, a map, or an object with its own toString)",
+    value instanceof Set ? "Set" : typeof value,
+    { line: 0, column: 0, offset: 0 },
+  );
+  if (cause !== undefined) err.cause = cause;
+  return err;
 }
 
 type ToString = (value: unknown) => string;
@@ -642,6 +712,7 @@ type ToString = (value: unknown) => string;
 // numeric keys numerically and first, every other key by its formatted text.
 function formatEntries(
   entries: readonly (readonly [unknown, unknown])[],
+  walk: (v: unknown) => string,
   toString: ToString,
   isT: IsT,
 ): string {
@@ -656,7 +727,7 @@ function formatEntries(
   };
   return `map[${[...entries]
     .sort(byKey)
-    .map(([k, v]) => `${fmt(k)}:${fmt(v)}`)
+    .map(([k, v]) => `${walk(k)}:${walk(v)}`)
     .join(" ")}]`;
 }
 

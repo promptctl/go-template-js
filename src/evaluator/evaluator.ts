@@ -173,9 +173,10 @@ const ARG_TYPES = [
  *   slots appear in the same call, all of them must share a kind, with
  *   `number`↔`bigint` bridged and `nil` acting as a wildcard. Object
  *   equality routes through `deepEqual` in `eq`/`ne` bodies.
- * - "stringifiable" — string directly OR a value the engine's
- *   `toString` can flatten. The matcher *probes* the conversion;
- *   downstream func bodies call `engine.toString` to actually flatten.
+ * - "stringifiable" — a value Go's `%v` can print: a string, nil, a
+ *   scalar, a T the engine's `toString` flattens, an object with its own
+ *   toString, or a list/map of those. The matcher *probes* `formatV`;
+ *   downstream func bodies call it again to actually print.
  * - "callable" — `typeof v === "function"`.
  * - "collection" — string | array | Map | plain object. The receiver
  *   shape `index` accepts. Sets and primitives are rejected. Nil is
@@ -537,9 +538,9 @@ interface EngineConfigFields<T> {
    *
    * [LAW:single-enforcer] Dual of `fromString`: one place owns the
    * string→T direction, this owns the T→string direction. Built-ins
-   * registered against the `"stringifiable"` ArgType call this when
-   * they need to format a non-string value (the matcher probes via
-   * `toString` to validate; the body re-uses it to flatten).
+   * registered against the `"stringifiable"` ArgType call this for each
+   * T they print, nested ones included; every non-T value prints as Go's
+   * `%v` and never reaches it.
    *
    * Default behaviour: passes through any value that is already a
    * `typeof "string"` and throws `TypeMismatchError` for everything
@@ -2095,8 +2096,11 @@ function matchesArgType(
       try {
         formatV(value, toString, isT);
         return true;
-      } catch {
-        return false;
+      } catch (err) {
+        // Only a refusal to print is a verdict; anything else — a stack
+        // overflow on a cyclic structure — surfaces as itself.
+        if (err instanceof TypeMismatchError) return false;
+        throw err;
       }
     }
     case "liftable":
@@ -2139,14 +2143,12 @@ function defaultFromString(s: string): unknown {
   return s;
 }
 
-// Default flattener for engines that don't supply `toString`. Strings
-// flow through unchanged (the `T = string` happy path). Primitives
-// (number/bigint/boolean) and nil get their natural string form so
-// vanilla string-engine consumers can `print 1`, `printf "%s" true`
-// etc. without configuring a flattener. Anything else — arrays,
-// objects, Maps, Sets, functions, symbols — is the actual "typed-T
-// without consumer flattener" case the README contract is about, and
-// throws a TypeMismatchError. `evalCommand` wraps and re-emits with
+// Default flattener for engines that don't supply `toString`. It sees
+// only values `isT` claims: a string flows through unchanged (the
+// `T = string` happy path), a scalar or nil an `isT` claimed gets its
+// natural form, and any other T is the "typed-T without consumer
+// flattener" case the README contract is about, and throws a
+// TypeMismatchError. `evalCommand` wraps and re-emits with
 // the proper call-site pos (see [LAW:single-enforcer] above).
 function defaultToString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -2226,7 +2228,7 @@ function humanArgType(t: ArgType): string {
     case "comparable":
       return "comparable value (orderable primitive, nil, list, dict, Map, or Set)";
     case "stringifiable":
-      return "stringifiable value (string or convertible via the engine's toString)";
+      return "stringifiable value (string, nil, scalar, a T the engine's toString flattens, an object with its own toString, or a list/map of those)";
     case "liftable":
       return "liftable value (T or string, the latter lifted via the engine's fromString)";
     case "callable":

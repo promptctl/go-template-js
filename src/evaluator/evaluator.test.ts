@@ -376,11 +376,24 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     const when = new Date(Date.UTC(2026, 0, 2, 3, 4, 5));
     expect(text("{{ . }}", when)).toBe(String(when));
     expect(text("{{ . }}", { at: when })).toBe(`map[at:${String(when)}]`);
-    expect(text("{{ . }}", new Set([1]))).toBe("[object Set]");
-    class Foo {
-      x = 1;
+    class Named {
+      toString() {
+        return "named";
+      }
     }
-    expect(text("{{ toString . }}", new Foo())).toBe("[object Object]");
+    expect(text("{{ toString . }}", new Named())).toBe("named");
+  });
+
+  it.each([
+    ["a Set", new Set([1])],
+    ["a class instance with no toString of its own", new (class Foo {})()],
+    ["a function", () => 1],
+    ["a symbol", Symbol("s")],
+  ])("refuses to print %s rather than flatten it to [object …]", (_label, value) => {
+    expect(() => text("{{ . }}", value)).toThrow(TypeMismatchError);
+    expect(() => text("{{ . }}", [value])).toThrow(TypeMismatchError);
+    expect(() => text("{{ print . }}", value)).toThrow(TypeMismatchError);
+    expect(() => text('{{ printf "%d" . }}', [value])).toThrow(TypeMismatchError);
   });
 
   it("without isT a plain object at any depth prints as Go's %v", () => {

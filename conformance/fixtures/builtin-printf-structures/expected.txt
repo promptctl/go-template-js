@@ -1,0 +1,1 @@
+["a" "b"]|[    a     b]|map["k":"v"]|map[k:v]|a b [a b]

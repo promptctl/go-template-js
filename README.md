@@ -116,7 +116,7 @@ Functions declare `argTypes` and `arity`, both required. The engine uses `argTyp
 | Direction | Bridge | ArgType | Where it runs |
 | --- | --- | --- | --- |
 | `string` → `T` | `fromString` (required) | `"liftable"` | a string at a `"liftable"` slot is replaced with `fromString(s)` before the body sees it |
-| `T` → `string` | `toString` (optional) | `"stringifiable"` | a non-string at a `"stringifiable"` slot is flattened via `toString` (e.g. `print`, `printf "%s"`) |
+| `T` → `string` | `toString` (optional) | `"stringifiable"` | a T at a `"stringifiable"` slot, at any depth, is flattened via `toString` (e.g. `print`, `printf "%s"`); any other value prints as Go's `%v` |
 
 ```ts
 const engine = createEngine<Frag>({
@@ -175,7 +175,7 @@ Every entry in `argTypes` is one of:
 | `"list"` | `Array.isArray` | `first`, `last`, `rest`, `uniq`, `concat`, `chunk` |
 | `"dict"` | plain object only (not `Map`, not class instance) | `get`, `keys`, `values`, `pluck`, `merge` |
 | `"sized"` | `string` ∪ array ∪ `Map` ∪ `Set` ∪ plain object | `len` |
-| `"stringifiable"` | `string`, or any value the engine's `toString` can flatten | `print`, `println`, `printf "%s"`, `printf "%q"` |
+| `"stringifiable"` | a value Go's `%v` can print: `string`, nil, a scalar, a T the engine's `toString` flattens, an object with its own `toString`, or a list/map of those (a `Set`, a function, or a class instance without `toString` is refused) | `print`, `println`, `printf`, `html`, `js`, `urlquery` |
 | `"liftable"` | `T`, or `string` (lifted to `T` via the engine's `fromString` before the body runs) | consumer-defined funcs that accept either a `T` fragment or a bare text literal at a slot |
 | `"callable"` | `typeof === "function"` | `call` (first slot) |
 | `"collection"` | `string` ∪ array ∪ `Map` ∪ plain object | `index` (receiver slot) |

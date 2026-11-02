@@ -293,6 +293,29 @@ describe("builtins — print / println / printf", () => {
     expect(render('{{ print "x" 1 true }}')).toBe("x1 true");
   });
 
+  it("println joins per Go's fmt.Sprintln: a space between every two operands", () => {
+    expect(render('{{ println "a" "b" 1 }}')).toBe("a b 1\n");
+  });
+
+  it("printf applies the verb to each element of a list or map, keys included, as Go's fmt does", () => {
+    expect(render('{{ printf "%d" . }}', [1, 2])).toBe("[1 2]");
+    expect(render('{{ printf "%3d" . }}', [1, 2])).toBe("[  1   2]");
+    expect(render('{{ printf "%q" . }}', { k: "v" })).toBe('map["k":"v"]');
+    expect(render('{{ printf "%x" . }}', [255, [16]])).toBe("[ff [10]]");
+  });
+
+  it("a cyclic structure fails as itself, not as a misleading type mismatch", () => {
+    const c: Record<string, unknown> = {};
+    c.self = c;
+    let caught: unknown;
+    try {
+      render("{{ print . }}", c);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RangeError);
+  });
+
   it("println adds a trailing newline", () => {
     expect(render('{{ println "hi" }}')).toBe("hi\n");
   });

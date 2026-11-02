@@ -477,6 +477,11 @@ describe("conformance — per-kind positive/negative fixtures", () => {
       { label: "non-T structure", value: { a: [1, { b: 2 }] }, pass: true },
       { label: "TaggedFragment declared a T", value: TAGGED, pass: false },
       { label: "TaggedFragment nested in a list", value: [TAGGED], pass: false },
+      { label: "function", value: FN, pass: false },
+      { label: "symbol", value: SYM, pass: false },
+      { label: "Set", value: new Set([1]), pass: false },
+      { label: "class instance with no toString", value: new (class Foo {})(), pass: false },
+      { label: "Set nested in a map", value: { s: new Set([1]) }, pass: false },
     ];
     for (const { label, value, pass } of cases) {
       it(`${pass ? "accepts" : "rejects"} ${label}`, () => {
