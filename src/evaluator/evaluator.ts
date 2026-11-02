@@ -46,7 +46,7 @@ import {
 import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
-import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
+import { defaultBuiltins, formatV, type IsT, isPlainObject, UnprintableError } from "./builtins.js";
 import { isInclude } from "./include.js";
 import { isLazy } from "./lazy.js";
 import { Marked, type Marks, NO_MARKS, readCarrier, unionMarks } from "./marks.js";
@@ -173,9 +173,11 @@ const ARG_TYPES = [
  *   slots appear in the same call, all of them must share a kind, with
  *   `number`↔`bigint` bridged and `nil` acting as a wildcard. Object
  *   equality routes through `deepEqual` in `eq`/`ne` bodies.
- * - "stringifiable" — string directly OR a value the engine's
- *   `toString` can flatten. The matcher *probes* the conversion;
- *   downstream func bodies call `engine.toString` to actually flatten.
+ * - "stringifiable" — a value Go's `%v` can print: a string, nil, a
+ *   scalar, a T the engine's `toString` flattens, an object with its own
+ *   toString, a class instance (Go's struct), or a list/map of those; a
+ *   Set, function or symbol has no text form. The matcher *probes* `formatV`;
+ *   downstream func bodies call it again to actually print.
  * - "callable" — `typeof v === "function"`.
  * - "collection" — string | array | Map | plain object. The receiver
  *   shape `index` accepts. Sets and primitives are rejected. Nil is
@@ -537,9 +539,9 @@ interface EngineConfigFields<T> {
    *
    * [LAW:single-enforcer] Dual of `fromString`: one place owns the
    * string→T direction, this owns the T→string direction. Built-ins
-   * registered against the `"stringifiable"` ArgType call this when
-   * they need to format a non-string value (the matcher probes via
-   * `toString` to validate; the body re-uses it to flatten).
+   * registered against the `"stringifiable"` ArgType call this for each
+   * T they print, nested ones included; every non-T value prints as Go's
+   * `%v` and never reaches it.
    *
    * Default behaviour: passes through any value that is already a
    * `typeof "string"` and throws `TypeMismatchError` for everything
@@ -1133,7 +1135,7 @@ export class Engine<T> {
           // (`{{ $x := pipe }}`) contribute no output — they're pure
           // assignment statements. Only assignment-free actions emit.
           if (node.pipe.decls.length === 0) {
-            ctx.emit(this.lift(value), unionMarks(reads, ctx.marks));
+            ctx.emit(this.lift(value, node.pos, ctx.source), unionMarks(reads, ctx.marks));
           }
         });
         return;
@@ -1567,16 +1569,27 @@ export class Engine<T> {
     ctx: EvalContext<T>,
     reads: Set<unknown>,
   ): unknown {
-    enforceArgTypes(
-      name,
-      fn,
-      args,
-      pos,
-      ctx.source,
-      this.toString,
-      this.fromString as (s: string) => unknown,
-      this.isT,
-    );
+    try {
+      enforceArgTypes(
+        name,
+        fn,
+        args,
+        pos,
+        ctx.source,
+        this.toString,
+        this.fromString as (s: string) => unknown,
+        this.isT,
+      );
+    } catch (e) {
+      // The gate's own errors are positioned already; a failure it meets
+      // while probing (a cyclic structure) is reported at the call as Go
+      // reports a function's error.
+      if (e instanceof TemplateError) throw e;
+      throw new EvalError(`error calling ${name}: ${errorText(e)}`, pos, {
+        source: ctx.source,
+        cause: e,
+      });
+    }
     // [LAW:single-enforcer] One cast at the dispatch site. `TemplateFunc.fn`
     // declares `(...args: never[]) => unknown` so consumer impls can narrow
     // their parameter types; we erase that here, having already validated
@@ -1740,7 +1753,7 @@ export class Engine<T> {
   // -------------------------------------------------------------------
 
   // The fragment an action's value becomes on the output stream.
-  private lift(value: unknown): T {
+  private lift(value: unknown, pos: Pos, source: string | undefined): T {
     // Matches Go's text/template, which prints `<no value>` for a nil
     // pipeline rather than skipping the emit.
     if (value === null || value === undefined) return this.fromString("<no value>");
@@ -1752,7 +1765,19 @@ export class Engine<T> {
     // `fmt.Sprintf("%v", v)` would (`[a b c]`, `map[k:v]`), which keeps the
     // conformance corpus byte-equal.
     if (this.isT(value)) return value as T;
-    return this.fromString(formatV(value, this.toString, this.isT));
+    try {
+      return this.fromString(formatV(value, this.toString, this.isT));
+    } catch (err) {
+      // Every failure to print — a refusal, a T with no flattener, a
+      // cyclic structure — is reported at the action.
+      const message =
+        err instanceof TypeMismatchError
+          ? `cannot print this ${err.receivedSummary}: expected ${err.expected}`
+          : err instanceof UnprintableError
+            ? err.message
+            : `cannot print: ${errorText(err)}`;
+      throw new EvalError(message, pos, { source, cause: err });
+    }
   }
 }
 
@@ -1783,11 +1808,11 @@ export function createEngine<T>(config: EngineConfig<T>): Engine<T> {
 //
 // `toString` is optional so the harness (and any other deep-import
 // caller) keeps compiling unchanged. When omitted, the default
-// stringifier is used; that only affects `"stringifiable"` slots, whose
-// verdict then follows `defaultToString` — every scalar flattens, only
-// structures are refused. The print family and the escapers declare
-// those slots, so a deep-import caller passing no `toString` is probing
-// a stricter engine than one a consumer configured with its own.
+// stringifier is used; that only affects `"stringifiable"` slots, where
+// a T then follows `defaultToString` — a string flattens, any other T is
+// refused. The print family and the escapers declare those slots, so a
+// deep-import caller passing no `toString` is probing a stricter engine
+// than one a consumer configured with its own.
 export function enforceArgTypes(
   funcName: string,
   spec: ArgSpec,
@@ -2087,16 +2112,19 @@ function matchesArgType(
     case "stringifiable": {
       // Probe (do not transform). String passes through trivially —
       // avoids invoking the consumer's `toString` for the common case.
-      // For non-strings, attempt the conversion: a successful return
-      // means the value can flatten, a throw means it cannot. The
-      // matcher reports the boolean; downstream func bodies (.6) call
-      // `engine.toString` again to actually flatten.
+      // For non-strings, attempt the flatten the bodies perform —
+      // `formatV`, Go's `%v`, which hands every T (nested included) to
+      // `engine.toString`: a return means the value can print, a throw
+      // means it cannot.
       if (typeof value === "string") return true;
       try {
-        toString(value);
+        formatV(value, toString, isT);
         return true;
-      } catch {
-        return false;
+      } catch (err) {
+        // Only a refusal to print is a verdict; anything else — a stack
+        // overflow on a cyclic structure — surfaces as itself.
+        if (err instanceof TypeMismatchError || err instanceof UnprintableError) return false;
+        throw err;
       }
     }
     case "liftable":
@@ -2139,14 +2167,12 @@ function defaultFromString(s: string): unknown {
   return s;
 }
 
-// Default flattener for engines that don't supply `toString`. Strings
-// flow through unchanged (the `T = string` happy path). Primitives
-// (number/bigint/boolean) and nil get their natural string form so
-// vanilla string-engine consumers can `print 1`, `printf "%s" true`
-// etc. without configuring a flattener. Anything else — arrays,
-// objects, Maps, Sets, functions, symbols — is the actual "typed-T
-// without consumer flattener" case the README contract is about, and
-// throws a TypeMismatchError. `evalCommand` wraps and re-emits with
+// Default flattener for engines that don't supply `toString`. It sees
+// only values `isT` claims: a string flows through unchanged (the
+// `T = string` happy path), a scalar or nil an `isT` claimed gets its
+// natural form, and any other T is the "typed-T without consumer
+// flattener" case the README contract is about, and throws a
+// TypeMismatchError. `evalCommand` wraps and re-emits with
 // the proper call-site pos (see [LAW:single-enforcer] above).
 function defaultToString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -2226,7 +2252,7 @@ function humanArgType(t: ArgType): string {
     case "comparable":
       return "comparable value (orderable primitive, nil, list, dict, Map, or Set)";
     case "stringifiable":
-      return "stringifiable value (string or convertible via the engine's toString)";
+      return "stringifiable value (string, nil, scalar, a T the engine's toString flattens, an object with its own toString, a class instance, or a list/map of those; not a Set, function or symbol)";
     case "liftable":
       return "liftable value (T or string, the latter lifted via the engine's fromString)";
     case "callable":

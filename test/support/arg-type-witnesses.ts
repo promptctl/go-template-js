@@ -88,10 +88,9 @@ export const REJECTED: Readonly<Record<Exclude<ArgType, PermissiveArgType>, unkn
   // Functions are neither comparable nor JSON-encodable.
   comparable: () => undefined,
   serializable: () => undefined,
-  // The default `toString` flattens every scalar (numbers, bigints,
-  // booleans, nil) and refuses only structures, so the witness has to be
-  // one — a number would be accepted here.
-  stringifiable: {},
+  // A string engine prints every non-T value as Go's `%v`, structures
+  // included, so the witness has to be a value with no text form.
+  stringifiable: new Set([1]),
   // Keys are string | number | bigint; a boolean is not one.
   "index-key": true,
   callable: "x",

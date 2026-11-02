@@ -36,6 +36,23 @@ function engineWithKind(
   });
 }
 
+// An engine whose `{ tag }` values are T, so they must flatten through
+// `engine.toString` instead of printing as Go's `%v` of a map.
+interface Tagged {
+  readonly tag: string;
+}
+const taggedIsT = (v: unknown): v is string | Tagged =>
+  typeof v === "string" || (typeof v === "object" && v !== null && "tag" in v);
+
+function taggedEngine(funcDef: TemplateFunc, toString?: (value: unknown) => string) {
+  return createEngine<string | Tagged>({
+    fromString: (s) => s,
+    isT: taggedIsT,
+    funcs: { f: funcDef },
+    ...(toString ? { toString } : {}),
+  });
+}
+
 const accept = (): TemplateFunc => ({
   fn: () => "ok",
   argTypes: [],
@@ -337,11 +354,20 @@ describe("matchesArgType — stringifiable", () => {
     expect(eng.parse("{{ f . }}").evaluate({ tag: "x" }).join("")).toBe("ok");
   });
 
-  it("rejects non-strings under the default toString (which throws)", () => {
-    // No `toString` supplied → engine uses default, which throws for
-    // non-strings. The matcher catches the throw and returns false,
-    // and enforceArgTypes raises TypeMismatchError naming the slot.
+  it("accepts a non-T structure under the default toString, as Go's %v prints it", () => {
     const eng = engineWithKind("f", {
+      fn: () => "ok",
+      argTypes: ["stringifiable"],
+      arity: { kind: "exact" },
+    });
+    expect(eng.parse("{{ f . }}").evaluate({ tag: "x" }).join("")).toBe("ok");
+  });
+
+  it("rejects a T under the default toString (which throws)", () => {
+    // No `toString` supplied → engine uses default, which throws for
+    // structures. The matcher catches the throw and returns false,
+    // and enforceArgTypes raises TypeMismatchError naming the slot.
+    const eng = taggedEngine({
       fn: () => "ok",
       argTypes: ["stringifiable"],
       arity: { kind: "exact" },
@@ -359,16 +385,15 @@ describe("matchesArgType — stringifiable", () => {
     }
   });
 
-  it("rejects non-strings when consumer toString throws", () => {
-    const eng = engineWithKind(
-      "f",
+  it("rejects a T when consumer toString throws", () => {
+    const eng = taggedEngine(
       { fn: () => "ok", argTypes: ["stringifiable"], arity: { kind: "exact" } },
       (v) => {
         if (typeof v === "string") return v;
         throw new Error("cannot flatten");
       },
     );
-    expect(() => eng.parse("{{ f . }}").evaluate(42)).toThrow(TypeMismatchError);
+    expect(() => eng.parse("{{ f . }}").evaluate({ tag: "x" })).toThrow(TypeMismatchError);
   });
 });
 
@@ -909,11 +934,12 @@ describe("EngineConfig.toString — defaults", () => {
   // `[object Object]`. The engine must use `Object.hasOwn` so the
   // default kicks in for unconfigured engines.
   it("does not bind Object.prototype.toString when consumer omits toString", () => {
-    const eng = createEngine<string>({
-      fromString: (s) => s,
-      funcs: { f: { fn: () => "ok", argTypes: ["stringifiable"], arity: { kind: "exact" } } },
+    const eng = taggedEngine({
+      fn: () => "ok",
+      argTypes: ["stringifiable"],
+      arity: { kind: "exact" },
     });
-    // A plain object should be rejected — if the prototype's toString
+    // A T object should be rejected — if the prototype's toString
     // were bound, it would return "[object Object]" and the matcher
     // would (wrongly) accept the value.
     expect(() => eng.parse("{{ f . }}").evaluate({ tag: "x" })).toThrow(TypeMismatchError);

@@ -14,6 +14,7 @@
  * consumers an escape hatch).
  */
 
+import { TypeMismatchError } from "../errors.js";
 import { deepEqual } from "../sprig/types/deepEqual.js";
 import type { FuncMap } from "./evaluator.js";
 import { markLazy } from "./lazy.js";
@@ -22,10 +23,10 @@ import { isTruthy } from "./truthy.js";
 // ---------------------------------------------------------------------------
 // Eager built-ins.
 //
-// [LAW:single-enforcer] The print/printf family closes over the
-// engine's `toString` so that the value flattening uses the same
-// function the `"stringifiable"` matcher probes with. Two callsites
-// (probe at the gate, flatten in the body) — one source of truth.
+// [LAW:single-enforcer] The print/printf family flattens through
+// `formatV` over the engine's `toString`/`isT` — the same function the
+// `"stringifiable"` matcher probes with. Two callsites (probe at the
+// gate, flatten in the body) — one source of truth.
 // ---------------------------------------------------------------------------
 
 function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
@@ -113,18 +114,18 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     },
 
     // [LAW:single-enforcer] Formatted printers declare "stringifiable"
-    // so the gate probes each non-string arg through `engine.toString`.
-    // Bodies re-call `toString` to actually flatten — same source of
-    // truth as the matcher. Closes audit findings B1–B4: typed-T no
-    // longer silently `String(v)`-flattens to "[object Object]".
+    // so the gate probes each non-string arg through `formatV`, the
+    // flatten the bodies perform — a T through `engine.toString`, any
+    // other value as Go's `%v`. Closes audit findings B1–B4: nothing
+    // silently `String(v)`-flattens to "[object Object]".
     print: {
-      fn: (...args: unknown[]) => goPrint(args, toString),
+      fn: (...args: unknown[]) => goPrint(args, toString, isT),
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
     },
     println: {
-      fn: (...args: unknown[]) => `${goPrint(args, toString)}\n`,
+      fn: (...args: unknown[]) => `${goPrintln(args, toString, isT)}\n`,
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -171,7 +172,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // the no-silent-flatten contract uniform across every builtin that
     // produces a string from heterogeneous arg values.
     html: {
-      fn: (...args: unknown[]) => htmlEscape(goPrint(args, toString)),
+      fn: (...args: unknown[]) => htmlEscape(goPrint(args, toString, isT)),
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -182,7 +183,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // differing only in the escape table. The shared `"stringifiable"`
     // gate keeps the no-silent-flatten contract uniform.
     js: {
-      fn: (...args: unknown[]) => jsEscape(goPrint(args, toString)),
+      fn: (...args: unknown[]) => jsEscape(goPrint(args, toString, isT)),
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -195,7 +196,7 @@ function eagerBuiltins(toString: (v: unknown) => string, isT: IsT): FuncMap {
     // stream) so multi-byte runes percent-encode to the same bytes Go
     // emits.
     urlquery: {
-      fn: (...args: unknown[]) => urlQueryEscape(goPrint(args, toString)),
+      fn: (...args: unknown[]) => urlQueryEscape(goPrint(args, toString, isT)),
       argTypes: ["stringifiable"],
       arity: { kind: "variadic" },
       returnType: "string",
@@ -389,7 +390,7 @@ function goPrintfType(v: unknown): string {
 // `%!<verb>(<arg>)` matching Go's diagnostic style.
 // ---------------------------------------------------------------------------
 
-function goPrint(args: readonly unknown[], toString: (v: unknown) => string): string {
+function goPrint(args: readonly unknown[], toString: ToString, isT: IsT): string {
   // Go's `fmt.Sprint`: emits a space between adjacent operands when
   // *neither* of the two flanking values is a string. So `x` `1` is
   // joined as `x1` (string adjacent), but `1` `true` is joined as
@@ -400,19 +401,15 @@ function goPrint(args: readonly unknown[], toString: (v: unknown) => string): st
     const arg = args[i];
     const isString = typeof arg === "string";
     if (i > 0 && !prevIsString && !isString) out += " ";
-    out += stringifyForPrint(arg, toString);
+    out += formatV(arg, toString, isT);
     prevIsString = isString;
   }
   return out;
 }
 
-// [LAW:single-enforcer] No `String(value)` here — the gate guarantees
-// each arg is `"stringifiable"`. nil keeps Go-parity ("<nil>"); strings
-// pass through; anything else routes through the engine's `toString`.
-function stringifyForPrint(value: unknown, toString: (v: unknown) => string): string {
-  if (value === null || value === undefined) return "<nil>";
-  if (typeof value === "string") return value;
-  return toString(value);
+// Go's `fmt.Sprintln`: unlike Sprint, a space between every two operands.
+function goPrintln(args: readonly unknown[], toString: ToString, isT: IsT): string {
+  return args.map((arg) => formatV(arg, toString, isT)).join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -547,14 +544,36 @@ function sprintf(
     }
     const verb = format[j];
     const spec = format.slice(i + 1, j);
+    const missing = argIdx >= args.length;
     const arg = args[argIdx++];
-    out += formatVerb(verb ?? "", spec, arg, toString, isT);
+    out += missing ? `%!${verb ?? ""}(MISSING)` : formatVerb(verb ?? "", spec, arg, toString, isT);
     i = j + 1;
   }
   return out;
 }
 
+// Go's fmt applies a verb to each element of a slice or map, keys
+// included — `%d` of `[1 2]` is `[1 2]`, `%q` of `{k: "v"}` is
+// `map["k":"v"]` — so the verb formats the leaves of the one `%v` walk.
 function formatVerb(
+  verb: string,
+  spec: string,
+  arg: unknown,
+  toString: (v: unknown) => string,
+  isT: IsT,
+): string {
+  // A Uint8Array is Go's []byte, which %s and %q print as text and %x as
+  // the bytes' hex; every other verb walks it as a slice.
+  if (arg instanceof Uint8Array && (verb === "s" || verb === "q")) {
+    return formatLeafVerb(verb, spec, new TextDecoder().decode(arg), toString, isT);
+  }
+  if (arg instanceof Uint8Array && verb === "x") {
+    return applyWidth(spec, Array.from(arg, (b) => b.toString(16).padStart(2, "0")).join(""));
+  }
+  return formatWalk(arg, (leaf) => formatLeafVerb(verb, spec, leaf, toString, isT), toString, isT);
+}
+
+function formatLeafVerb(
   verb: string,
   spec: string,
   arg: unknown,
@@ -563,33 +582,35 @@ function formatVerb(
 ): string {
   switch (verb) {
     case "s":
-      return typeof arg === "string"
-        ? applyWidth(spec, arg)
-        : applyWidth(spec, stringifyForPrint(arg, toString));
+      return applyWidth(spec, formatLeafV(arg, toString, isT));
     case "d": {
       // [LAW:single-enforcer] Non-numeric primitives route to the same
       // diagnostic format as the `default:` arm — no silent NaN.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+        return badVerb(verb, arg, toString, isT);
       }
       const n = typeof arg === "bigint" ? arg : Math.trunc(arg);
       return applyWidth(spec, String(n));
     }
     case "v":
-      return applyWidth(spec, formatV(arg, toString, isT));
+      return applyWidth(spec, formatLeafV(arg, toString, isT));
     case "q":
-      return applyWidth(spec, JSON.stringify(stringifyForPrint(arg, toString)));
+      return applyWidth(spec, JSON.stringify(formatLeafV(arg, toString, isT)));
     case "f": {
       // [LAW:single-enforcer] See %d.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+        return badVerb(verb, arg, toString, isT);
       }
       const precision = spec.includes(".") ? Number(spec.split(".")[1]) : 6;
       const n = Number(arg);
       return applyWidth(spec, n.toFixed(precision));
     }
     case "t":
-      return applyWidth(spec, isTruthy(arg) ? "true" : "false");
+      // [LAW:single-enforcer] Go's %t takes a bool; see %d.
+      if (typeof arg !== "boolean") {
+        return badVerb(verb, arg, toString, isT);
+      }
+      return applyWidth(spec, String(arg));
     case "x": {
       // Go's %x on a string emits the hex of its UTF-8 bytes.
       if (typeof arg === "string") {
@@ -600,15 +621,22 @@ function formatVerb(
       }
       // [LAW:single-enforcer] See %d.
       if (typeof arg !== "number" && typeof arg !== "bigint") {
-        return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+        return badVerb(verb, arg, toString, isT);
       }
       if (typeof arg === "bigint") return applyWidth(spec, arg.toString(16));
       const n = Math.trunc(arg);
       return applyWidth(spec, n.toString(16));
     }
     default:
-      return `%!${verb}(${goPrintfType(arg)}=${stringifyForPrint(arg, toString)})`;
+      return badVerb(verb, arg, toString, isT);
   }
+}
+
+// [LAW:single-enforcer] Go's one diagnostic for a verb its operand does not
+// take: `%!d(string=a)`, and `%!d(<nil>)` for nil.
+function badVerb(verb: string, arg: unknown, toString: ToString, isT: IsT): string {
+  if (arg === null || arg === undefined) return `%!${verb}(<nil>)`;
+  return `%!${verb}(${goPrintfType(arg)}=${formatLeafV(arg, toString, isT)})`;
 }
 
 function applyWidth(spec: string, body: string): string {
@@ -633,16 +661,91 @@ export type IsT = (value: unknown) => boolean;
 // A T flattens through the engine's `toString`, the same function `%s`
 // and `print` use. Of the non-T values, only the shapes Go walks are
 // walked — an array, a Map, a plain object (printed as Go prints a map:
-// `map[k:v …]`, keys sorted the way fmt orders them); a Date, a Set, a
-// class instance prints its own String.
+// `map[k:v …]`, keys sorted the way fmt orders them).
 export function formatV(value: unknown, toString: ToString, isT: IsT): string {
+  return formatWalk(value, (leaf) => formatLeafV(leaf, toString, isT), toString, isT);
+}
+
+// [LAW:single-enforcer] The one structural walk every verb shares; the
+// verb decides only how a leaf prints.
+function formatWalk(
+  value: unknown,
+  leaf: (v: unknown) => string,
+  toString: ToString,
+  isT: IsT,
+): string {
+  if (isT(value)) return leaf(value);
+  const walk = (v: unknown): string => formatWalk(v, leaf, toString, isT);
+  if (Array.isArray(value)) return `[${value.map(walk).join(" ")}]`;
+  if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
+    return `[${Array.from(value as unknown as ArrayLike<unknown>, walk).join(" ")}]`;
+  }
+  if (value instanceof Map) return formatEntries([...value.entries()], walk, toString, isT);
+  if (isPlainObject(value)) return formatEntries(Object.entries(value), walk, toString, isT);
+  // A class instance is Go's struct: `%v` prints its field values in
+  // order, `{alice 30}`, unless it is a Stringer.
+  if (isStruct(value)) return `{${Object.values(value).map(walk).join(" ")}}`;
+  return leaf(value);
+}
+
+function isStruct(value: unknown): value is object {
+  return (
+    typeof value === "object" && value !== null && !(value instanceof Set) && !hasOwnString(value)
+  );
+}
+
+// A leaf has a `%v` text form when it is nil, a scalar, a T the engine's
+// `toString` flattens, or an object with its own String — a Date, a
+// RegExp, a class that defines `toString`, Go's Stringer. A Set, a
+// function or a symbol has none: printing it would be the silent
+// "[object Set]" flatten, so it is refused, and a `toString` that cannot
+// flatten a T is a refusal too.
+function formatLeafV(value: unknown, toString: ToString, isT: IsT): string {
   if (value === null || value === undefined) return "<nil>";
   if (typeof value === "string") return value;
-  if (isT(value)) return toString(value);
-  if (Array.isArray(value)) return `[${value.map((v) => formatV(v, toString, isT)).join(" ")}]`;
-  if (value instanceof Map) return formatEntries([...value.entries()], toString, isT);
-  if (isPlainObject(value)) return formatEntries(Object.entries(value), toString, isT);
-  return String(value);
+  if (isT(value)) return flattenT(value, toString);
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "object" && hasOwnString(value)) return String(value);
+  throw new UnprintableError(value);
+}
+
+function flattenT(value: unknown, toString: ToString): string {
+  try {
+    return toString(value);
+  } catch (err) {
+    if (err instanceof TypeMismatchError) throw err;
+    throw new UnprintableError(value, err);
+  }
+}
+
+// Go's Stringer: a callable `toString` other than the `[object …]`
+// default, which is the one on the root of the prototype chain — read
+// there, not off this realm's `Object.prototype`, so an object from a
+// vm context or an iframe is judged the same.
+function hasOwnString(value: object): boolean {
+  let root: object = value;
+  for (let p = Object.getPrototypeOf(root); p !== null; p = Object.getPrototypeOf(p)) root = p;
+  const own = (value as { toString?: unknown }).toString;
+  return typeof own === "function" && own !== (root as { toString?: unknown }).toString;
+}
+
+/** A value Go's `%v` has no text form for: a Set, a function, a symbol, or
+ * a T the engine's `toString` cannot flatten. The action and the call that
+ * met it report it at their position. */
+export class UnprintableError extends Error {
+  override readonly name = "UnprintableError";
+  constructor(value: unknown, cause?: unknown) {
+    super(`cannot print ${describeLeaf(value)}: it has no text form`, { cause });
+  }
+}
+
+function describeLeaf(value: unknown): string {
+  if (typeof value !== "object" || value === null) return `a ${typeof value}`;
+  const name = (Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null)
+    ?.constructor?.name;
+  return name ? `a ${name}` : "an object with no constructor";
 }
 
 type ToString = (value: unknown) => string;
@@ -651,21 +754,22 @@ type ToString = (value: unknown) => string;
 // numeric keys numerically and first, every other key by its formatted text.
 function formatEntries(
   entries: readonly (readonly [unknown, unknown])[],
+  walk: (v: unknown) => string,
   toString: ToString,
   isT: IsT,
 ): string {
-  const fmt = (v: unknown): string => formatV(v, toString, isT);
   const isNumeric = (k: unknown): k is number | bigint =>
     typeof k === "number" || typeof k === "bigint";
-  const byKey = ([a]: readonly [unknown, unknown], [b]: readonly [unknown, unknown]): number => {
-    if (isNumeric(a) && isNumeric(b)) return a < b ? -1 : a > b ? 1 : 0;
-    if (isNumeric(a) !== isNumeric(b)) return isNumeric(a) ? -1 : 1;
-    const [as, bs] = [fmt(a), fmt(b)];
-    return as < bs ? -1 : as > bs ? 1 : 0;
+  type Keyed = { readonly k: unknown; readonly v: unknown; readonly text: string };
+  const byKey = (a: Keyed, b: Keyed): number => {
+    if (isNumeric(a.k) && isNumeric(b.k)) return a.k < b.k ? -1 : a.k > b.k ? 1 : 0;
+    if (isNumeric(a.k) !== isNumeric(b.k)) return isNumeric(a.k) ? -1 : 1;
+    return a.text < b.text ? -1 : a.text > b.text ? 1 : 0;
   };
-  return `map[${[...entries]
+  return `map[${entries
+    .map(([k, v]): Keyed => ({ k, v, text: formatV(k, toString, isT) }))
     .sort(byKey)
-    .map(([k, v]) => `${fmt(k)}:${fmt(v)}`)
+    .map(({ k, v }) => `${walk(k)}:${walk(v)}`)
     .join(" ")}]`;
 }
 
@@ -673,8 +777,9 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   if (value === null || typeof value !== "object") return false;
   if (Array.isArray(value)) return false;
   if (value instanceof Map || value instanceof Set) return false;
-  // Reject typed arrays, Dates, RegExps, and other built-ins by
-  // requiring a null prototype or the plain Object prototype.
+  // Reject typed arrays, Dates, RegExps, class instances and other
+  // built-ins by requiring a null prototype or one whose own prototype is
+  // null — any realm's `Object.prototype`.
   const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
+  return proto === null || Object.getPrototypeOf(proto) === null;
 }

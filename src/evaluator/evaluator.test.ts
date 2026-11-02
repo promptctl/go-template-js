@@ -376,11 +376,43 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     const when = new Date(Date.UTC(2026, 0, 2, 3, 4, 5));
     expect(text("{{ . }}", when)).toBe(String(when));
     expect(text("{{ . }}", { at: when })).toBe(`map[at:${String(when)}]`);
-    expect(text("{{ . }}", new Set([1]))).toBe("[object Set]");
-    class Foo {
-      x = 1;
+    class Named {
+      toString() {
+        return "named";
+      }
     }
-    expect(text("{{ toString . }}", new Foo())).toBe("[object Object]");
+    expect(text("{{ toString . }}", new Named())).toBe("named");
+  });
+
+  it("a class instance prints as Go prints a struct: its field values in order", () => {
+    class User {
+      constructor(
+        readonly name: string,
+        readonly age: number,
+      ) {}
+    }
+    expect(text("{{ . }}", new User("alice", 30))).toBe("{alice 30}");
+    expect(text("{{ print . }}", [new User("bo", 1)])).toBe("[{bo 1}]");
+    expect(text("{{ toString . }}", new User("cy", 2))).toBe("{cy 2}");
+  });
+
+  it.each([
+    ["a Set", new Set([1])],
+    ["a function", () => 1],
+    ["a symbol", Symbol("s")],
+  ])("refuses to print %s rather than flatten it to [object …]", (_label, value) => {
+    let caught: unknown;
+    try {
+      text("x\n{{ . }}", value);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect((caught as EvalError).message).toMatch(/cannot print a/);
+    expect((caught as EvalError).pos.line).toBe(2);
+    expect(() => text("{{ . }}", [value])).toThrow(/cannot print a/);
+    expect(() => text("{{ print . }}", value)).toThrow(TypeMismatchError);
+    expect(() => text('{{ printf "%d" . }}', [value])).toThrow(TypeMismatchError);
   });
 
   it("without isT a plain object at any depth prints as Go's %v", () => {
@@ -501,6 +533,8 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
       fromString: (s) => new Rich(s),
       isT: (v): v is Rich => v instanceof Rich,
     });
-    expect(() => rich.parse("{{ . }}").evaluate([new Rich("x")])).toThrow(TypeMismatchError);
+    expect(() => rich.parse("{{ . }}").evaluate([new Rich("x")])).toThrow(
+      /cannot print this .*consumer-supplied toString/,
+    );
   });
 });

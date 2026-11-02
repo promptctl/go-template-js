@@ -8,6 +8,15 @@ const render = (src: string, scope: unknown = null): string =>
     .evaluate(scope)
     .join("");
 
+// The typed-T suites below hand the engine a `{ text }` fragment and
+// declare it a T, so it reaches `engine.toString` rather than printing
+// as Go's `%v` of a map.
+interface TextFrag {
+  readonly text: string;
+}
+const fragIsT = (v: unknown): v is string | TextFrag =>
+  typeof v === "string" || (typeof v === "object" && v !== null && "text" in v);
+
 describe("builtins — comparison", () => {
   it("eq with two args", () => {
     expect(render("{{ eq 1 1 }}")).toBe("true");
@@ -284,6 +293,80 @@ describe("builtins — print / println / printf", () => {
     expect(render('{{ print "x" 1 true }}')).toBe("x1 true");
   });
 
+  it("println joins per Go's fmt.Sprintln: a space between every two operands", () => {
+    expect(render('{{ println "a" "b" 1 }}')).toBe("a b 1\n");
+  });
+
+  it("printf applies the verb to each element of a list or map, keys included, as Go's fmt does", () => {
+    expect(render('{{ printf "%d" . }}', [1, 2])).toBe("[1 2]");
+    expect(render('{{ printf "%3d" . }}', [1, 2])).toBe("[  1   2]");
+    expect(render('{{ printf "%q" . }}', { k: "v" })).toBe('map["k":"v"]');
+    expect(render('{{ printf "%x" . }}', [255, [16]])).toBe("[ff [10]]");
+  });
+
+  it("a cyclic structure at an action fails at the action, positioned", () => {
+    const c: Record<string, unknown> = {};
+    c.self = c;
+    let caught: unknown;
+    try {
+      render("x\n{{ . }}", c);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect((caught as EvalError).pos.line).toBe(2);
+    expect((caught as EvalError).cause).toBeInstanceOf(RangeError);
+  });
+
+  it("a cyclic structure fails at the call as itself, not as a misleading type mismatch", () => {
+    const c: Record<string, unknown> = {};
+    c.self = c;
+    let caught: unknown;
+    try {
+      render("{{ print . }}", c);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(EvalError);
+    expect(caught).not.toBeInstanceOf(TypeMismatchError);
+    expect((caught as EvalError).message).toMatch(/error calling print/);
+    expect((caught as EvalError).cause).toBeInstanceOf(RangeError);
+  });
+
+  it("printf %t takes a bool, as Go's does, and diagnoses anything else per element", () => {
+    expect(render('{{ printf "%t" . }}', [true, "a"])).toBe("[true %!t(string=a)]");
+  });
+
+  it("a typed array prints as Go prints a slice", () => {
+    expect(render("{{ print . }}", new Uint8Array([1, 2]))).toBe("[1 2]");
+  });
+
+  it("an object whose toString is not callable prints by its fields, not crashed on", () => {
+    const o = Object.assign(Object.create({ toString: 5 }), { a: 1 });
+    expect(render("{{ print . }}", o)).toBe("{1}");
+  });
+
+  it("printf diagnoses a nil operand and a missing one as Go does", () => {
+    expect(render('{{ printf "%d" . }}', null)).toBe("%!d(<nil>)");
+    expect(render('{{ printf "%t %t" true }}')).toBe("true %!t(MISSING)");
+  });
+
+  it("a Uint8Array is Go's []byte: text under %s and %q, hex under %x, a slice under %v", () => {
+    const b = new Uint8Array([104, 105]);
+    expect(render('{{ printf "%s|%q|%x|%v" . . . . }}', b)).toBe('hi|"hi"|6869|[104 105]');
+  });
+
+  it("a plain object from another realm prints as a map", async () => {
+    const { runInNewContext } = await import("node:vm");
+    expect(render("{{ . }}", runInNewContext("({ a: 1 })"))).toBe("map[a:1]");
+  });
+
+  it("sprig toString of a Set fails at the call, naming the call", () => {
+    expect(() => render("{{ toString . }}", new Set([1]))).toThrow(
+      /error calling toString: cannot print a Set/,
+    );
+  });
+
   it("println adds a trailing newline", () => {
     expect(render('{{ println "hi" }}')).toBe("hi\n");
   });
@@ -324,16 +407,17 @@ describe("builtins — print / println / printf", () => {
     const color = (text: string): Frag => ({ tag: "color", text });
 
     it("print throws TypeMismatchError when no engine.toString is configured for typed-T", () => {
-      const eng = createEngine<string>({ fromString: (s) => s });
+      const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
       expect(() => eng.parse("{{ print .frag }}").evaluate({ frag: color("x") })).toThrow(
         TypeMismatchError,
       );
     });
 
     it("print routes typed-T through consumer-supplied engine.toString", () => {
-      const eng = createEngine<string>({
+      const eng = createEngine<string | TextFrag>({
         fromString: (s) => s,
-        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+        isT: fragIsT,
+        toString: (v: unknown) => (v as Frag).text,
       });
       expect(
         eng
@@ -344,9 +428,10 @@ describe("builtins — print / println / printf", () => {
     });
 
     it('printf "%s" routes typed-T through consumer-supplied engine.toString', () => {
-      const eng = createEngine<string>({
+      const eng = createEngine<string | TextFrag>({
         fromString: (s) => s,
-        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+        isT: fragIsT,
+        toString: (v: unknown) => (v as Frag).text,
       });
       expect(
         eng
@@ -357,9 +442,10 @@ describe("builtins — print / println / printf", () => {
     });
 
     it('printf "%q" wraps the consumer-flattened text in JSON escape', () => {
-      const eng = createEngine<string>({
+      const eng = createEngine<string | TextFrag>({
         fromString: (s) => s,
-        toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+        isT: fragIsT,
+        toString: (v: unknown) => (v as Frag).text,
       });
       expect(
         eng
@@ -370,7 +456,7 @@ describe("builtins — print / println / printf", () => {
     });
 
     it("println throws when no engine.toString is configured for typed-T", () => {
-      const eng = createEngine<string>({ fromString: (s) => s });
+      const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
       expect(() => eng.parse("{{ println .frag }}").evaluate({ frag: color("x") })).toThrow(
         TypeMismatchError,
       );
@@ -419,7 +505,7 @@ describe("builtins — html escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({ fromString: (s) => s });
+    const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
     expect(() => eng.parse("{{ html .frag }}").evaluate({ frag: { text: "x" } as Frag })).toThrow(
       TypeMismatchError,
     );
@@ -429,9 +515,10 @@ describe("builtins — html escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({
+    const eng = createEngine<string | TextFrag>({
       fromString: (s) => s,
-      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      isT: fragIsT,
+      toString: (v: unknown) => (v as Frag).text,
     });
     expect(
       eng
@@ -488,7 +575,7 @@ describe("builtins — js escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({ fromString: (s) => s });
+    const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
     expect(() => eng.parse("{{ js .frag }}").evaluate({ frag: { text: "x" } as Frag })).toThrow(
       TypeMismatchError,
     );
@@ -498,9 +585,10 @@ describe("builtins — js escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({
+    const eng = createEngine<string | TextFrag>({
       fromString: (s) => s,
-      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      isT: fragIsT,
+      toString: (v: unknown) => (v as Frag).text,
     });
     expect(
       eng
@@ -565,7 +653,7 @@ describe("builtins — urlquery escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({ fromString: (s) => s });
+    const eng = createEngine<string | TextFrag>({ fromString: (s) => s, isT: fragIsT });
     expect(() =>
       eng.parse("{{ urlquery .frag }}").evaluate({ frag: { text: "x" } as Frag }),
     ).toThrow(TypeMismatchError);
@@ -575,9 +663,10 @@ describe("builtins — urlquery escape", () => {
     interface Frag {
       readonly text: string;
     }
-    const eng = createEngine<string>({
+    const eng = createEngine<string | TextFrag>({
       fromString: (s) => s,
-      toString: ((v: unknown) => (v as Frag).text) as (v: string) => string,
+      isT: fragIsT,
+      toString: (v: unknown) => (v as Frag).text,
     });
     expect(
       eng
