@@ -637,21 +637,19 @@ interface EvalContext<T> {
   // the fragment instead, because a captured fragment never reaches the
   // output — the string it becomes does.
   readonly emit: (value: T, marks: Marks) => void;
+  // Where a decision's marks go. The root's sink is the engine's `decided`;
+  // `include`'s also joins them to its result, which hangs on every
+  // decision its body made, an arm that emitted nothing included.
+  readonly decided: (marks: Marks) => void;
   readonly defines: Defines;
   readonly source: string | undefined;
   // The control-pipe marks of every arm being evaluated: an emission
   // here depends on the branches that led to it.
   readonly marks: Marks;
-  // How many define bodies enclose this one. A recursive define stops at
-  // MAX_DEFINE_DEPTH with an error naming it, not at the host's stack size.
+  // How many define bodies enclose this one, for the error that names a
+  // recursion too deep for the host's stack.
   readonly depth: number;
 }
-
-// Go's limit (100000) and Helm's (1000) both need a deeper stack than a JS
-// host gives: Node overflows near 450 nested `include`s of a one-action
-// body, and a body with nested control flow spends more frames per level.
-// 100 sits well under every host, so the error is the same everywhere.
-const MAX_DEFINE_DEPTH = 100;
 
 // [LAW:types-are-the-program] Internal control-flow sentinels for
 // `{{break}}` / `{{continue}}`. They are NOT user-facing errors —
@@ -1052,6 +1050,7 @@ export class Engine<T> {
     const root = rootScope({ value: scope, marks: NO_MARKS });
     const ctx: EvalContext<T> = {
       emit: (value, marks) => out.push(this.emitted(value, marks)),
+      decided: this.decided,
       defines: parsed.defines,
       source: parsed.source,
       marks: NO_MARKS,
@@ -1260,21 +1259,27 @@ export class Engine<T> {
     pos: Pos,
     ctx: EvalContext<T>,
   ): void {
-    if (ctx.depth >= MAX_DEFINE_DEPTH) {
-      throw new EvalError(
-        `template ${JSON.stringify(name)}: exceeded maximum nesting depth of ${MAX_DEFINE_DEPTH}`,
-        pos,
-        { source: ctx.source },
-      );
-    }
     // A template body sees only its own `$`, never the caller's variables.
     // Its errors snippet against the source that declared it, which for an
     // inherited define is not this template's source.
-    this.evalList(body.list, rootScope(dot), {
-      ...ctx,
-      source: body.source,
-      depth: ctx.depth + 1,
-    });
+    try {
+      this.evalList(body.list, rootScope(dot), {
+        ...ctx,
+        source: body.source,
+        depth: ctx.depth + 1,
+      });
+    } catch (e) {
+      // Go caps nesting at 100000, deeper than any JS host's stack. The
+      // recursion runs as deep as the host allows; the overflow becomes one
+      // error naming the define, at the innermost frame that can build it,
+      // and every frame above passes that `TemplateError` through.
+      if (!isStackOverflow(e)) throw e;
+      throw new EvalError(
+        `template ${JSON.stringify(name)}: nesting depth ${ctx.depth + 1} exceeds the host's stack`,
+        pos,
+        { source: ctx.source, cause: e },
+      );
+    }
   }
 
   // Helm's `include`: the define renders into a capture instead of the
@@ -1295,23 +1300,30 @@ export class Engine<T> {
       parts.push(this.toString(value));
       for (const mark of marks) reads.add(mark);
     };
+    const decided = (marks: Marks): void => {
+      ctx.decided(marks);
+      for (const mark of marks) reads.add(mark);
+    };
     // The dot depends on everything the call has read so far, its data
     // argument included: a mark is reported early, never late. A snapshot:
     // `reads` keeps growing as the body emits.
     const dot = { value: data, marks: new Set([...reads, ...ctx.marks]) };
     try {
-      this.renderDefine(name, entry, dot, pos, { ...ctx, emit });
+      this.renderDefine(name, entry, dot, pos, { ...ctx, emit, decided });
     } catch (e) {
-      // As Go reports it: `error calling include` at the call, with the
-      // body's own error — its class, position and source — as the cause.
-      // The text is the innermost error's, not every level's again: a
-      // chain of includes otherwise repeats itself once per level.
+      // `error calling include` at the call, with the body's own error —
+      // its class, position and source — as the cause. The text is the
+      // innermost error's, not every level's again: a chain of includes
+      // otherwise repeats itself once per level. A `fail` stays a
+      // `FailError`, so the template's own refusal is told apart from the
+      // engine's however many includes it passed through.
       if (!(e instanceof TemplateError)) throw e;
-      throw new EvalError(
-        `error calling include ${JSON.stringify(name)}: ${innermost(e).message}`,
-        pos,
-        { source: ctx.source, cause: e },
-      );
+      const root = innermost(e);
+      const Wrap = root instanceof FailError ? FailError : EvalError;
+      throw new Wrap(`error calling include ${JSON.stringify(name)}: ${root.message}`, pos, {
+        source: ctx.source,
+        cause: e,
+      });
     }
     return parts.join("");
   }
@@ -1336,7 +1348,7 @@ export class Engine<T> {
   // since its value after the construct hangs on which arm ran.
   private decide(reads: Marks, ctx: EvalContext<T>, frame: Scope, arms: Arms): EvalContext<T> {
     const marks = unionMarks(ctx.marks, reads);
-    this.decided(marks);
+    ctx.decided(marks);
     for (const name of this.assignedIn(arms)) markVar(frame, name, marks);
     return { ...ctx, marks };
   }
@@ -1378,7 +1390,7 @@ export class Engine<T> {
     try {
       return { value: evaluate(reads), reads };
     } catch (e) {
-      this.decided(unionMarks(reads, ctx.marks));
+      ctx.decided(unionMarks(reads, ctx.marks));
       throw e;
     }
   }
@@ -1526,10 +1538,12 @@ export class Engine<T> {
       // [LAW:dataflow-not-control-flow] The gate and the error path below
       // are the same for every call; `include` differs only in which body
       // runs, because its body is a render the evaluator owns.
-      const body = isInclude(fn)
-        ? () => this.include(args[0] as string, args[1], pos, ctx, reads)
-        : () => (fn.fn as (...a: unknown[]) => unknown)(...args);
-      result = readCarrier(body(), reads);
+      result = readCarrier(
+        isInclude(fn)
+          ? this.include(args[0] as string, args[1], pos, ctx, reads)
+          : (fn.fn as (...a: unknown[]) => unknown)(...args),
+        reads,
+      );
     } catch (thrown) {
       // A func whose failure depends on a marked value throws
       // `marked(error, …)`: the error may clear when the mark changes, and
@@ -1546,7 +1560,7 @@ export class Engine<T> {
         });
       }
       if (e instanceof FailError) {
-        throw new FailError(e.message, pos, { source: ctx.source });
+        throw new FailError(e.message, pos, { source: ctx.source, cause: e.cause });
       }
       if (e instanceof TemplateError) throw e;
       // Go reports a function's own error as `error calling <name>: <err>`
@@ -1561,7 +1575,7 @@ export class Engine<T> {
     // evaluation — so the marks it stored are reported now, on the channel
     // that needs no cell.
     // A snapshot: the command's set keeps growing after this call.
-    if (fn.writes === true) this.decided(new Set([...reads, ...ctx.marks]));
+    if (fn.writes === true) ctx.decided(new Set([...reads, ...ctx.marks]));
     return result;
   }
 
@@ -2207,12 +2221,18 @@ function undefinedVariable(name: string, pos: Pos, ctx: { source: string | undef
   return new EvalError(`undefined variable: ${name}`, pos, { source: ctx.source });
 }
 
-// A body may throw anything; Go's `%v` of an error is its message.
 // The template error a chain of `cause`s started from: where it went wrong.
 function innermost(e: TemplateError): TemplateError {
   return e.cause instanceof TemplateError ? innermost(e.cause) : e;
 }
 
+// The host ran out of stack: V8 and JSC throw a RangeError, SpiderMonkey
+// an InternalError, and each names the condition in its message.
+function isStackOverflow(e: unknown): boolean {
+  return e instanceof Error && /call stack|too much recursion/i.test(e.message);
+}
+
+// A body may throw anything; Go's `%v` of an error is its message.
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }

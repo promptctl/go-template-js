@@ -71,28 +71,30 @@ describe("include", () => {
     expect(out.join("")).toBe("<1>");
   });
 
-  it("stops a recursive define at a fixed depth with an error naming it", () => {
+  it("turns unbounded recursion into one error naming the define", () => {
     const e = thrown(() =>
       stringEngine()
         .parse('{{ define "r" }}{{ include "r" . }}{{ end }}{{ include "r" . }}')
         .evaluate({}),
-    );
+    ) as EvalError;
     expect(e).toBeInstanceOf(EvalError);
-    expect((e as EvalError).message).toContain('template "r": exceeded maximum nesting depth');
+    expect(e.message).toMatch(
+      /^error calling include "r": template "r": nesting depth \d+ exceeds the host's stack$/,
+    );
   });
 
-  it("stops a recursive {{ template }} the same way", () => {
+  it("turns unbounded {{ template }} recursion into the same error", () => {
     const e = thrown(() =>
       stringEngine()
         .parse('{{ define "r" }}{{ template "r" . }}{{ end }}{{ template "r" . }}')
         .evaluate({}),
-    );
-    expect((e as EvalError).message).toContain('template "r": exceeded maximum nesting depth');
+    ) as EvalError;
+    expect(e.message).toMatch(/^template "r": nesting depth \d+ exceeds the host's stack$/);
   });
 
-  it("recurses as deep as the data does, below the limit", () => {
+  it("recurses as deep as the data does, with no cap of its own", () => {
     const src =
-      '{{ define "n" }}{{ if . }}{{ range $i := until 1 }}{{ with $ }}x{{ include "n" (sub . 1) }}{{ end }}{{ end }}{{ end }}{{ end }}{{ include "n" 99 | len }}';
+      '{{ define "n" }}{{ if . }}{{ range $i := until 1 }}{{ with $ }}x{{ include "n" (sub . 1) }}{{ end }}{{ end }}{{ end }}{{ end }}{{ include "n" 150 | len }}';
     const engine = createEngine<string>({
       fromString: (s) => s,
       funcs: {
@@ -107,7 +109,7 @@ describe("include", () => {
         },
       },
     });
-    expect(engine.parse(src).evaluate({}).join("")).toBe("99");
+    expect(engine.parse(src).evaluate({}).join("")).toBe("150");
   });
 
   it("fails on an undefined name with an error at the call that names it", () => {
@@ -138,6 +140,9 @@ describe("include", () => {
     const e = thrown(() =>
       engine.parse('top {{ include "f" . }}', helpers).evaluate({}),
     ) as EvalError;
+    // The template's own refusal stays a FailError through the include.
+    expect(e).toBeInstanceOf(FailError);
+    expect(e.message).toBe('error calling include "f": boom');
     const cause = e.cause as FailError;
     expect(cause).toBeInstanceOf(FailError);
     expect(cause.pos.offset).toBe(preamble.indexOf("fail"));
@@ -180,6 +185,13 @@ describe("include", () => {
 
     it("a mark on the data argument reaches the include's emission", () => {
       const seen = emissions('{{ define "x" }}{{ . }}{{ end }}{{ include "x" pulse }}');
+      expect(seen[0]?.has(PULSE)).toBe(true);
+    });
+
+    it("a decision in the body reaches the result even when its arm emits nothing", () => {
+      const seen = emissions(
+        '{{ define "b" }}{{ if pulse }}x{{ end }}{{ end }}{{ include "b" . }}',
+      );
       expect(seen[0]?.has(PULSE)).toBe(true);
     });
 

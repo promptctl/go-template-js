@@ -304,16 +304,16 @@ It behaves as Helm's `include` does, and the conformance corpus checks it agains
 
 - The body sees its data argument as both `.` and `$`, never the caller's variables, the same as with `{{ template }}`. With no data to pass, pass `.` or `nil` explicitly.
 - It renders any define it can see, inherited ones included (`engine.parse(src, helpers.defines())`).
-- An undefined name fails at the call with `template "name" is not defined`. An error inside the body fails at the call as `error calling include "name": <what went wrong>`, as in Helm. Its `cause` is the body's own error, with its class, and its position in the source that declared the define.
-- A define that recurses, through `include`, `template` or `block`, stops after 100 nested levels with an error naming it. That limit is lower than Go's and Helm's, so the error is the same on every JS host instead of becoming a stack overflow.
+- An undefined name fails at the call with `template "name" is not defined`. An error inside the body fails at the call as `error calling include "name": <what went wrong>`. Its `cause` is the body's own error, with its class and its position in the source that declared the define. A `fail` in the body stays a `FailError`.
 - With a non-string `T`, the body's fragments are flattened through the engine's `toString` and the result is one string. An engine with a non-string `T` and no `toString` fails loudly the first time `include` runs.
-- Provenance carries through: every mark the body read, and every mark on the data argument, reaches the emission that uses the result.
+- Provenance carries through: every mark the body read, including those of a decision whose arm emitted nothing, and every mark on the data argument, reach the emission that uses the result.
 
 ## Divergences from Go
 
 The engine matches Go's `text/template` semantics aggressively. The remaining divergences are host-imposed — JavaScript cannot represent the relevant Go type, or the standard libraries differ:
 
 - **Numeric typing.** Go has `int`, `float64`, and friends as distinct runtime types; JavaScript has one `number`. The numeric-verb type label reflects JS's view: integer JS numbers report as `int`, fractional as `float64`, `bigint` as `int64`. Non-numeric values into `%d`/`%f`/`%x` produce a Go-style `%!<verb>(<type>=<value>)` diagnostic — e.g. `printf "%d" "foo"` → `%!d(string=foo)`.
+- **Recursion depth.** Go stops a recursive define at 100000 nested levels. Here the JS host's stack runs out first, a few hundred levels down on Node, depending on the body. The overflow surfaces as one `EvalError` naming the define, `template "name": nesting depth N exceeds the host's stack`, not as a raw stack error.
 - **Regex semantics.** `sprigRegex()` uses ECMAScript regex, not Go's RE2. Lookbehind syntax, Unicode property escapes, and certain catastrophic-backtracking patterns differ.
 - **String length.** Go strings are UTF-8 byte sequences; `len("é")` is `2` in Go. JS strings are UTF-16 code units; `len("é")` is `1` here. Choose grapheme libraries on the JS side if you need byte/grapheme counts.
 - **String slicing.** `trunc`, `substr`, `abbrev`, and `abbrevboth` count code points where Go counts bytes, so the same `n` keeps a different amount of text in each engine: `substr 0 2 "éx"` → `é` in Go, `éx` here. The divergence starts at any two-byte character, not only astral ones, and Go's answer is frequently not valid UTF-8 at all: `trunc 1 "éx"` → the single byte `0xC3` in Go, `é` here; `trunc 1 "𐍈x"` → the single byte `0xF0` in Go, `𐍈` here. Each of those Go results is the first fragment of the character's UTF-8 encoding, and is not a well-formed string on its own. Counting code points is deliberate: it keeps them from splitting a character and returning a lone surrogate. Separately, `abbrevboth` disagrees with Go on plain ASCII whenever the offset is 4 or less — a defect rather than an intended residual, and one that will be fixed.
