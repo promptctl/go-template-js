@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createEngine,
+  Defines,
   EvalError,
   FuncNotFoundError,
   marked,
@@ -354,14 +355,6 @@ describe("public API — Template.evaluateDefine", () => {
     expect((caught as Error).message).toBe('template "b" is not defined');
   });
 
-  it("lists the names a template can render, own and inherited, sorted", () => {
-    const helpers = engine.parse('{{ define "z" }}{{ end }}{{ define "b" }}{{ end }}').defines();
-    const defines = engine.parse('{{ define "m" }}{{ end }}', helpers).defines();
-    expect(defines.names()).toEqual(["b", "m", "z"]);
-    expect(defines.names().every((n) => defines.has(n))).toBe(true);
-    expect(engine.parse("plain").defines().names()).toEqual([]);
-  });
-
   it("points an overflow inside an inherited define into the source that declared it", () => {
     const helpers = engine.parse('{{ define "r" }}{{ template "r" . }}{{ end }}').defines();
     let caught: unknown;
@@ -372,5 +365,21 @@ describe("public API — Template.evaluateDefine", () => {
     }
     expect(caught).toBeInstanceOf(EvalError);
     expect((caught as EvalError).source).toBe('{{ define "r" }}{{ template "r" . }}{{ end }}');
+  });
+});
+
+describe("public API — Defines.names", () => {
+  const engine = createEngine<string>({ fromString: (s) => s });
+
+  it("lists every name a template can render, own and inherited through the whole chain, sorted", () => {
+    const base = engine.parse('{{ define "z" }}{{ end }}').defines();
+    const mid = engine.parse('{{ block "b" . }}{{ end }}', base).defines();
+    const top = engine.parse('{{ define "m" }}{{ end }}', mid).defines();
+    expect(top.names()).toEqual(["b", "m", "z"]);
+  });
+
+  it("is empty for EMPTY and for a template that declares nothing", () => {
+    expect(Defines.EMPTY.names()).toEqual([]);
+    expect(engine.parse("plain").defines().names()).toEqual([]);
   });
 });

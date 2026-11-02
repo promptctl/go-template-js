@@ -317,7 +317,7 @@ const tpl = engine.parse('{{ define "card" }}[{{ .title }}]{{ end }}');
 tpl.evaluateDefine("card", { title: "hi" }).join(""); // "[hi]"
 ```
 
-An undefined name is the host's mistake, not the template's: it throws a plain `Error` (not a `TemplateError`) reading `template "name" is not defined`, where Go returns `no template "name" associated with template "..."`. Errors inside the define, a stack overflow included, point into the source that declared it.
+An undefined name is the host's mistake, not the template's: it throws a plain `Error` (not a `TemplateError`) reading `template "name" is not defined`, where Go returns `no template "name" associated with template "..."`. `template.defines().names()` lists, sorted, every name the template can render, inherited ones included. Errors inside the define, a stack overflow included, point into the source that declared it.
 
 ## Divergences from Go
 
