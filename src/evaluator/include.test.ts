@@ -40,6 +40,14 @@ describe("include", () => {
     expect(out.join("")).toBe("<1>");
   });
 
+  it("prints a plain object as Go's %v on a string engine, as template does", () => {
+    const body = '{{ define "x" }}{{ . }}{{ end }}';
+    const scope = { m: { a: 1 } };
+    const engine = stringEngine();
+    expect(engine.parse(`${body}{{ include "x" .m }}`).evaluate(scope).join("")).toBe("map[a:1]");
+    expect(engine.parse(`${body}{{ template "x" .m }}`).evaluate(scope).join("")).toBe("map[a:1]");
+  });
+
   it("returns one string, so the action emits once", () => {
     const out = stringEngine()
       .parse('{{ define "x" }}a{{ . }}b{{ end }}{{ include "x" 1 }}')

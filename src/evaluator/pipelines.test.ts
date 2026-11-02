@@ -110,8 +110,9 @@ describe("pipelines — function dispatch + missing func", () => {
 
 describe("type guard — no silent flatten", () => {
   type Frag = { color: string; text: string };
+  const isFrag = (v: unknown): v is Frag => typeof v === "object" && v !== null && "color" in v;
   const fragEngine = (funcs: FuncMap) =>
-    createEngine<Frag>({ fromString: (s) => ({ color: "default", text: s }), funcs });
+    createEngine<Frag>({ fromString: (s) => ({ color: "default", text: s }), isT: isFrag, funcs });
 
   it("piping a T into a string-typed parameter raises TypeMismatchError", () => {
     const styled: Frag = { color: "red", text: "ALERT" };
@@ -148,6 +149,7 @@ describe("type guard — no silent flatten", () => {
     };
     const out = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
+      isT: isFrag,
       funcs,
     })
       .parse("{{ . | stripColor }}")
@@ -171,12 +173,12 @@ describe("type guard — no silent flatten", () => {
   });
 
   it("argTypes ['any'] is the explicit permissive escape — T flows through unchanged", () => {
-    type Frag = { color: string; text: string };
     const funcs: FuncMap = {
       identity: { fn: (x: unknown) => x, argTypes: ["value"], arity: { kind: "exact" } },
     };
     const eng = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
+      isT: isFrag,
       funcs,
     });
     const styled: Frag = { color: "red", text: "x" };

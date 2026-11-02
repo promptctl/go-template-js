@@ -549,11 +549,10 @@ export interface EngineConfig<T> {
    * what this says.
    *
    * [LAW:single-enforcer] The one predicate, consulted first and alone.
-   * Default: a non-null object other than an array or a Map — so without
-   * it a consumer whose scope carries JSON documents sees a bare
-   * `{{ .doc }}` leak the document into its fragments; with
-   * `isT: (v) => v instanceof RichText` that `{{ .doc }}` prints
-   * `map[k:v …]`, and a consumer whose T is array-shaped says so here.
+   * Default: a string — the T the default `fromString`/`toString` pair
+   * supports — so a plain object prints `map[k:v …]` as Go's `%v` does.
+   * A consumer whose T is an object declares it here, e.g.
+   * `isT: (v) => v instanceof RichText`.
    */
   readonly isT?: (value: unknown) => value is T;
   /**
@@ -1751,8 +1750,7 @@ export class Engine<T> {
 // [LAW:one-source-of-truth] The engine's default `isT`, shared by the
 // constructor and the standalone `enforceArgTypes`, so the output stream and
 // the `"T"` ArgType gate cannot disagree about what a T is by default.
-export const DEFAULT_IS_T: IsT = (v) =>
-  typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Map);
+export const DEFAULT_IS_T: IsT = (v) => typeof v === "string";
 
 // ---------------------------------------------------------------------------
 // Convenience constructor matching the future public-API shape (.api.1).

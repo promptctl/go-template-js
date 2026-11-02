@@ -24,6 +24,9 @@ interface TaggedFragment {
   readonly text: string;
 }
 
+const isTaggedFragment = (v: unknown): v is TaggedFragment =>
+  typeof v === "object" && v !== null && "tag" in v && "text" in v;
+
 const stylingFuncs: FuncMap = {
   tagAs: {
     fn: (tag: unknown, value: unknown): TaggedFragment => ({
@@ -51,6 +54,7 @@ describe("conformance — typed-fragment (T = TaggedFragment)", () => {
         (config) =>
           createEngine<TaggedFragment>({
             fromString: (s) => ({ tag: "text", text: s }),
+            isT: isTaggedFragment,
             funcs: stylingFuncs,
             ...config,
           }),

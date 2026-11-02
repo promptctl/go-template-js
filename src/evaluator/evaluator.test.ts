@@ -308,6 +308,7 @@ describe("evaluator — generic over T", () => {
   it("treats T-shaped scope values as T (passes through emitFromValue)", () => {
     const eng = createEngine<Frag>({
       fromString: (s) => ({ color: "default", text: s }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "color" in v,
     });
     const tagged: Frag = { color: "red", text: "ALERT" };
     const out = eng.parse("{{ . }}").evaluate(tagged);
@@ -379,17 +380,9 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     expect(text("{{ toString . }}", new Foo())).toBe("[object Object]");
   });
 
-  it("a T inside a walked value is the same T: the default toString refuses it loudly, isT says otherwise", () => {
-    // Under DEFAULT_IS_T a plain object is a T at any depth; the default
-    // engine cannot flatten a T, so [[object Object]] cannot be printed.
-    expect(() => renderString("{{ . }}", [{}])).toThrow(TypeMismatchError);
-    expect(() => renderString("{{ toString . }}", { a: 1 })).toThrow(TypeMismatchError);
-    const data = createEngine<string>({
-      fromString: (s) => s,
-      isT: (v): v is string => typeof v === "string",
-    });
-    expect(data.parse("{{ . }}").evaluate([{}]).join("")).toBe("[map[]]");
-    expect(data.parse("{{ toString . }}").evaluate({ a: 1 }).join("")).toBe("map[a:1]");
+  it("without isT a plain object at any depth prints as Go's %v", () => {
+    expect(renderString("{{ . }}", [{}])).toBe("[map[]]");
+    expect(renderString("{{ toString . }}", { a: 1 })).toBe("map[a:1]");
   });
 
   it("toString and toStrings are the builtin %v: primitives, nil, arrays, and a T through the engine's toString", () => {
@@ -488,8 +481,7 @@ describe("evaluator — isT: a T passes through, a plain object prints as Go pri
     expect(() => withFuncs.parse("{{ id . }}").evaluate([1])).toThrow(TypeMismatchError);
   });
 
-  it("without isT every non-null object but an array or a Map is a T (the T = plain object consumer)", () => {
-    const o = { a: 1 };
-    expect(stringEngine().parse("{{ . }}").evaluate(o)[0]).toBe(o as unknown as string);
+  it("without isT only a string is a T: a plain object prints as Go's %v, never as a fragment", () => {
+    expect(stringEngine().parse("{{ . }}").evaluate({ a: 1 })).toEqual(["map[a:1]"]);
   });
 });

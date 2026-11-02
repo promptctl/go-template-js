@@ -31,7 +31,7 @@ describe("sprig defaults — integration through the engine", () => {
 
   it("toJson + fromJson round-trip", () => {
     expect(render("{{ . | toJson }}", { a: 1, b: "x" })).toBe('{"a":1,"b":"x"}');
-    expect(render("{{ fromJson . }}", '{"a":1}')).toMatch(/object/);
+    expect(render("{{ fromJson . }}", '{"a":1}')).toBe("map[a:1]");
   });
 
   it("toPrettyJson uses 2-space indent", () => {

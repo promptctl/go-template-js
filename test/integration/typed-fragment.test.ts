@@ -14,7 +14,11 @@ interface Frag {
 }
 
 const fragEngine = (funcs: Record<string, TemplateFunc> = {}) =>
-  createEngine<Frag>({ fromString: (s) => ({ color: "default", text: s }), funcs });
+  createEngine<Frag>({
+    fromString: (s) => ({ color: "default", text: s }),
+    isT: (v): v is Frag => typeof v === "object" && v !== null && "color" in v && "text" in v,
+    funcs,
+  });
 
 describe("typed-fragment integration", () => {
   it("emits T values from text literals", () => {

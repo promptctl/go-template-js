@@ -494,6 +494,7 @@ describe("matchesArgType — liftable", () => {
   const fragEngine = (recordArg: (v: unknown) => void) =>
     createEngine<Frag>({
       fromString: (s) => ({ kind: "frag", text: s }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "kind" in v,
       funcs: {
         f: {
           fn: (v: unknown) => {
