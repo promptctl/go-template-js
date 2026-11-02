@@ -219,9 +219,12 @@ func generate(dir string) (bool, error) {
 	// outcome occurred decides which file is written — and a refusal
 	// never leaves a half-written expected.txt behind.
 	var rendered bytes.Buffer
+	// The template Go names in an execution error's context: the one run.
+	entry := name
 	var execErr error
-	if cfg.Execute != "" {
-		execErr = tpl.ExecuteTemplate(&rendered, cfg.Execute, scope)
+	if cfg.Execute != nil {
+		entry = *cfg.Execute
+		execErr = tpl.ExecuteTemplate(&rendered, entry, scope)
 	} else {
 		execErr = tpl.Execute(&rendered, scope)
 	}
@@ -242,7 +245,7 @@ func generate(dir string) (bool, error) {
 				"the fixture and the reference implementation disagree about whether "+
 				"this template is legal", rendered.String())
 	}
-	core, err := goErrorCore(name, execErr)
+	core, err := goErrorCore(entry, execErr)
 	if err != nil {
 		return false, err
 	}
@@ -257,8 +260,9 @@ func generate(dir string) (bool, error) {
 // presents with its own caret, so pinning it would pin Go's error
 // *formatting* rather than the engine's claim to say the same thing.
 // Go flattens both layers with a single fmt.Errorf, leaving no wrapped
-// inner error to unwrap, so the prefix — anchored on the template name
-// this program chose — is the only handle on the seam.
+// inner error to unwrap, so the prefix — anchored on the name of the
+// template run, the fixture's or the define `execute` names — is the only
+// handle on the seam.
 //
 // [LAW:no-silent-failure] An unrecognised shape stops the line; half a
 // stripped sentence recorded as Go's message is the kind of wrong that
@@ -311,9 +315,10 @@ func exists(path string) (bool, error) {
 type fixtureConfig struct {
 	// Delims, if set, must be a two-element [left, right] pair.
 	Delims []string `json:"delims,omitempty"`
-	// Execute, if set, renders that define by name (ExecuteTemplate)
-	// instead of the whole template.
-	Execute string `json:"execute,omitempty"`
+	// Execute, if present, renders that define by name (ExecuteTemplate)
+	// instead of the whole template. A pointer, so an absent field and a
+	// define named "" stay distinct, as they are to the TS harness.
+	Execute *string `json:"execute,omitempty"`
 }
 
 func fail(err error) {

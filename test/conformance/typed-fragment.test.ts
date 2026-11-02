@@ -15,43 +15,13 @@
  *   tagAs "name" .x          → { tag: "name", text: <stringified .x> }
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createEngine, type FuncMap } from "../../src/index.js";
+import { listFixtures, readFixtureInput, readOutcome, renderFixture } from "./fixtures.js";
 
 interface TaggedFragment {
   readonly tag: string;
   readonly text: string;
-}
-
-const FIXTURES_DIR = fileURLToPath(new URL("../../conformance/fixtures", import.meta.url));
-
-function listFixtures(): string[] {
-  if (!existsSync(FIXTURES_DIR)) return [];
-  return readdirSync(FIXTURES_DIR)
-    .filter((name) => statSync(join(FIXTURES_DIR, name)).isDirectory())
-    .filter((name) => existsSync(join(FIXTURES_DIR, name, "expected-fragments.json")))
-    .sort();
-}
-
-function readFixture(name: string): {
-  template: string;
-  scope: unknown;
-  expected: TaggedFragment[];
-} {
-  const dir = join(FIXTURES_DIR, name);
-  const template = readFileSync(join(dir, "template.tmpl"), "utf8");
-  const expected = JSON.parse(
-    readFileSync(join(dir, "expected-fragments.json"), "utf8"),
-  ) as TaggedFragment[];
-  let scope: unknown = null;
-  const scopePath = join(dir, "scope.json");
-  if (existsSync(scopePath)) {
-    scope = JSON.parse(readFileSync(scopePath, "utf8"));
-  }
-  return { template, scope, expected };
 }
 
 const stylingFuncs: FuncMap = {
@@ -66,7 +36,7 @@ const stylingFuncs: FuncMap = {
   },
 };
 
-const fixtures = listFixtures();
+const fixtures = listFixtures("expected-fragments.json");
 
 describe("conformance — typed-fragment (T = TaggedFragment)", () => {
   if (fixtures.length === 0) {
@@ -76,12 +46,16 @@ describe("conformance — typed-fragment (T = TaggedFragment)", () => {
 
   for (const name of fixtures) {
     it(name, () => {
-      const { template, scope, expected } = readFixture(name);
-      const engine = createEngine<TaggedFragment>({
-        fromString: (s) => ({ tag: "text", text: s }),
-        funcs: stylingFuncs,
-      });
-      const output = engine.parse(template).evaluate(scope);
+      const expected = JSON.parse(readOutcome(name, "expected-fragments.json")) as TaggedFragment[];
+      const output = renderFixture(
+        (delims) =>
+          createEngine<TaggedFragment>({
+            fromString: (s) => ({ tag: "text", text: s }),
+            funcs: stylingFuncs,
+            ...(delims ? { delims } : {}),
+          }),
+        readFixtureInput(name),
+      );
       expect(output).toEqual(expected);
     });
   }

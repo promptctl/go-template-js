@@ -14,6 +14,7 @@ import {
   sprigDefaults,
   sprigStrings,
   staticDictEntries,
+  TemplateError,
   type TemplateFunc,
 } from "./index.js";
 
@@ -341,15 +342,27 @@ describe("public API — Template.evaluateDefine", () => {
     expect(emitted.some((m) => m.has(PULSE))).toBe(true);
   });
 
-  it("fails for a name that was never defined, with no snippet of the template", () => {
+  it("throws a plain Error for a name that was never defined, the host's mistake", () => {
     let caught: unknown;
     try {
       engine.parse('line one\n{{ define "a" }}{{ end }}').evaluateDefine("b", {});
     } catch (e) {
       caught = e;
     }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(TemplateError);
+    expect((caught as Error).message).toBe('template "b" is not defined');
+  });
+
+  it("reports a define that overflows the stack at its own body, in its own source", () => {
+    const helpers = engine.parse('{{ define "r" }}{{ template "r" . }}{{ end }}').defines();
+    let caught: unknown;
+    try {
+      engine.parse("xx", helpers).evaluateDefine("r", 1);
+    } catch (e) {
+      caught = e;
+    }
     expect(caught).toBeInstanceOf(EvalError);
-    expect((caught as EvalError).message).toBe('template "b" is not defined');
-    expect((caught as EvalError).sourceSnippet).toBe("");
+    expect((caught as EvalError).source).toBe('{{ define "r" }}{{ template "r" . }}{{ end }}');
   });
 });

@@ -43,7 +43,7 @@ import {
   type ParseResult,
   parse as parseSource,
 } from "../parser/parser.js";
-import { type Pos, pos } from "../parser/pos.js";
+import type { Pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
@@ -675,9 +675,9 @@ type Piped = { readonly kind: "none" } | { readonly kind: "value"; readonly valu
 
 const NO_PIPE: Piped = { kind: "none" };
 
-// A by-name render the consumer asked for has no call site in any source;
-// its errors point at the start of the template asked.
-const TOP: Pos = pos(1, 1, 0);
+// Where a define's render is reported from when it fails as a whole: the
+// call, in the source that holds it.
+type Site = { readonly pos: Pos; readonly source: string | undefined };
 
 /**
  * A parsed template bound to its parent engine.
@@ -1037,13 +1037,18 @@ export class Engine<T> {
       parsed.source,
       (scope) =>
         this.evalParsed(parsed, scope, (root, ctx) => this.evalList(parsed.root, root, ctx)),
-      (name, scope) =>
-        this.evalParsed(parsed, scope, (root, ctx) => {
-          // The call comes from the host, not from a place in this source,
-          // so its own errors carry no snippet to point a caret into.
-          const host = { ...ctx, source: undefined };
-          this.renderDefine(name, this.definedEntry(name, TOP, host), root.dot, TOP, host);
-        }),
+      (name, scope) => {
+        // The call is the host's, at no place in any source. A name it
+        // cannot find is the host's mistake, as Go's ExecuteTemplate returns
+        // a plain error; a render that fails as a whole is reported at the
+        // define's own body.
+        const entry = lookupDefine(parsed.defines, name);
+        if (!entry) throw new Error(`template ${JSON.stringify(name)} is not defined`);
+        const site = { pos: entry.list.pos, source: entry.source };
+        return this.evalParsed(parsed, scope, (root, ctx) =>
+          this.renderDefine(name, entry, root.dot, site, ctx),
+        );
+      },
       parsed.defines,
       collectReferencedFunctions(parsed),
       collectReferencedCalls(parsed),
@@ -1267,11 +1272,13 @@ export class Engine<T> {
     ctx: EvalContext<T>,
   ): void {
     const entry = this.definedEntry(node.name, node.pos, ctx);
-    this.renderDefine(node.name, entry, this.invocationDot(node.pipe, scope, ctx), node.pos, ctx);
+    const dot = this.invocationDot(node.pipe, scope, ctx);
+    this.renderDefine(node.name, entry, dot, { pos: node.pos, source: ctx.source }, ctx);
   }
 
-  // [LAW:single-enforcer] The one lookup a by-name render (`{{ template }}`,
-  // `include`) goes through, and so the one "is not defined" error.
+  // [LAW:single-enforcer] The one lookup a by-name render inside a template
+  // (`{{ template }}`, `include`) goes through, and so the one "is not
+  // defined" error at a place in a source.
   private definedEntry(name: string, pos: Pos, ctx: EvalContext<T>): DefineEntry {
     const entry = lookupDefine(ctx.defines, name);
     if (!entry) {
@@ -1288,7 +1295,7 @@ export class Engine<T> {
     name: string,
     body: { readonly list: ListNode; readonly source: string | undefined },
     dot: Binding,
-    pos: Pos,
+    site: Site,
     ctx: EvalContext<T>,
   ): void {
     // A template body sees only its own `$`, never the caller's variables.
@@ -1308,8 +1315,8 @@ export class Engine<T> {
       if (!isStackOverflow(e)) throw e;
       throw new EvalError(
         `template ${JSON.stringify(name)}: nesting depth ${ctx.depth + 1} exceeds the host's stack`,
-        pos,
-        { source: ctx.source, cause: e },
+        site.pos,
+        { source: site.source, cause: e },
       );
     }
   }
@@ -1342,7 +1349,7 @@ export class Engine<T> {
     // `reads` keeps growing as the body emits.
     const dot = { value: data, marks: new Set([...reads, ...ctx.marks]) };
     try {
-      this.renderDefine(name, entry, dot, pos, { ...ctx, emit, decided });
+      this.renderDefine(name, entry, dot, { pos, source: ctx.source }, { ...ctx, emit, decided });
     } catch (e) {
       // `error calling <registered name>` at the call, with the body's own error —
       // its class, position and source — as the cause. The text is the
@@ -1371,7 +1378,7 @@ export class Engine<T> {
     // The dot for the block body is the pipe's value when present.
     const dot = this.invocationDot(node.pipe, scope, ctx);
     const entry = lookupDefine(ctx.defines, node.name) ?? { list: node.list, source: ctx.source };
-    this.renderDefine(node.name, entry, dot, node.pos, ctx);
+    this.renderDefine(node.name, entry, dot, { pos: node.pos, source: ctx.source }, ctx);
   }
 
   // [LAW:single-enforcer] The one place a control pipe's marks are
@@ -2263,10 +2270,12 @@ function innermost(e: TemplateError): TemplateError {
 // a RangeError, SpiderMonkey an InternalError, each naming the condition.
 // A template error never matches, whatever its text: a func that overflowed
 // was already reported at its own call, as `error calling <func>`.
+// No regex: V8 compiles one on first use, which at the deepest frame
+// overflows into a SyntaxError that is no longer recognised.
 function isStackOverflow(e: unknown): boolean {
   return (
     (e instanceof RangeError || (e instanceof Error && e.name === "InternalError")) &&
-    /call stack|too much recursion/i.test(e.message)
+    (e.message.includes("call stack") || e.message.includes("too much recursion"))
   );
 }
 
