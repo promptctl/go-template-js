@@ -14,7 +14,7 @@
  * consumers an escape hatch).
  */
 
-import { isStackOverflow, TypeMismatchError, withArticle } from "../errors.js";
+import { isStackOverflow, TypeMismatchError } from "../errors.js";
 import { deepEqual } from "../sprig/types/deepEqual.js";
 import type { FuncMap } from "./evaluator.js";
 import { markLazy } from "./lazy.js";
@@ -763,14 +763,12 @@ export class UnprintableError extends Error {
     root: unknown = leaf,
   ) {
     const summary =
-      root === leaf
-        ? typeNameOf(leaf)
-        : `${typeNameOf(root)} holding ${withArticle(typeNameOf(leaf))}`;
+      root === leaf ? typeNameOf(leaf) : `${typeNameOf(root)} holding ${typeNameOf(leaf)}`;
     // A flattener that names what it expected says why; any other refusal
     // is a value with no text form.
     const why =
       cause instanceof TypeMismatchError ? `expected ${cause.expected}` : "it has no text form";
-    super(`cannot print ${withArticle(summary)}: ${why}`, { cause });
+    super(`cannot print a value of type ${summary}: ${why}`, { cause });
     this.summary = summary;
   }
 }

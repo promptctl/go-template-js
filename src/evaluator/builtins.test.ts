@@ -363,7 +363,7 @@ describe("builtins — print / println / printf", () => {
 
   it("sprig toString of a Set fails at the call, naming the call", () => {
     expect(() => render("{{ toString . }}", new Set([1]))).toThrow(
-      /error calling toString: cannot print a Set/,
+      /error calling toString: cannot print a value of type Set/,
     );
   });
 
