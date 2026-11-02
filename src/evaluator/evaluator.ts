@@ -43,7 +43,7 @@ import {
   type ParseResult,
   parse as parseSource,
 } from "../parser/parser.js";
-import type { Pos } from "../parser/pos.js";
+import { type Pos, pos } from "../parser/pos.js";
 import { walk } from "../parser/walk.js";
 import { MISSING, walkFieldChain } from "./access.js";
 import { defaultBuiltins, formatV, type IsT, isPlainObject } from "./builtins.js";
@@ -675,6 +675,10 @@ type Piped = { readonly kind: "none" } | { readonly kind: "value"; readonly valu
 
 const NO_PIPE: Piped = { kind: "none" };
 
+// A by-name render the consumer asked for has no call site in any source;
+// its errors point at the start of the template asked.
+const TOP: Pos = pos(1, 1, 0);
+
 /**
  * A parsed template bound to its parent engine.
  *
@@ -694,6 +698,7 @@ const NO_PIPE: Piped = { kind: "none" };
 let internalCreateTemplate: <U>(
   source: string,
   evaluate: (scope: unknown) => U[],
+  evaluateDefine: (name: string, scope: unknown) => U[],
   defines: Defines,
   referencedFunctions: ReadonlySet<string>,
   referencedCalls: readonly ReferencedCall[],
@@ -751,6 +756,7 @@ export type ReferencedArg =
 export class Template<T> {
   readonly source: string;
   private readonly _evaluate: (scope: unknown) => T[];
+  private readonly _evaluateDefine: (name: string, scope: unknown) => T[];
   private readonly _defines: Defines;
   // [LAW:types-are-the-program] The set of FuncMap names this template
   // references, computed ONCE from the parsed AST at construction. A name here
@@ -768,12 +774,14 @@ export class Template<T> {
   private constructor(
     source: string,
     evaluate: (scope: unknown) => T[],
+    evaluateDefine: (name: string, scope: unknown) => T[],
     defines: Defines,
     referencedFunctions: ReadonlySet<string>,
     referencedCalls: readonly ReferencedCall[],
   ) {
     this.source = source;
     this._evaluate = evaluate;
+    this._evaluateDefine = evaluateDefine;
     this._defines = defines;
     this._referencedFunctions = referencedFunctions;
     this._referencedCalls = referencedCalls;
@@ -783,10 +791,12 @@ export class Template<T> {
     internalCreateTemplate = <U>(
       source: string,
       evaluate: (scope: unknown) => U[],
+      evaluateDefine: (name: string, scope: unknown) => U[],
       defines: Defines,
       referencedFunctions: ReadonlySet<string>,
       referencedCalls: readonly ReferencedCall[],
-    ) => new Template(source, evaluate, defines, referencedFunctions, referencedCalls);
+    ) =>
+      new Template(source, evaluate, evaluateDefine, defines, referencedFunctions, referencedCalls);
   }
 
   /**
@@ -804,6 +814,16 @@ export class Template<T> {
 
   evaluate(scope: unknown): T[] {
     return this._evaluate(scope);
+  }
+
+  /**
+   * Render one named sub-template — any `{{ define }}` in {@link defines}, its
+   * own or inherited — with `scope` as its dot and `$`, as Go's
+   * `ExecuteTemplate` does. The output is the same `T[]` a whole-template
+   * {@link evaluate} produces, through the same `emitted` / `decided` hooks.
+   */
+  evaluateDefine(name: string, scope: unknown): T[] {
+    return this._evaluateDefine(name, scope);
   }
 
   /**
@@ -1015,7 +1035,12 @@ export class Engine<T> {
     const parsed = parseSource(source, this.delims, inherit);
     return internalCreateTemplate(
       parsed.source,
-      (scope) => this.evalParsed(parsed, scope),
+      (scope) =>
+        this.evalParsed(parsed, scope, (root, ctx) => this.evalList(parsed.root, root, ctx)),
+      (name, scope) =>
+        this.evalParsed(parsed, scope, (root, ctx) =>
+          this.renderDefine(name, this.definedEntry(name, TOP, ctx), root.dot, TOP, ctx),
+        ),
       parsed.defines,
       collectReferencedFunctions(parsed),
       collectReferencedCalls(parsed),
@@ -1045,7 +1070,11 @@ export class Engine<T> {
 
   // [LAW:single-enforcer] All evaluation flows through here; the
   // Template closure built in `parse()` calls back into this method.
-  private evalParsed(parsed: ParseResult, scope: unknown): T[] {
+  private evalParsed(
+    parsed: ParseResult,
+    scope: unknown,
+    body: (root: Scope, ctx: EvalContext<T>) => void,
+  ): T[] {
     const out: T[] = [];
     const root = rootScope({ value: scope, marks: NO_MARKS });
     const ctx: EvalContext<T> = {
@@ -1056,7 +1085,7 @@ export class Engine<T> {
       marks: NO_MARKS,
       depth: 0,
     };
-    this.evalList(parsed.root, root, ctx);
+    body(root, ctx);
     return out;
   }
 

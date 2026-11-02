@@ -285,3 +285,39 @@ describe("parse with inherited defines", () => {
     expect(tpl.evaluate({ a: "AB", b: "cd" }).join("")).toBe("abCD!");
   });
 });
+
+describe("public API — Template.evaluateDefine", () => {
+  const engine = createEngine<string>({ fromString: (s) => s });
+
+  it("renders one define with the scope as its dot and $, not the whole template", () => {
+    const t = engine.parse(
+      'body{{ define "card" }}[{{ .title }}|{{ $.title }}]{{ end }}{{ define "other" }}no{{ end }}',
+    );
+    expect(t.evaluateDefine("card", { title: "hi" }).join("")).toBe("[hi|hi]");
+  });
+
+  it("renders an inherited define, and a define that invokes another", () => {
+    const helpers = engine.parse('{{ define "name" }}<{{ . }}>{{ end }}').defines();
+    const t = engine.parse('{{ define "greet" }}hi {{ template "name" .who }}{{ end }}', helpers);
+    expect(t.evaluateDefine("greet", { who: "ada" }).join("")).toBe("hi <ada>");
+    expect(t.evaluateDefine("name", "go").join("")).toBe("<go>");
+  });
+
+  it("produces typed output through emitted, as a whole-template render does", () => {
+    type Frag = { kind: "text"; v: string } | { kind: "node"; n: number };
+    const typed = createEngine<Frag>({
+      fromString: (v) => ({ kind: "text", v }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "kind" in v,
+      emitted: (f) => (f.kind === "text" ? { kind: "text", v: f.v.toUpperCase() } : f),
+    });
+    const node: Frag = { kind: "node", n: 42 };
+    const t = typed.parse('{{ define "d" }}a{{ .n }}{{ end }}');
+    expect(t.evaluateDefine("d", { n: node })).toEqual([{ kind: "text", v: "A" }, node]);
+  });
+
+  it("fails for a name that was never defined", () => {
+    expect(() => engine.parse('{{ define "a" }}{{ end }}').evaluateDefine("b", {})).toThrow(
+      /"b" is not defined/,
+    );
+  });
+});
