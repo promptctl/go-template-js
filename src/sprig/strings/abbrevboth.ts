@@ -1,17 +1,15 @@
+import { abbreviateFull } from "./abbreviateFull.js";
 import { runes } from "./runes.js";
 
 /**
- * `abbrevboth left right s` — abbreviate from both ends, leaving `...`
- * around the visible window. Mirrors Go sprig's abbrevboth semantics:
- * left/right specify offsets (0-indexed); the result has `...` around
- * a slice taken between them.
+ * `abbrevboth left right s` — sprig's guard around goutils.AbbreviateFull
+ * with `left` as the offset and `right` as the maximum width: a window of
+ * `s` near `left`, with `...` at each end that was cut.
  *
  * Offsets count code points, so the window never splits an astral
  * character — see `runes.js` for why that differs from Go's bytes.
  */
 export function abbrevboth(left: number, right: number, s: string): string {
-  const cps = runes(s);
-  if (right < 7 || cps.length < right) return s;
-  if (left < 0 || left > cps.length - right + 1) return s;
-  return `...${cps.slice(left, left + right - 6).join("")}...`;
+  if (right < 4 || (left > 0 && right < 7)) return s;
+  return abbreviateFull(runes(s), left, right);
 }
