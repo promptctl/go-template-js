@@ -354,6 +354,14 @@ describe("public API — Template.evaluateDefine", () => {
     expect((caught as Error).message).toBe('template "b" is not defined');
   });
 
+  it("lists the names a template can render, own and inherited, sorted", () => {
+    const helpers = engine.parse('{{ define "z" }}{{ end }}{{ define "b" }}{{ end }}').defines();
+    const defines = engine.parse('{{ define "m" }}{{ end }}', helpers).defines();
+    expect(defines.names()).toEqual(["b", "m", "z"]);
+    expect(defines.names().every((n) => defines.has(n))).toBe(true);
+    expect(engine.parse("plain").defines().names()).toEqual([]);
+  });
+
   it("points an overflow inside an inherited define into the source that declared it", () => {
     const helpers = engine.parse('{{ define "r" }}{{ template "r" . }}{{ end }}').defines();
     let caught: unknown;

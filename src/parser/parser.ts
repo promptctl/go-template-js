@@ -107,6 +107,16 @@ export class Defines {
   has(name: string): boolean {
     return readDefine(this, name) !== undefined;
   }
+
+  /**
+   * Every name this set can render, own and inherited, sorted — what a
+   * consumer reads after `evaluateDefine` reports a name as not defined.
+   * The parser forbids redeclaring an inherited name, so the chain holds no
+   * duplicates.
+   */
+  names(): string[] {
+    return [...this.#own.keys(), ...(this.#parent?.names() ?? [])].sort();
+  }
 }
 
 export interface ParseResult {
