@@ -41,8 +41,8 @@ export const ACCEPTED: Readonly<Record<ArgType, unknown>> = {
   "truncating-int": 0,
   float: 0,
   bool: false,
-  // A plain object is a T under DEFAULT_IS_T.
-  T: {},
+  // Under DEFAULT_IS_T a T is a string; a plain object is not.
+  T: "x",
   ordered: 0,
   list: [],
   dict: {},

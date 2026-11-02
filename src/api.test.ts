@@ -204,6 +204,7 @@ describe("public API — generic-T parameterization", () => {
   it("returns T[] for arbitrary T", () => {
     const engine = createEngine<Frag>({
       fromString: (s) => ({ kind: "text", v: s }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "kind" in v,
     });
     expect(engine.parse("{{ . }}").evaluate("x")).toEqual([{ kind: "text", v: "x" }]);
   });

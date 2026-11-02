@@ -271,13 +271,14 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
     { label: '"true"', value: "true", pass: false },
     { label: "null", value: null, pass: false },
   ],
+  // Under the default `isT` a T is a string; every other shape is walked
+  // and printed as Go's `%v`, and an object T is declared through `isT`.
   T: [
-    { label: "object", value: {}, pass: true },
-    { label: "TaggedFragment", value: TAGGED, pass: true },
-    // Go-walked shapes: printed as `[…]` / `map[…]`, never a T by default.
+    { label: "string", value: "x", pass: true },
+    { label: "object", value: {}, pass: false },
+    { label: "TaggedFragment", value: TAGGED, pass: false },
     { label: "array", value: [], pass: false },
     { label: "Map", value: new Map(), pass: false },
-    { label: "string", value: "x", pass: false },
     { label: "number", value: 1, pass: false },
     { label: "bool", value: true, pass: false },
     { label: "bigint", value: 1n, pass: false },
@@ -407,9 +408,9 @@ const fixturesByKind: Record<Exclude<ArgType, "stringifiable">, Fixture[]> = {
   liftable: [
     { label: "string", value: "x", pass: true },
     { label: "empty string", value: "", pass: true },
-    { label: "object", value: {}, pass: true },
-    { label: "TaggedFragment", value: TAGGED, pass: true },
-    // Go-walked shapes are not a T at a liftable slot either.
+    // Not a T under the default `isT`, so not liftable either.
+    { label: "object", value: {}, pass: false },
+    { label: "TaggedFragment", value: TAGGED, pass: false },
     { label: "array", value: [], pass: false },
     { label: "Map", value: new Map(), pass: false },
     { label: "function", value: FN, pass: false },

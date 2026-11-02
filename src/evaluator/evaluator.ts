@@ -522,7 +522,14 @@ function validateArgSpecs(funcs: FuncMap): FuncMap {
   return funcs;
 }
 
-export interface EngineConfig<T> {
+// [LAW:types-are-the-program] `isT` may be left at its string default only
+// when T is a string; any other T — an object, or `string | Frag` whose
+// funcs return fragments — must name its fragments, or they print as
+// `map[…]` text. The compiler is the one enforcer.
+export type EngineConfig<T> = EngineConfigFields<T> &
+  ([T] extends [string] ? unknown : { readonly isT: (value: unknown) => value is T });
+
+interface EngineConfigFields<T> {
   /** Convert a text literal (or string-returning function result) into T. */
   readonly fromString: (s: string) => T;
   /**
@@ -548,12 +555,13 @@ export interface EngineConfig<T> {
    * Date's own String); at a call, a `"T"` ArgType slot accepts exactly
    * what this says.
    *
-   * [LAW:single-enforcer] The one predicate, consulted first and alone.
-   * Default: a non-null object other than an array or a Map — so without
-   * it a consumer whose scope carries JSON documents sees a bare
-   * `{{ .doc }}` leak the document into its fragments; with
-   * `isT: (v) => v instanceof RichText` that `{{ .doc }}` prints
-   * `map[k:v …]`, and a consumer whose T is array-shaped says so here.
+   * [LAW:single-enforcer] The one predicate for what is a T. At the output
+   * stream a string, number, boolean or nil is lifted through `fromString`
+   * before it is asked, so it decides only for structured values.
+   * Default: a string — the T the default `fromString`/`toString` pair
+   * supports — so a plain object prints `map[k:v …]` as Go's `%v` does.
+   * Required by the type whenever T is not a string, e.g.
+   * `isT: (v) => v instanceof RichText`.
    */
   readonly isT?: (value: unknown) => value is T;
   /**
@@ -994,7 +1002,6 @@ export class Engine<T> {
     // engines.
     const userToString = Object.hasOwn(config, "toString") ? config.toString : undefined;
     this.toString = (userToString ?? defaultToString) as (value: unknown) => string;
-    this.isT = config.isT ?? DEFAULT_IS_T;
     // [LAW:no-defensive-null-guards] exception: trust boundary — the
     // EngineConfig flows in from JS callers (no compile-time guard) and
     // TS callers using `as` casts. A typo like `"erro"` would silently
@@ -1008,6 +1015,7 @@ export class Engine<T> {
     // tokenization at parse time. Fail loud at the only place the
     // mistake can be detected.
     this.delims = validateDelims(config.delims);
+    this.isT = config.isT ?? DEFAULT_IS_T;
     this.emitted = config.emitted ?? ((value) => value);
     this.decided = config.decided ?? (() => {});
     // [LAW:single-enforcer] Built-ins live in one registry; consumer
@@ -1751,8 +1759,7 @@ export class Engine<T> {
 // [LAW:one-source-of-truth] The engine's default `isT`, shared by the
 // constructor and the standalone `enforceArgTypes`, so the output stream and
 // the `"T"` ArgType gate cannot disagree about what a T is by default.
-export const DEFAULT_IS_T: IsT = (v) =>
-  typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Map);
+export const DEFAULT_IS_T: IsT = (v) => typeof v === "string";
 
 // ---------------------------------------------------------------------------
 // Convenience constructor matching the future public-API shape (.api.1).
@@ -2207,7 +2214,7 @@ function humanArgType(t: ArgType): string {
     case "float":
       return "float (number, including NaN/Infinity, or finite-convertible bigint)";
     case "T":
-      return "T (consumer-defined fragment)";
+      return "T (a value the engine's isT accepts)";
     case "ordered":
       return "orderable primitive";
     case "list":

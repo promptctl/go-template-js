@@ -13,6 +13,7 @@ describe("public API smoke test", () => {
     type Frag = { kind: "text"; v: string };
     const engine = createEngine<Frag>({
       fromString: (s) => ({ kind: "text", v: s }),
+      isT: (v): v is Frag => typeof v === "object" && v !== null && "kind" in v,
     });
     expect(engine.parse("hi {{ . }}").evaluate("x")).toEqual([
       { kind: "text", v: "hi " },
